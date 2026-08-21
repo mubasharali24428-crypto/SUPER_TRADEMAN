@@ -2,18 +2,32 @@
 
 **Read this file completely before changing any code.** It is the handoff document for a fresh
 agent or IDE session with no prior context. Everything marked **VERIFIED** was independently
-re-run against the exact committed code on 2026-08-17 (see §0). Everything marked **INFERENCE**
-is reasoning that has not been separately tested.
+re-run against the exact committed code — §4–§6 on 2026-08-17, §0–§2 and §7–§10 on **2026-08-21**.
+Everything marked **INFERENCE** is reasoning that has not been separately tested.
 
 ---
 
-## 0. Repo state
+## 0. Repo state — **VERIFIED 2026-08-21**
 
-- **GitHub**: `https://github.com/mubasharali24428-crypto/SUPER_TRADEMAN` — **private**.
-- **Local path**: `/Users/user/untitled folder 2/algo-trading-system` (note the space in the
-  parent directory — quote it in every shell command).
-- Single commit on `main`: `645c4ff "initial commit: crypto algo trading system"`, 39 files,
-  working tree clean.
+- **GitHub**: `https://github.com/mubasharali24428-crypto/SUPER_TRADEMAN` — **public** as of
+  2026-08-21 (was private; made public so it could be cited in a research application).
+- **Local path**: `/Users/user/AG PROJ1/algo-trading-system` (note the space in `AG PROJ1` —
+  quote it in every shell command).
+- `main` at `897e049`, **197 files**, three commits: `645c4ff` initial, `67162a9` doc refresh,
+  `3a1de50` the full risk/synthetic/execution/ops tree, `897e049` README and pytest fix.
+- **`354 passed, 2 skipped`** for the full suite.
+
+> ### Two traps that have each cost a session already
+>
+> 1. **A stale decoy copy exists at `/Users/user/untitled folder 2/algo-trading-system`.** It is
+>    the old 39-file skeleton, it has the *same two early commits* and the *same `origin` remote*,
+>    and it has none of `synthetic/`, `execution/`, `stats/`, `security/`, `ops/`,
+>    `infrastructure/`, or the advanced `risk/` modules. It is easy to mistake for this project
+>    and conclude that half the codebase does not exist. **Do not use it.**
+> 2. **Console scripts in `.venv/bin/` break when this folder is moved.** They are `#!/bin/sh`
+>    wrappers holding an absolute path, so after a move `.venv/bin/pytest` silently execs the
+>    *old* location's Python and fails with `ModuleNotFoundError: No module named 'numpy'`. Fix:
+>    `rm -rf .venv && uv sync`. Diagnose with `head -2 .venv/bin/pytest`.
 
 ```bash
 git clone https://github.com/mubasharali24428-crypto/SUPER_TRADEMAN.git
@@ -21,29 +35,51 @@ git clone https://github.com/mubasharali24428-crypto/SUPER_TRADEMAN.git
 
 ## 1. What this is
 
-A crypto algorithmic trading system in Python 3.12, currently **backtest-only**. There is no live
-execution, no broker connection, and no money at risk. The intent is a bot that can eventually
-trade autonomously, gated by a deterministic risk layer.
+A crypto algorithmic trading system in Python 3.12. **Backtest and simulation only**: no live
+execution, no broker connection, no money at risk, and no exchange keys anywhere in the repo.
+`config/deployment_config.yml` defines `PAPER` / `SHADOW` / `LIVE_RESTRICTED` modes, but nothing
+runs against a real venue. The intent is a bot that can eventually trade autonomously, gated by a
+deterministic risk layer that no probabilistic component can talk its way past.
 
-## 2. Stack and layout
+Beyond the strategy/backtest core there is now a **synthetic adversarial market layer** used to
+stress-test behaviour under liquidity attacks, and an **execution and ops layer** built for a
+future live path that is deliberately not wired up.
+
+## 2. Stack and layout — **VERIFIED 2026-08-21**
 
 | Path | Role |
 |---|---|
 | `src/trading/config.py` | pydantic-settings, reads `.env` |
-| `src/trading/indicators.py` | Shared `atr()` and `donchian()` — both strategies and the backtester's trailing stop measure volatility the same way |
-| `src/trading/data/crypto.py` | ccxt OHLCV fetch w/ exponential backoff → Postgres `ohlcv` table |
-| `src/trading/strategy/crypto.py` | Mean reversion. `generate_signal()` |
-| `src/trading/strategy/trend.py` | **New.** Donchian breakout / trend following. `generate_trend_signal()` |
-| `src/trading/risk/models.py` | Frozen dataclasses: `Signal`, `Position`, `RiskConfig`, `AccountState`, `ApprovedOrder`, `ExitSignal`, `ApprovedExit` |
+| `src/trading/indicators.py` | Shared `atr()`, `donchian()`, `log_return_correlation()` |
+| `src/trading/data/` | `crypto.py` ccxt OHLCV → Postgres; `quality.py`, `staleness.py` |
+| `src/trading/strategy/` | `crypto.py` mean reversion; `trend.py` Donchian breakout |
+| `src/trading/risk/models.py` | Frozen dataclasses + the `_ISSUER` construction token (§3.2) |
 | `src/trading/risk/engine.py` | `RiskEngine` — deterministic gate. The security boundary. |
+| `src/trading/risk/garch.py` | `GARCHVolatilityModel`, `GARCHForecastResult` |
+| `src/trading/risk/hmm_regime.py` | `HMMRegimeClassifier`, `HMMRegimeResult` |
+| `src/trading/risk/evt.py` | `EVTRiskEngine`, `EVTRiskResult` |
+| `src/trading/risk/copula.py` | `CopulaDependencyEngine`, `CopulaDependencyResult` |
+| `src/trading/risk/survival.py` | `SurvivalEngine`, `SurvivalTier`, `AccountSurvivalStatus` |
+| `src/trading/risk/` (rest) | `portfolio_circuit_breaker.py`, `correlation.py`, `capital_allocator.py`, `portfolio_risk.py` |
 | `src/trading/backtest/engine.py` | Event-loop backtester: slippage/commission, trailing ATR stop, Wilson CI, exact binomial, bootstrap |
+| `src/trading/backtest/portfolio.py` | `run_portfolio_backtest()` — **concurrent** positions across assets, so heat/correlation/class limits actually gate (§7) |
+| `src/trading/backtest/` (rest) | `funding.py`, `impact.py`, `strategies.py` |
+| `src/trading/stats/` | `pbo.py` `compute_pbo()`; `cross_validation.py` `generate_cpcv_splits()`, `CPCVConfig`; `effective_trials.py` |
+| `src/trading/synthetic/` | Adversarial layer: `ecology.py`, `chaos_injector.py`, `stale_protection.py`, `strategy_defense.py`, `lob.py`, `venue.py`, `oms_engine.py`, `event_ingestor.py`, `regime_validator.py`, `portfolio_governor.py`, `agents/`, plus forex/stocks/polymarket engines |
+| `src/trading/execution/` | `oms.py`, `reconciler.py`, `state_machine.py`, `shadow.py`, `tca.py`, `venue_adapter.py`, `chase.py`, `outbox.py` |
+| `src/trading/daemon/heartbeat.py` | `TradingHeartbeatDaemon`, `HeartbeatCycleResult` |
+| `src/trading/learning/` | `graph.py` `LearningGraph` (needs `networkx`), `policy.py` |
+| `src/trading/security/` | `audit_ledger.py`, `secrets_manager.py` (reads env vars only) |
+| `src/trading/{observability,ops,infrastructure}/` | Logging, metrics, alerting, health service, drills, HA lock, shutdown, state recovery |
 | `src/trading/db/` | asyncpg pool, redis client |
-| `scripts/` | `validate_crypto_backtest.py`, `diagnose_{trades,regime,volatility}.py`, `backtest_symbol.py`, `compare_strategies.py`, `evaluate_trend.py`, `trend_attribution.py` |
-| `tests/` | 61 tests (`test_indicators.py` and `test_strategy_trend.py` are new) |
+| `scripts/` | Diagnostics, backtest drivers, plus `preflight_check.py`, `promote_mode.py`, `kill_switch_drill.py`, report generators, `deploy.sh`, `rollback.sh` |
+| `tests/` | **354 passing tests** across risk, synthetic, execution, stats, ops, security, infrastructure |
+| `web/`, `monitoring/`, `docs/` | Dashboard, Prometheus/Grafana config, deployment and incident runbooks |
 
-Tooling: `uv`. Postgres 16 + Redis 7 via `docker-compose.yml`. Deps: `ccxt>=4.4`, `asyncpg>=0.29`,
-`redis>=5.0`, `pydantic-settings>=2.4`; dev: `pytest>=8.0`, `pytest-asyncio>=0.24`
-(`asyncio_mode=auto`).
+Tooling: `uv`. Postgres 16 + Redis 7 via `docker-compose.yml`.
+Deps: `pydantic-settings>=2.4`, `asyncpg>=0.29`, `redis>=5.0`, `ccxt>=4.4`, `arch>=6.0`,
+`hmmlearn>=0.3`, `copulas>=0.7`, `scipy>=1.14`, `networkx>=3.0`; dev: `pytest>=8.0`,
+`pytest-asyncio>=0.24` (`asyncio_mode=auto`, `pythonpath=["."]`).
 
 ### Run it
 
@@ -51,12 +87,15 @@ Tooling: `uv`. Postgres 16 + Redis 7 via `docker-compose.yml`. Deps: `ccxt>=4.4`
 docker compose up -d && uv sync && cp .env.example .env && uv run pytest
 ```
 
-**VERIFIED:** `59 passed, 2 failed` when Postgres is down. **Both** failures
-(`tests/test_db.py::test_postgres_connects`, `tests/test_crypto_data.py::test_ingest_known_historical_btc_data`)
-are the same root cause — `asyncpg.create_pool` refused on `localhost:5432` — not code defects.
-`test_db.py::test_redis_connects` passes on its own; Redis is not implicated. With
-`docker compose up -d` all 61 should pass. `scripts/*.py` that fetch live data cache candles under
-`~/.cache/algo-trading-system/`; once warm, re-runs finish in seconds with no network calls.
+**VERIFIED 2026-08-21:** `354 passed, 2 skipped`. The 2 skips need Postgres on `localhost:5432`;
+they are environment-dependent, not code defects. Redis is not implicated.
+
+`pythonpath = ["."]` in `[tool.pytest.ini_options]` is load-bearing: several tests import helpers
+from `scripts/` at the repo root, and the `pytest` console script (unlike `python -m pytest`) does
+not put rootdir on `sys.path`. Without it a bare `uv run pytest` fails collection on a fresh clone.
+
+`scripts/*.py` that fetch live data cache candles under `~/.cache/algo-trading-system/`; once warm,
+re-runs finish in seconds with no network calls.
 
 ---
 
@@ -119,6 +158,11 @@ Four root causes were diagnosed (see git history / prior session for the full de
   implied a true breakeven near 40%.
 
 ## 5. What was fixed, and what it changed — **VERIFIED against committed code**
+
+> **Read §7 before quoting any number in this section.** These results were verified as reproduced
+> on 2026-08-17, but they were produced by five *separate* single-asset backtests summed, not by
+> `run_portfolio_backtest()`, and no PBO or purged-CV correction has been applied to them. They are
+> provisional, not a proof.
 
 | Defect | Fix | File |
 |---|---|---|
@@ -221,30 +265,49 @@ rather than being a single lucky setting.
 
 ---
 
-## 7. Known defects and gaps
+## 7. Known defects and gaps — **UPDATED 2026-08-21**
 
-- **`run_backtest` still holds one position at a time.** The risk engine's portfolio heat,
-  correlation guard, and per-asset-class position limits are fully implemented and unit-tested in
-  isolation (`tests/test_risk_engine.py`) but have **never been exercised end-to-end by a
-  portfolio backtest** — every backtest run so far is single-instrument. This is the top blocker
-  before running the 5-asset trend portfolio for real: right now "5 assets" in §5 means 5
-  *separate* single-asset backtests summed, not one account with shared heat/correlation limits.
-- **No funding-rate modelling** for perp shorts held for hours/days.
-- **No gap/liquidity modelling** — stops assume a fill at exactly `stop_price` plus fixed
-  slippage.
+### Closed since the 2026-08-17 revision
+
+- **The single-position backtester blocker is closed in code.**
+  `backtest/portfolio.py::run_portfolio_backtest()` holds concurrent positions across assets and
+  routes every entry through `RiskEngine.evaluate()` with live `log_return_correlation()` values,
+  so the portfolio heat cap, correlation guard, and per-asset-class limits now gate something
+  real. **VERIFIED 2026-08-21:** 7 tests pass across `tests/test_backtest_portfolio.py` and
+  `tests/trading/backtest/test_portfolio_purge.py`.
+- **Machinery for the multiple-testing problem now exists**: `stats/pbo.py::compute_pbo()`,
+  `stats/cross_validation.py::generate_cpcv_splits()` (combinatorial purged CV), and
+  `stats/effective_trials.py`.
+
+### Still open
+
+- **The §5 headline numbers were NOT produced by the portfolio backtester.** They remain five
+  *separate* single-asset backtests summed. The shared-risk machinery exists and is tested, but
+  the 5-asset trend result has not been regenerated through it. Doing that is the next real task,
+  and the numbers should be expected to change once heat and correlation limits actually bind.
+- **The statistics modules have not been applied to the §5 result either.** It is still one
+  un-corrected five-point grid search against a single 70/30 split. `compute_pbo()` and
+  `generate_cpcv_splits()` exist precisely to fix this and have not been pointed at it yet. Until
+  then, quote §5 as provisional.
+- **No funding-rate modelling** applied to perp shorts held for hours/days (`backtest/funding.py`
+  exists; it is not wired into the §5 runs).
+- **No gap/liquidity modelling** — stops assume a fill at exactly `stop_price` plus fixed slippage.
 - **`_breakeven_win_rate` estimates its null from the same sample it tests** — the resulting
-  p-value is a sanity check, not a rigorous test (this is called out in the function's own
-  docstring). `bootstrap_trade_returns` is the more trustworthy statistic.
-- **One 70/30 split, not walk-forward.** With five trail-mult configurations tried against the
-  same test window, there is real multiple-testing risk that a formal walk-forward /
-  purged-K-fold setup and a deflated Sharpe correction would quantify.
-- **No live execution layer**: no order placement, no reconciliation, no position tracking against
-  an exchange, no restart/recovery semantics.
-- `.env` is gitignored, contains only local Postgres/Redis URLs. No exchange keys anywhere in the
-  repo.
+  p-value is a sanity check, not a rigorous test (called out in the function's own docstring).
+  `bootstrap_trade_returns` is the more trustworthy statistic.
+- **No live execution layer is wired up.** `execution/` contains an OMS, reconciler, order state
+  machine, shadow mode, and TCA, but nothing places an order against a real venue and there is no
+  restart/recovery path in use. Treat `execution/` as built-but-dormant, not as working plumbing.
+- **`learning_graph.jsonl` is a runtime artifact**, gitignored as of 2026-08-21.
+- `.env` is gitignored and holds only local Postgres/Redis URLs. **No exchange keys anywhere in
+  the repo or in any commit** — verified 2026-08-21 by scanning every blob in history for
+  credential patterns before the repo was made public.
 - Minor, unfixed: `~/.cache/algo-trading-system/` has duplicate 4h cache files under two naming
   conventions (`*_4h_5y.json` and `*_4h_5.0y.json`) from earlier script iterations — harmless,
   just delete the stale one if it's confusing.
+- Minor: stale `__pycache__` entries still report tracebacks under the pre-move
+  `/Users/user/Downloads/Project MK/...` path. Cosmetic only; clear with
+  `find . -name __pycache__ -prune -exec rm -rf {} +`.
 
 ---
 
@@ -261,31 +324,76 @@ rather than being a single lucky setting.
    and the 1d-trend result in §5 is currently one un-corrected grid search, not a proof.
 5. **A negative-expectancy bot is worse than no bot.** Mean reversion stays in the repo as a tested
    reference, not as something to build features on top of.
+6. **Do not describe a module as working because it exists and imports.** §10 was once written as
+   a list of finished infrastructure when none of it was wired into a result, which cost a later
+   session a great deal of confusion. State separately: does it exist, do its tests pass, and is
+   it actually used by the number being quoted. Those are three different claims.
+7. **Verify which copy you are in before editing.** See the §0 trap box.
 
-## 10. Advanced Probabilistic & Autonomous Infrastructure (Implemented)
+## 9. The synthetic adversarial layer — **VERIFIED 2026-08-21**
 
-The system features advanced mathematical, statistical, and autonomous survival architecture:
+`src/trading/synthetic/` simulates a hostile market so strategy and risk behaviour can be tested
+against liquidity attacks rather than only against historical candles. This is the part of the
+system with the least precedent elsewhere, so read `ecology.py` before changing anything here.
 
-1. **GARCH(1,1) Dynamic Volatility Sizing (`src/trading/risk/garch.py`):**
-   - Fits conditional volatility $\sigma_t^2 = \omega + \alpha \epsilon_{t-1}^2 + \beta \sigma_{t-1}^2$ on log-returns via `arch`.
-   - Computes 1-step ahead annualized forecast $\hat{\sigma}_{\text{ann}}$ to dynamically scale position risk percentage before volatility spikes occur.
+`ecology.py` broadcasts a `LiquidityEvent` (`QUOTE_WITHDRAWAL`, `AGGRESSIVE_SWEEP`, `BOOK_RELOAD`)
+carrying a `depletion_ratio` against a rolling-median depth baseline (`LiquidityBaselineTracker`,
+300s window). `SyntheticAgentRegistry` fans each event out to registered agents:
 
-2. **Hidden Markov Model (HMM) 3-State Regime Classifier (`src/trading/risk/hmm_regime.py`):**
-   - Unsupervised 3-state Gaussian HMM (`trending_bull`, `volatile_bear`, `choppy_sideways`) fitted on return/volatility vectors using `hmmlearn`.
-   - Generates state posterior distributions $P(S_t = k)$ and transition probability matrices.
+- `ReactiveMarketMakerAgent` — widens its spread when `depletion_ratio > herd_sensitivity`
+  (default `0.40`), modelling a liquidity-vacuum cascade.
+- `ToxicFlowPredatorAgent` — fires an `IOC_SWEEP` when `depletion_ratio > aggression_threshold`
+  (default `0.50`), sweeping `min(current_depth * 0.80, max_sweep_size)`.
 
-3. **Extreme Value Theory (EVT) GPD Tail-VaR (`src/trading/risk/evt.py`):**
-   - Peaks-Over-Threshold (POT) Generalized Pareto Distribution $(\xi, \beta)$ modeling on empirical loss tails via `scipy.stats.genpareto`.
-   - Computes fat-tailed 99% Tail-VaR (CVaR / Expected Shortfall) to protect capital against black-swan crypto drawdowns.
+**Know the ceiling of this design.** Every adversary here is rule-based and triggers on a fixed
+numeric threshold applied to a single scalar. None of them can invent a new attack, combine
+vectors, adapt to how the defense responds, or exploit any variable other than the one they watch.
+That is fine as a regression harness and dishonest as a claim of adversarial robustness. Treat
+these agents as a *baseline*, not as proof the system survives real adversaries.
 
-4. **Vine Copula Joint Tail-Risk Guard (`src/trading/risk/copula.py`):**
-   - Quantifies non-linear dependency and lower tail co-dependence $\lambda_L$ across asset pairs (BTC, ETH, SOL) using Archimedean/Gaussian copulas.
-   - Enforces cluster risk caps when assets exhibit joint crash co-dependence ($\lambda_L > 0.60$).
+Also here: `chaos_injector.py`, `stale_protection.py`, `strategy_defense.py` (defense state
+machine), `lob.py`, `venue.py`, `oms_engine.py`, `regime_validator.py`, `portfolio_governor.py`,
+`agents/{base_agent,orchestrator,personas}.py`, and separate forex/stocks/polymarket engines.
+Covered by the `tests/synthetic/` suite.
 
-5. **Survival State Engine (`src/trading/risk/survival.py`):**
-   - Inspired by Automaton's survival architecture; dynamically transitions account operations through `NORMAL`, `CAUTION`, `SURVIVAL`, and `COOLDOWN` tiers based on drawdown, consecutive losses, GARCH vol spikes, and EVT tail risk.
+## 10. Advanced probabilistic and autonomous infrastructure
 
-6. **Autonomous Heartbeat Daemon (`src/trading/daemon/heartbeat.py`):**
-   - Infinite asynchronous `Think -> Act -> Observe -> Reflect` execution loop.
-   - Automatically writes post-trade outcomes to `LearningGraph`, updates Bayesian Normal-Normal posteriors, and trains the offline Policy Gradient Contextual Bandit.
+**Verification status, stated precisely (2026-08-21):** every module below exists, imports
+cleanly, and has a passing dedicated test file — `tests/test_{garch,hmm_regime,evt,copula,survival}.py`
+is **15 passed**, and `tests/test_heartbeat.py` passes within the full 354. The declared libraries
+are genuinely installed and used (`arch` 8.0.0, `hmmlearn` 0.3.3, `copulas` 0.14.1, `scipy` 1.18.0).
+The *mathematical descriptions below have not been independently re-derived line by line*; they
+describe intent. Read the module before relying on a specific formula.
+
+None of these are wired into the §5 headline result.
+
+1. **GARCH(1,1) volatility sizing** (`risk/garch.py`, `GARCHVolatilityModel` →
+   `GARCHForecastResult`): fits conditional volatility
+   $\sigma_t^2 = \omega + \alpha \epsilon_{t-1}^2 + \beta \sigma_{t-1}^2$ on log-returns via `arch`,
+   producing a one-step-ahead annualized forecast used to scale position risk before volatility
+   spikes. `Signal` carries a `garch_vol_scale` field for this.
+
+2. **3-state HMM regime classifier** (`risk/hmm_regime.py`, `HMMRegimeClassifier` →
+   `HMMRegimeResult`): unsupervised Gaussian HMM over return/volatility vectors via `hmmlearn`,
+   intended to separate trending-bull, volatile-bear, and choppy-sideways regimes, exposing state
+   posteriors and a transition matrix.
+
+3. **EVT tail-VaR** (`risk/evt.py`, `EVTRiskEngine` → `EVTRiskResult`): peaks-over-threshold
+   Generalized Pareto fit on empirical loss tails via `scipy.stats.genpareto`, giving a fat-tailed
+   99% Tail-VaR / expected shortfall rather than a Gaussian one.
+
+4. **Copula joint tail-risk guard** (`risk/copula.py`, `CopulaDependencyEngine` →
+   `CopulaDependencyResult`): quantifies lower-tail co-dependence $\lambda_L$ across asset pairs,
+   for capping cluster risk when assets crash together instead of independently.
+
+5. **Survival state engine** (`risk/survival.py`, `SurvivalEngine`, `SurvivalTier`,
+   `AccountSurvivalStatus`): moves the account through `NORMAL` / `CAUTION` / `SURVIVAL` /
+   `COOLDOWN` on drawdown, consecutive losses, GARCH volatility spikes, and EVT tail risk.
+
+6. **Autonomous heartbeat daemon** (`daemon/heartbeat.py`, `TradingHeartbeatDaemon` →
+   `HeartbeatCycleResult`): async Think → Act → Observe → Reflect loop that writes trade outcomes
+   to `LearningGraph` (`learning/graph.py`, requires `networkx`), updates Bayesian Normal-Normal
+   posteriors, and trains an offline policy-gradient contextual bandit (`learning/policy.py`).
+   **This loop does not place real orders** and §3.1 and §3.5 still bind it: nothing it learns can
+   mint an `ApprovedOrder`.
 
