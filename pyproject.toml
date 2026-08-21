@@ -22,6 +22,10 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Tests import helpers from scripts/ at the repo root. The `pytest` console script
+# does not put the rootdir on sys.path (unlike `python -m pytest`), so set it here
+# to keep a bare `uv run pytest` working from a fresh clone.
+pythonpath = ["."]
 
 [build-system]
 requires = ["hatchling"]
