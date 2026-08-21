@@ -7,6 +7,11 @@ dependencies = [
     "asyncpg>=0.29",
     "redis>=5.0",
     "ccxt>=4.4",
+    "arch>=6.0",
+    "hmmlearn>=0.3",
+    "copulas>=0.7",
+    "scipy>=1.14",
+    "networkx>=3.0",
 ]
 
 [dependency-groups]

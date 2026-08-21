@@ -100,6 +100,9 @@ class RiskEngine:
         if pre_event:
             effective_risk_pct *= cfg.pre_event_reduction
 
+        if signal.garch_vol_scale is not None:
+            effective_risk_pct *= signal.garch_vol_scale
+
         heat_cap = cfg.max_heat_high_vol if account.high_volatility else cfg.max_heat
         current_heat = sum(p.risk_pct for p in account.open_positions)
         if current_heat + effective_risk_pct > heat_cap:

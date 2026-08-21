@@ -3,10 +3,15 @@ import random
 import statistics
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+import uuid
 
 from trading.indicators import atr
+from trading.journal import DecisionRecord, build_decision_record
 from trading.risk.engine import RiskEngine
 from trading.risk.models import AccountState, Side
+
+# Learning graph imports
+from trading.learning.graph import LearningGraph, signal_to_dict
 
 
 @dataclass(frozen=True)
@@ -16,6 +21,9 @@ class BacktestConfig:
     max_hold_bars: int = 24  # time stop: exit if the trade hasn't resolved within N bars
     trail_atr_mult: float | None = None  # None = fixed stop. Set to trail the stop by N x ATR.
     trail_atr_period: int = 14
+
+    def with_trailing_atr(self, mult: float = 2.0, period: int = 14) -> "BacktestConfig":
+        return replace(self, trail_atr_mult=mult, trail_atr_period=period)
 
 
 @dataclass
@@ -41,7 +49,10 @@ class BacktestReport:
     total_return_pct: float
     max_drawdown_pct: float
     sharpe_ratio: float  # per-bar, not annualized
+    sortino_ratio: float  # downside risk only
+    tail_var_99: float  # 99% Tail-VaR / Expected Shortfall (CVaR)
     win_rate: float
+    bayesian_win_rate: float  # Beta(1,1) conjugate posterior mean
     avg_r_multiple: float
     num_trades: int
     breakeven_win_rate: float  # win rate this system needs, given its realized payoffs
@@ -110,6 +121,18 @@ def _close_trade(open_trade, exit_price, exit_time, reason, asset, config) -> tu
     ), net_pnl
 
 
+def _record_learning_graph(learning_graph: LearningGraph | None, asset: str, trade: Trade, signal):
+    if learning_graph is not None:
+        learning_graph.add_trade(
+            asset,
+            trade.entry_time,
+            signal_to_dict(signal),
+            {"target_price": trade.target_price, "stop_price": trade.stop_price},
+            trade.net_pnl,
+            trade.exit_reason,
+        )
+
+
 def run_backtest(
     candles: list[list[float]],
     asset: str,
@@ -118,6 +141,7 @@ def run_backtest(
     starting_account: AccountState,
     config: BacktestConfig = BacktestConfig(),
     breakeven_p: float | None = None,  # None = derive from realized payoffs; see _breakeven_win_rate
+    learning_graph: LearningGraph | None = None,
 ) -> BacktestResult:
     """Replays candles through strategy_fn -> risk_engine -> a simulated fill,
     one position at a time. candles are [ts_ms, open, high, low, close, volume]."""
@@ -143,6 +167,7 @@ def run_backtest(
                 equity += net_pnl
                 peak_equity = max(peak_equity, equity)
                 trades.append(trade)
+                _record_learning_graph(learning_graph, asset, trade, open_trade["signal"])
                 open_trade = None
             elif config.trail_atr_mult is not None:
                 trail = atr(candles[: i + 1], config.trail_atr_period)
@@ -171,6 +196,7 @@ def run_backtest(
                     "target_price": order.target_price,
                     "position_size": order.position_size,
                     "bars_held": 0,
+                    "signal": signal,
                 }
         equity_curve.append(equity)
 
@@ -180,7 +206,11 @@ def run_backtest(
         trade, net_pnl = _close_trade(open_trade, last_close, exit_time, "end_of_data", asset, config)
         equity += net_pnl
         trades.append(trade)
+        _record_learning_graph(learning_graph, asset, trade, open_trade["signal"])
         equity_curve[-1] = equity
+
+    if learning_graph is not None:
+        learning_graph.to_jsonl()
 
     report = _build_report(starting_account.equity, equity, equity_curve, trades, breakeven_p)
     return BacktestResult(report=report, trades=trades, equity_curve=equity_curve)
@@ -203,9 +233,27 @@ def _build_report(start_equity, final_equity, equity_curve, trades, breakeven_p=
         else 0.0
     )
 
+    downside_returns = [r for r in returns if r < 0]
+    downside_dev = (
+        math.sqrt(sum(r**2 for r in downside_returns) / len(returns))
+        if returns and downside_returns
+        else 0.0
+    )
+    sortino = (
+        statistics.mean(returns) / downside_dev
+        if len(returns) > 1 and downside_dev > 0
+        else 0.0
+    )
+
+    sorted_returns = sorted(returns)
+    cutoff_idx = max(1, int(len(sorted_returns) * 0.01)) if sorted_returns else 0
+    tail_returns = sorted_returns[:cutoff_idx] if cutoff_idx > 0 else []
+    tail_var_99 = -statistics.mean(tail_returns) if tail_returns else 0.0
+
     wins = [t for t in trades if t.net_pnl > 0]
     n = len(trades)
     win_rate = len(wins) / n if trades else 0.0
+    bayesian_win_rate = (len(wins) + 1.0) / (n + 2.0)
     avg_r = statistics.mean([t.r_multiple for t in trades]) if trades else 0.0
     if breakeven_p is None:
         breakeven_p = _breakeven_win_rate(trades)
@@ -218,7 +266,10 @@ def _build_report(start_equity, final_equity, equity_curve, trades, breakeven_p=
         total_return_pct=total_return_pct,
         max_drawdown_pct=max_dd,
         sharpe_ratio=sharpe,
+        sortino_ratio=sortino,
+        tail_var_99=tail_var_99,
         win_rate=win_rate,
+        bayesian_win_rate=bayesian_win_rate,
         avg_r_multiple=avg_r,
         num_trades=n,
         breakeven_win_rate=breakeven_p,

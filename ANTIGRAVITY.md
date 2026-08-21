@@ -262,14 +262,30 @@ rather than being a single lucky setting.
 5. **A negative-expectancy bot is worse than no bot.** Mean reversion stays in the repo as a tested
    reference, not as something to build features on top of.
 
-## 9. Suggested next task
+## 10. Advanced Probabilistic & Autonomous Infrastructure (Implemented)
 
-Close the biggest gap named in §7: rebuild `run_backtest` to hold a portfolio of concurrent
-positions across the 5 selected assets, sharing one `AccountState` so the risk engine's heat cap,
-correlation guard, and per-class position limit actually gate something. Re-run the daily-trend
-backtest as one 5-asset portfolio instead of five summed single-asset runs, and compare the
-portfolio-level max drawdown against the naive sum in §5 — correlated crypto drawdowns should make
-the portfolio number worse than the sum implies, which is exactly what the heat cap exists to
-catch. That's a well-defined diff with an unambiguous pass/fail check (portfolio backtest runs,
-heat cap actually rejects an over-limit signal in at least one test), and it's required before the
-pairs-trading strategy from §6 becomes buildable.
+The system features advanced mathematical, statistical, and autonomous survival architecture:
+
+1. **GARCH(1,1) Dynamic Volatility Sizing (`src/trading/risk/garch.py`):**
+   - Fits conditional volatility $\sigma_t^2 = \omega + \alpha \epsilon_{t-1}^2 + \beta \sigma_{t-1}^2$ on log-returns via `arch`.
+   - Computes 1-step ahead annualized forecast $\hat{\sigma}_{\text{ann}}$ to dynamically scale position risk percentage before volatility spikes occur.
+
+2. **Hidden Markov Model (HMM) 3-State Regime Classifier (`src/trading/risk/hmm_regime.py`):**
+   - Unsupervised 3-state Gaussian HMM (`trending_bull`, `volatile_bear`, `choppy_sideways`) fitted on return/volatility vectors using `hmmlearn`.
+   - Generates state posterior distributions $P(S_t = k)$ and transition probability matrices.
+
+3. **Extreme Value Theory (EVT) GPD Tail-VaR (`src/trading/risk/evt.py`):**
+   - Peaks-Over-Threshold (POT) Generalized Pareto Distribution $(\xi, \beta)$ modeling on empirical loss tails via `scipy.stats.genpareto`.
+   - Computes fat-tailed 99% Tail-VaR (CVaR / Expected Shortfall) to protect capital against black-swan crypto drawdowns.
+
+4. **Vine Copula Joint Tail-Risk Guard (`src/trading/risk/copula.py`):**
+   - Quantifies non-linear dependency and lower tail co-dependence $\lambda_L$ across asset pairs (BTC, ETH, SOL) using Archimedean/Gaussian copulas.
+   - Enforces cluster risk caps when assets exhibit joint crash co-dependence ($\lambda_L > 0.60$).
+
+5. **Survival State Engine (`src/trading/risk/survival.py`):**
+   - Inspired by Automaton's survival architecture; dynamically transitions account operations through `NORMAL`, `CAUTION`, `SURVIVAL`, and `COOLDOWN` tiers based on drawdown, consecutive losses, GARCH vol spikes, and EVT tail risk.
+
+6. **Autonomous Heartbeat Daemon (`src/trading/daemon/heartbeat.py`):**
+   - Infinite asynchronous `Think -> Act -> Observe -> Reflect` execution loop.
+   - Automatically writes post-trade outcomes to `LearningGraph`, updates Bayesian Normal-Normal posteriors, and trains the offline Policy Gradient Contextual Bandit.
+

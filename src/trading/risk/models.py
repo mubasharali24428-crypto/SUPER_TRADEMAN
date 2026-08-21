@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 # Private construction token. ApprovedOrder checks identity against this object,
@@ -23,6 +23,7 @@ class Signal:
     rationale: str
     suggested_stop: float | None = None
     suggested_target: float | None = None
+    garch_vol_scale: float | None = None
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,8 @@ class Position:
     entry_price: float
     stop_price: float
     risk_pct: float  # fraction of account equity this position risks
+    position_size: float = 1.0
+
 
 
 @dataclass(frozen=True)
@@ -132,3 +135,90 @@ class ExitDecision:
     reason: str
     signal: ExitSignal
     approved_exit: ApprovedExit | None = None
+
+
+def check_liquidation(
+    position: Position | dict,
+    equity: float,
+    mark_price: float,
+    maintenance_margin_pct: float = 0.05,
+) -> bool:
+    """Evaluates whether an open position triggers liquidation based on mark price."""
+    if isinstance(position, dict):
+        side = position["side"]
+        entry_price = position.get("entry_fill", position.get("entry_price", mark_price))
+        position_size = position["position_size"]
+    else:
+        side = position.side
+        entry_price = position.entry_price
+        position_size = getattr(position, "position_size", 1.0)
+
+    if side is Side.LONG:
+        unrealized_pnl = position_size * (mark_price - entry_price)
+    else:
+        unrealized_pnl = position_size * (entry_price - mark_price)
+
+    notional = position_size * mark_price
+    maint_margin_req = notional * maintenance_margin_pct
+    effective_equity = equity + unrealized_pnl
+
+    return effective_equity < maint_margin_req
+
+
+@dataclass(frozen=True)
+class RiskDeviationEvent:
+    client_order_id: str
+    asset: str
+    intended_qty: float
+    realized_qty: float
+    intended_risk_usd: float
+    realized_risk_usd: float
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+def check_portfolio_liquidation(
+    positions: list[Position | dict],
+    equity: float,
+    mark_prices: dict[str, float],
+    default_mmr: float = 0.05,
+    liquidation_buffer_pct: float = 0.20,
+) -> tuple[bool, float, float]:
+    """Calculates aggregate maintenance margin requirement MM_total across cross-margin positions.
+
+    MM_total = sum( |notional_i| * mmr_i )
+    Returns:
+        (is_warning_triggered, effective_equity, mm_total)
+    """
+    total_unrealized_pnl = 0.0
+    mm_total = 0.0
+
+    for pos in positions:
+        if isinstance(pos, dict):
+            asset = pos["asset"]
+            side = pos["side"]
+            entry_price = pos.get("entry_fill", pos.get("entry_price", 0.0))
+            position_size = pos["position_size"]
+        else:
+            asset = pos.asset
+            side = pos.side
+            entry_price = pos.entry_price
+            position_size = getattr(pos, "position_size", 1.0)
+
+        mark = mark_prices.get(asset, entry_price)
+        if side is Side.LONG:
+            pnl = position_size * (mark - entry_price)
+        else:
+            pnl = position_size * (entry_price - mark)
+
+        total_unrealized_pnl += pnl
+        notional = position_size * mark
+        mm_total += notional * default_mmr
+
+    effective_equity = equity + total_unrealized_pnl
+    buffer_amount = mm_total * (1.0 + liquidation_buffer_pct)
+    is_warning = effective_equity < buffer_amount
+
+    return is_warning, effective_equity, mm_total
+
+
+

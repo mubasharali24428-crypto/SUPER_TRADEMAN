@@ -47,7 +47,16 @@ async def ensure_schema(pool: asyncpg.Pool):
             close DOUBLE PRECISION NOT NULL,
             volume DOUBLE PRECISION NOT NULL,
             PRIMARY KEY (exchange, symbol, timeframe, timestamp)
-        )
+        );
+
+        CREATE TABLE IF NOT EXISTS funding_rates (
+            exchange TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            timestamp TIMESTAMPTZ NOT NULL,
+            funding_rate DOUBLE PRECISION NOT NULL,
+            mark_price DOUBLE PRECISION NOT NULL,
+            PRIMARY KEY (exchange, symbol, timestamp)
+        );
         """
     )
 
@@ -78,8 +87,39 @@ async def store_ohlcv(pool: asyncpg.Pool, exchange_id, asset_class, symbol, time
     )
 
 
+async def store_funding_rates(pool: asyncpg.Pool, exchange_id: str, symbol: str, funding_events: list[dict]):
+    rows = [
+        (
+            exchange_id,
+            symbol,
+            datetime.fromtimestamp(event["timestamp"] / 1000, tz=timezone.utc)
+            if isinstance(event["timestamp"], (int, float))
+            else event["timestamp"],
+            event["fundingRate"],
+            event.get("markPrice", 0.0),
+        )
+        for event in funding_events
+    ]
+    await pool.executemany(
+        """
+        INSERT INTO funding_rates (exchange, symbol, timestamp, funding_rate, mark_price)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (exchange, symbol, timestamp) DO NOTHING
+        """,
+        rows,
+    )
+
+
 async def ingest_ohlcv(pool: asyncpg.Pool, exchange, symbol, timeframe, since, limit, asset_class="crypto"):
     candles = await fetch_ohlcv_with_backoff(exchange, symbol, timeframe, since, limit)
     await ensure_schema(pool)
     await store_ohlcv(pool, exchange.id, asset_class, symbol, timeframe, candles)
     return candles
+
+
+async def ingest_funding_rates(pool: asyncpg.Pool, exchange, symbol, since, limit=1000):
+    funding_events = await asyncio.to_thread(exchange.fetch_funding_rate_history, symbol, since, limit)
+    await ensure_schema(pool)
+    await store_funding_rates(pool, exchange.id, symbol, funding_events)
+    return funding_events
+

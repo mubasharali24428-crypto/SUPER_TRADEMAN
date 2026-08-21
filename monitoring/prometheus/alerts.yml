@@ -1,0 +1,38 @@
+groups:
+  - name: super_trademan_alerts
+    rules:
+      - alert: HighSignalToFillLatency
+        expr: super_trademan_latency_p95_ms > 500
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Signal-to-Fill Latency (p95 > 500ms)"
+          description: "Signal-to-fill 95th percentile latency is {{ $value }} ms."
+
+      - alert: StaleMarketDataDataStream
+        expr: super_trademan_staleness_trips > 3
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Stale Market Data Circuit Breaker Tripped"
+          description: "Staleness sentinel tripped {{ $value }} times."
+
+      - alert: ExcessivePortfolioDrawdown
+        expr: super_trademan_max_drawdown_pct > 0.05
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Excessive Portfolio Drawdown (> 5%)"
+          description: "Portfolio drawdown reached {{ $value }}%."
+
+      - alert: ReconciliationMismatch
+        expr: super_trademan_reconciliation_mismatches > 0
+        for: 0m
+        labels:
+          severity: emergency
+        annotations:
+          summary: "State Reconciliation Mismatch Detected"
+          description: "Local vs venue reconciliation mismatch count is {{ $value }}."

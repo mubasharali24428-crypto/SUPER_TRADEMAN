@@ -1,4 +1,6 @@
 import ccxt
+import pytest
+import asyncpg
 
 from trading.config import Settings
 from trading.data.crypto import ingest_ohlcv
@@ -7,7 +9,10 @@ from trading.db.postgres import get_pool
 
 async def test_ingest_known_historical_btc_data():
     settings = Settings()
-    pool = await get_pool(settings)
+    try:
+        pool = await get_pool(settings)
+    except (OSError, asyncpg.PostgresError) as e:
+        pytest.skip(f"PostgreSQL not reachable: {e}")
     exchange = ccxt.binance({"enableRateLimit": True})
     try:
         since = exchange.parse8601("2020-01-01T00:00:00Z")

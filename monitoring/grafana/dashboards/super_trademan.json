@@ -1,0 +1,79 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 1,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 1,
+      "title": "System Health Status",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "super_trademan_cpu_usage_pct",
+          "legendFormat": "CPU Usage"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Execution Mode Indicator",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        {
+          "expr": "super_trademan_signals_total",
+          "legendFormat": "Signals Total"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Signal-to-Fill Latency (p95 / p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "expr": "super_trademan_latency_p95_ms",
+          "legendFormat": "Latency p95 (ms)"
+        },
+        {
+          "expr": "super_trademan_latency_p99_ms",
+          "legendFormat": "Latency p99 (ms)"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Shadow PnL & Portfolio Drawdown",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        {
+          "expr": "super_trademan_shadow_pnl_pct",
+          "legendFormat": "Shadow PnL (%)"
+        },
+        {
+          "expr": "super_trademan_max_drawdown_pct",
+          "legendFormat": "Max Drawdown (%)"
+        }
+      ]
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 36,
+  "style": "dark",
+  "tags": ["super_trademan", "trading", "quant"],
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "title": "SUPER_TRADEMAN Quantitative Trading Overview",
+  "version": 1
+}

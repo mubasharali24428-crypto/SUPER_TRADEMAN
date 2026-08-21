@@ -1,0 +1,24 @@
+environments:
+  development:
+    execution_mode: "PAPER"
+    risk_pct: 0.005
+    max_concurrent_positions: 3
+    max_portfolio_exposure_pct: 0.20
+    alert_channels: []
+    stricter_gates: false
+
+  staging:
+    execution_mode: "SHADOW"
+    risk_pct: 0.01
+    max_concurrent_positions: 5
+    max_portfolio_exposure_pct: 0.50
+    alert_channels: ["slack"]
+    stricter_gates: true
+
+  production:
+    execution_mode: "LIVE_RESTRICTED"
+    risk_pct: 0.001
+    max_concurrent_positions: 2
+    max_portfolio_exposure_pct: 0.10
+    alert_channels: ["slack", "pagerduty", "smtp"]
+    stricter_gates: true
