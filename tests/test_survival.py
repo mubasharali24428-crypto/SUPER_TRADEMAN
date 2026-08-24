@@ -179,3 +179,112 @@ def test_wave4_corrupt_state_file_fails_open_to_normal(tmp_path, caplog):
 def test_wave4_missing_state_file_is_silent_default(tmp_path):
     engine = SurvivalEngine(state_path=str(tmp_path / "does_not_exist.json"))
     assert engine._current_tier() is SurvivalTier.NORMAL
+
+
+# ---------------------------------------------------------------------------
+# SQUAD DM-1 wave-1 (F-0342): Decimal dual-run epsilon-flip detector
+# ---------------------------------------------------------------------------
+
+import logging  # noqa: E402
+from decimal import Decimal  # noqa: E402
+
+from trading.risk.survival import _epsilon_flips, _log_epsilon_flips  # noqa: E402
+
+
+def test_epsilon_flip_detector_flags_true_decimal_breach_float_miss():
+    """Boundary-crafted equity: exact Decimal drawdown reaches the 0.175 limit
+    but float rounding lands just below it -> DRAWDOWN_EPSILON_FLIP."""
+    # peak=250000.31, equity=206250.25575:
+    #   exact dd = 0.175 (>= limit) ; float dd = 0.17499999999999996 (< limit)
+    account = AccountState(equity=206250.25575, peak_equity=250000.31)
+
+    flips = _epsilon_flips(account, max_drawdown=0.175, daily_loss_limit=0.025)
+    kinds = [f["kind"] for f in flips]
+    assert "drawdown" in kinds
+
+    flip = next(f for f in flips if f["kind"] == "drawdown")
+    assert flip["decimal_value"] >= Decimal("0.175")
+    assert flip["float_value"] < 0.175
+    # Sanity: the float gate below would NOT fire on these stored floats.
+    assert not ((account.peak_equity - account.equity) / account.peak_equity) >= 0.175
+
+
+def test_epsilon_flip_detector_daily_loss_boundary():
+    """Exact daily-loss recompute crosses -0.025 but the stored fraction does
+    not -> flagged as a daily_loss flip with both values attached."""
+    account = AccountState(
+        equity=9750.12675,
+        peak_equity=10000.13,
+        day_start_settled_equity=10000.13,  # exact pnl = -0.025 exactly
+        daily_pnl_pct=-0.024999999999999977,  # what float rounding stored
+    )
+
+    flips = _epsilon_flips(account, max_drawdown=0.175, daily_loss_limit=0.025)
+    kinds = [f["kind"] for f in flips]
+    assert "daily_loss" in kinds
+
+    flip = next(f for f in flips if f["kind"] == "daily_loss")
+    assert flip["decimal_value"] <= Decimal("-0.025")
+    assert flip["float_value"] > -0.025
+
+
+def test_epsilon_flip_detector_silent_when_paths_agree():
+    """Healthy / far-from-boundary accounts must produce zero flips."""
+    healthy = AccountState(equity=10000.0, peak_equity=10000.0)
+    assert _epsilon_flips(healthy, max_drawdown=0.175, daily_loss_limit=0.025) == []
+
+    clear_loss = AccountState(
+        equity=9000.0,
+        peak_equity=10000.0,
+        day_start_settled_equity=10000.0,
+        daily_pnl_pct=-0.10,  # both paths agree this breaches
+    )
+    assert _epsilon_flips(clear_loss, max_drawdown=0.175, daily_loss_limit=0.025) == []
+
+
+def test_epsilon_flip_logged_via_engine_without_changing_tier(caplog):
+    """End-to-end: evaluate_survival_status logs DRAWDOWN_EPSILON_FLIP for the
+    crafted boundary account while returning the SAME tier the float gates
+    dictate (observation only -- behavior unchanged)."""
+    engine = SurvivalEngine()
+    account = AccountState(equity=206250.25575, peak_equity=250000.31)
+
+    with caplog.at_level(logging.WARNING, logger="trading.risk.survival"):
+        status = engine.evaluate_survival_status(account)
+
+    flips = [
+        r
+        for r in caplog.records
+        if r.getMessage().startswith("DRAWDOWN_EPSILON_FLIP") and "[drawdown]" in r.getMessage()
+    ]
+    assert flips, "expected a logged DRAWDOWN_EPSILON_FLIP event"
+    msg = flips[0].getMessage()
+    assert "exact-decimal" in msg and "float=" in msg and "observation only" in msg
+    # Behavior unchanged by the observation: the float path still evaluates
+    # dd < 17.5% so NO cooldown fires (that is exactly the F-0342 false
+    # negative being made visible); the account still throttles to CAUTION via
+    # the ordinary moderate-drawdown rule (dd >= 0.6 * max_drawdown).
+    assert status.tier is SurvivalTier.CAUTION
+    assert status.allow_new_entries is True
+
+
+def test_epsilon_flip_log_helper_formats_both_values(caplog):
+    """Direct unit coverage of the formatter: both representations present."""
+    import logging as _logging
+
+    with caplog.at_level(_logging.WARNING, logger="trading.risk.survival"):
+        _log_epsilon_flips(
+            [
+                {
+                    "kind": "drawdown",
+                    "float_value": 0.17499999999999996,
+                    "decimal_value": Decimal("0.175"),
+                    "limit": 0.175,
+                }
+            ]
+        )
+    msgs = [r.getMessage() for r in caplog.records if r.getMessage().startswith("DRAWDOWN_EPSILON_FLIP")]
+    assert len(msgs) == 1
+    assert "0.17499999999999996" in msgs[0]
+    assert "0.175" in msgs[0]
+    assert "F-0342" in msgs[0]

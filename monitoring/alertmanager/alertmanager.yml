@@ -1,0 +1,40 @@
+# SUPER_TRADEMAN Alertmanager routing (OT-1).
+#
+# Routing contract (severities match monitoring/prometheus/alerts.yml and the
+# AlertSeverity vocabulary in src/trading/ops/alert_manager.py):
+#   severity = "emergency" -> emergency-webhook  (immediate grouping, fast
+#                             repeat_interval — honors EMERGENCY's
+#                             never-suppress semantics)
+#   everything else         -> warning-webhook   (root/default receiver)
+# Both receivers POST to the SAME webhook endpoint, injected at container start
+# from the ALERT_WEBHOOK_URL environment variable (see docker-compose.yml):
+# the __ALERT_WEBHOLDER__ placeholder below is replaced via sed. The literal
+# placeholder keeps this file independently YAML-parseable and lets
+# `amtool check-config` run against the committed file.
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: warning-webhook
+  group_by: ["alertname", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - severity = "emergency"
+      receiver: emergency-webhook
+      group_by: ["alertname"]
+      group_wait: 0s
+      group_interval: 5m
+      repeat_interval: 30m
+
+receivers:
+  - name: emergency-webhook
+    webhook_configs:
+      - url: __ALERT_WEBHOOK_URL__
+        send_resolved: true
+  - name: warning-webhook
+    webhook_configs:
+      - url: __ALERT_WEBHOOK_URL__
+        send_resolved: true

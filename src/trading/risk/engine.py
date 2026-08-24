@@ -1,6 +1,9 @@
 import logging
+from collections.abc import Mapping
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 
+from trading.core.money import quantize_to_step
 from trading.risk.models import (
     AccountState,
     ApprovedExit,
@@ -16,6 +19,37 @@ from trading.risk.models import (
 logger = logging.getLogger("trading.risk")
 
 
+class _QuantizedRiskDecision(RiskDecision):
+    """SQUAD DM-1 wave-1 dual-run carrier (F-0342 Decimal program).
+
+    Adds ``size_decimal_candidate`` WITHOUT editing models.py (outside this
+    squad's ownership): ``models.RiskDecision`` stays frozen and intact, and
+    because dataclass ``__eq__``/``repr`` see only the inherited fields,
+    downstream consumers comparing or printing decisions are unaffected.
+    Constructed only when instrument quantization is active; every other
+    approval returns the plain legacy ``RiskDecision``.
+    """
+
+    __slots__ = ("size_decimal_candidate",)
+
+    def __init__(
+        self,
+        approved: bool,
+        reason: str,
+        signal: Signal,
+        approved_order: ApprovedOrder | None,
+        size_decimal_candidate: Decimal | None,
+    ):
+        super().__init__(
+            approved=approved,
+            reason=reason,
+            signal=signal,
+            approved_order=approved_order,
+        )
+        # Parent is a frozen dataclass; bypass its __setattr__ for the slot.
+        object.__setattr__(self, "size_decimal_candidate", size_decimal_candidate)
+
+
 class RiskEngine:
     """Pure, deterministic gate between strategy signals and order execution.
 
@@ -23,8 +57,12 @@ class RiskEngine:
     hard rule. See CLAUDE-facing spec rules a-l for the source of each check.
     """
 
-    def __init__(self, config: RiskConfig | None = None):
+    def __init__(self, config: RiskConfig | None = None, instruments: Mapping[str, str] | None = None):
         self.config = config or RiskConfig()
+        # SQUAD DM-1 wave-1 (F-0342 dual-run): optional per-instrument step-size
+        # map, e.g. {"BTC/USDT": "0.001"}. None / empty / asset-miss all mean
+        # "quantization inactive" -> behavior identical to pre-wave legacy.
+        self.instruments = dict(instruments) if instruments else None
 
     def evaluate(self, signal: Signal, account: AccountState) -> RiskDecision:
         cfg = self.config
@@ -112,6 +150,59 @@ class RiskEngine:
             )
 
         position_size = (account.equity * effective_risk_pct) / risk_per_unit
+
+        # --- SQUAD DM-1 wave-1: Decimal dual-run at the single size point ----
+        # Legacy float size above stays EXACTLY as before and remains the value
+        # consumed downstream. When an instrument step is configured, a Decimal
+        # candidate is computed in parallel purely to make divergence visible.
+        size_decimal_candidate = None
+        step_str = self.instruments.get(signal.asset) if self.instruments else None
+        if step_str:
+            try:
+                size_decimal_candidate = quantize_to_step(position_size, step_str)
+            except (ValueError, InvalidOperation) as exc:
+                logger.warning(
+                    "SIZE_QUANTIZE_ERROR: asset=%s size=%r step=%r err=%s -- "
+                    "returning legacy unquantized decision",
+                    signal.asset, position_size, step_str, exc,
+                )
+                size_decimal_candidate = None
+            else:
+                # Invariant: quantized candidate must sit within one step of the
+                # legacy float size (floor convention). Beyond that the two
+                # paths have genuinely diverged -> SIZE_DELTA warning.
+                step_dec = Decimal(str(step_str))
+                tolerance = step_dec  # |candidate - legacy| <= one full step
+                delta = float(size_decimal_candidate) - position_size
+                if abs(Decimal(str(delta))) > tolerance:
+                    logger.warning(
+                        "SIZE_DELTA: asset=%s legacy_float=%.12f decimal_candidate=%s "
+                        "delta=%.12f tolerance(one_step)=%s",
+                        signal.asset,
+                        position_size,
+                        size_decimal_candidate,
+                        delta,
+                        tolerance,
+                    )
+            approved_order = ApprovedOrder(
+                asset=signal.asset,
+                asset_class=signal.asset_class,
+                side=signal.side,
+                entry_price=signal.entry_price,
+                stop_price=signal.suggested_stop,
+                target_price=signal.suggested_target,
+                position_size=position_size,
+                risk_pct=effective_risk_pct,
+                issuer=_ISSUER,
+            )
+            return _QuantizedRiskDecision(
+                approved=True,
+                reason="approved",
+                signal=signal,
+                approved_order=approved_order,
+                size_decimal_candidate=size_decimal_candidate,
+            )
+
         approved_order = ApprovedOrder(
             asset=signal.asset,
             asset_class=signal.asset_class,

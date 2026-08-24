@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
@@ -113,6 +114,35 @@ def create_app() -> FastAPI:
             )
         else:
             logger.info("Session secret loaded; signed-cookie auth active.")
+
+    # --- request tracing / correlation --------------------------------------
+    # OT-1: one middleware, two jobs — stamp every request with a correlation
+    # id (the existing ContextVar consumed by ops.logging_config JSON logs)
+    # and open one span per request when real OTel tracing was configured via
+    # trading.observability.otel.setup_tracing(). Both degrade gracefully:
+    # no OTel extras installed => no-op spans, logging keeps working.
+    from trading.ops.logging_config import set_correlation_id
+    from trading.observability import otel as _otel
+
+    _otel.setup_tracing("super_trademan-api")  # active only w/ OTLP endpoint env
+    _request_tracer = _otel.get_request_tracer()
+
+    @app.middleware("http")
+    async def request_tracing(request: Request, call_next):
+        request_id = os.environ.get("API_REQUEST_ID_HEADER", "X-Request-ID")
+        cid = request.headers.get(request_id, "") or uuid.uuid4().hex[:12]
+        set_correlation_id(cid)
+        with _request_tracer.start_as_current_span(
+            f"{request.method} {request.url.path}",
+            attributes={
+                "http.request.method": request.method,
+                "url.path": request.url.path,
+                "request.correlation_id": cid,
+            },
+        ):
+            response = await call_next(request)
+        response.headers.setdefault("X-Request-ID", cid)
+        return response
 
     # --- security headers on every response ---------------------------------
     @app.middleware("http")

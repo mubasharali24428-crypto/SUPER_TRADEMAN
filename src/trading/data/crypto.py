@@ -1,3 +1,14 @@
+"""Crypto market-data ingestion (OHLCV + funding rates).
+
+Schema ownership: the ``ohlcv`` / ``funding_rates`` tables are owned by Alembic
+migrations (see ``alembic/versions/``). This module performs NO runtime DDL —
+the old ``CREATE TABLE IF NOT EXISTS`` self-healing was removed (HK-1 /
+SUB-03 follow-up) so schema drift surfaces loudly instead of being silently
+papered over. Apply the schema with::
+
+    POSTGRES_URL=postgresql://... .venv/bin/alembic upgrade head
+"""
+
 import asyncio
 import logging
 from datetime import datetime, timezone
@@ -6,6 +17,29 @@ import asyncpg
 import ccxt
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "SchemaMissingError",
+    "fetch_ohlcv_with_backoff",
+    "fetch_ohlcv_range",
+    "store_ohlcv",
+    "store_funding_rates",
+    "ingest_ohlcv",
+    "ingest_funding_rates",
+]
+
+
+class SchemaMissingError(RuntimeError):
+    """A required data table does not exist because migrations were not applied."""
+
+
+def _schema_missing_guidance(table: str) -> str:
+    return (
+        f"Relation '{table}' is missing: the database schema is owned by Alembic "
+        f"and runtime DDL self-healing has been removed from "
+        f"trading.data.crypto. Apply migrations before ingesting: "
+        f"POSTGRES_URL=<url> alembic upgrade head"
+    )
 
 
 async def fetch_ohlcv_with_backoff(exchange, symbol, timeframe, since, limit, max_retries=5):
@@ -76,33 +110,19 @@ async def fetch_ohlcv_range(exchange, symbol, timeframe, since, until, limit=100
     return [c for c in candles if c[0] < until]
 
 
-async def ensure_schema(pool: asyncpg.Pool):
-    await pool.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ohlcv (
-            exchange TEXT NOT NULL,
-            symbol TEXT NOT NULL,
-            asset_class TEXT NOT NULL,
-            timeframe TEXT NOT NULL,
-            timestamp TIMESTAMPTZ NOT NULL,
-            open DOUBLE PRECISION NOT NULL,
-            high DOUBLE PRECISION NOT NULL,
-            low DOUBLE PRECISION NOT NULL,
-            close DOUBLE PRECISION NOT NULL,
-            volume DOUBLE PRECISION NOT NULL,
-            PRIMARY KEY (exchange, symbol, timeframe, timestamp)
-        );
+async def _translate_missing_table(coro):
+    """Await a store/ingest coroutine, mapping undefined-table to loud guidance.
 
-        CREATE TABLE IF NOT EXISTS funding_rates (
-            exchange TEXT NOT NULL,
-            symbol TEXT NOT NULL,
-            timestamp TIMESTAMPTZ NOT NULL,
-            funding_rate DOUBLE PRECISION NOT NULL,
-            mark_price DOUBLE PRECISION NOT NULL,
-            PRIMARY KEY (exchange, symbol, timestamp)
-        );
-        """
-    )
+    asyncpg raises ``asyncpg.exceptions.UndefinedTableError`` (SQLSTATE 42P01)
+    when a relation does not exist. Since Alembic owns the schema and runtime
+    DDL is gone, that condition is a deployment mistake — re-raise it as
+    :class:`SchemaMissingError` with remediation instructions.
+    """
+    try:
+        return await coro
+    except asyncpg.UndefinedTableError as exc:
+        table = getattr(exc, "relation_name", None) or "ohlcv/funding_rates"
+        raise SchemaMissingError(_schema_missing_guidance(table)) from exc
 
 
 async def store_ohlcv(pool: asyncpg.Pool, exchange_id, asset_class, symbol, timeframe, candles):
@@ -156,14 +176,16 @@ async def store_funding_rates(pool: asyncpg.Pool, exchange_id: str, symbol: str,
 
 async def ingest_ohlcv(pool: asyncpg.Pool, exchange, symbol, timeframe, since, limit, asset_class="crypto"):
     candles = await fetch_ohlcv_with_backoff(exchange, symbol, timeframe, since, limit)
-    await ensure_schema(pool)
-    await store_ohlcv(pool, exchange.id, asset_class, symbol, timeframe, candles)
+    await _translate_missing_table(
+        store_ohlcv(pool, exchange.id, asset_class, symbol, timeframe, candles)
+    )
     return candles
 
 
 async def ingest_funding_rates(pool: asyncpg.Pool, exchange, symbol, since, limit=1000):
     funding_events = await asyncio.to_thread(exchange.fetch_funding_rate_history, symbol, since, limit)
-    await ensure_schema(pool)
-    await store_funding_rates(pool, exchange.id, symbol, funding_events)
+    await _translate_missing_table(
+        store_funding_rates(pool, exchange.id, symbol, funding_events)
+    )
     return funding_events
 

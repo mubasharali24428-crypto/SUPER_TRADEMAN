@@ -1,0 +1,2 @@
+# AX-1: only package.json + package-lock.json are tracked; deps install via CI
+node_modules/

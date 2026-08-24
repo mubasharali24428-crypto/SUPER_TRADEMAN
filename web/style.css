@@ -15,7 +15,11 @@
 
   --text-primary: #f1f5f9;
   --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  /* AX-1 contrast fix: was #64748b = 4.18:1 on --bg-primary (#07090e) and
+     3.96:1 on --bg-secondary (#0d111b) — below WCAG AA 4.5:1 for normal text.
+     #708198 measures 5.01:1 / 4.75:1 (computed WCAG relative-luminance
+     ratios), passing AA everywhere --text-muted is used. */
+  --text-muted: #708198;
 
   --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
@@ -31,6 +35,34 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+/* ==========================================================================
+   AX-1: KEYBOARD FOCUS VISIBILITY (WCAG 2.4.7 / 1.4.11)
+   Global :focus-visible ring for every interactive element. Accent cyan
+   #00f0ff on the darkest surface #07090e measures ~13.9:1 (>= 3:1 required
+   for non-text UI indicators). The double shadow guarantees visibility on
+   glass cards too. :focus-visible only (not :focus) so mouse/touch users
+   don't see a ring they didn't ask for.
+   ========================================================================== */
+:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px rgba(0, 240, 255, 0.35);
+  border-radius: 4px;
+}
+
+/* AX-1: screen-reader-only utility (live region, skip-link target helpers) */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 body {
@@ -193,7 +225,8 @@ body {
   font-weight: 600;
   font-size: 14px;
   border: none;
-  outline: none;
+  /* AX-1: removed this rule's previous outline-suppression — visible focus
+     is a WCAG 2.4.7 requirement; the global :focus-visible ring applies. */
   cursor: pointer;
 }
 
@@ -1056,7 +1089,8 @@ canvas {
   border: 1px solid var(--glass-border);
   padding: 8px 12px;
   border-radius: 8px;
-  outline: none;
+  /* AX-1: previous outline-suppression removed — see the global
+     :focus-visible ring defined near the top of this file. */
 }
 
 .range-val {
@@ -1104,4 +1138,44 @@ canvas {
 .benchmark-table td {
   padding: 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+/* ==========================================================================
+   AX-1: SKIP LINK (WCAG 2.4.1 Bypass Blocks)
+   Hidden until keyboard-focused, then rendered as a high-contrast pill.
+   ========================================================================== */
+.skip-link {
+  position: absolute;
+  top: -48px;
+  left: 16px;
+  z-index: 9999;
+  padding: 10px 18px;
+  background: var(--color-cyan);
+  color: #07090e; /* 13.9:1 on the accent background */
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: 14px;
+  border-radius: 0 0 10px 10px;
+  text-decoration: none;
+  transition: top var(--transition-fast);
+}
+
+.skip-link:focus-visible {
+  top: 0;
+}
+
+/* ==========================================================================
+   AX-1: HONEST SIMULATION FOOTER
+   Provenance disclosure appended to the page (see index.html).
+   ========================================================================== */
+.site-footer {
+  max-width: 1400px;
+  margin: 24px auto 32px;
+  padding: 14px 20px;
+  border: 1px dashed rgba(255, 184, 0, 0.45); /* amber caution framing */
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
 }

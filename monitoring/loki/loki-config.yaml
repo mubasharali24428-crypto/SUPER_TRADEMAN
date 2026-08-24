@@ -1,0 +1,58 @@
+# SUPER_TRADEMAN Loki configuration (OT-1) — single binary, filesystem storage.
+#
+# Retention contract: logs are kept for 7 DAYS (168h). The compactor enforces
+# this against the filesystem delete-request store (retention_enabled: true);
+# anything older than limits_config.retention_period is deleted during
+# compaction. Reject-old-samples mirrors the same window at ingestion time so
+# backfills cannot smuggle in out-of-retention data.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: info
+
+common:
+  path_prefix: /loki
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  filesystem:
+    directory: /loki/chunks
+  tsdb_shipper:
+    active_index_directory: /loki/tsdb-index
+    cache_location: /loki/tsdb-cache
+
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  delete_request_store: filesystem
+
+limits_config:
+  retention_period: 168h            # 7 days
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h  # 7 days
+  max_query_series: 500
+
+# Forward any Loki ruler alerts to the in-stack Alertmanager (ruler ships no
+# rule stores here, so this is wiring-only until rules are added).
+ruler:
+  alertmanager_url: http://alertmanager:9093

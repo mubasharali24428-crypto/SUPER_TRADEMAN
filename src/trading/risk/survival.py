@@ -1,9 +1,11 @@
 import logging
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import Enum
 from typing import Optional
 
-from trading.risk.models import AccountState, RiskConfig
+from trading.core.money import decimal_from_float
+from trading.risk.models import AccountState, RiskConfig, day_start_equity
 from trading.risk.garch import GARCHForecastResult
 from trading.risk.hmm_regime import HMMRegimeResult
 from trading.risk.evt import EVTRiskResult
@@ -35,6 +37,85 @@ _TIER_ORDER = (
 
 def _severity(tier: SurvivalTier) -> int:
     return _TIER_ORDER.index(tier)
+
+
+# ---------------------------------------------------------------------------
+# SQUAD DM-1 wave-1 (F-0342): Decimal dual-run for limit-boundary comparisons.
+#
+# The stored AccountState floats are NOT converted (blast radius); instead the
+# drawdown / daily-loss percentages are recomputed exactly in Decimal from the
+# SAME stored floats and compared against the same limits. Where the float
+# comparison breaches a limit but the exact one does not -- the epsilon-flip
+# class behind F-0342 -- a DRAWDOWN_EPSILON_FLIP event is logged with both
+# values. Behavior is unchanged: these are observations only, never gate inputs.
+# ---------------------------------------------------------------------------
+
+
+def _epsilon_flips(
+    account: AccountState,
+    max_drawdown: float,
+    daily_loss_limit: float,
+) -> list[dict]:
+    """Return one entry per limit boundary where the exact Decimal path crosses
+    but the legacy float path does not (F-0342 epsilon-flip class).
+
+    Direction matters: this catches FALSE NEGATIVES of the float gate -- the
+    account has genuinely reached a limit boundary while float rounding hides
+    it -- which is the dangerous miss, not the cosmetic false alarm.
+    """
+    flips: list[dict] = []
+
+    if account.peak_equity > 0:
+        dd_float = (account.peak_equity - account.equity) / account.peak_equity
+        peak_d = decimal_from_float(account.peak_equity)
+        eq_d = decimal_from_float(account.equity)
+        dd_exact = (peak_d - eq_d) / peak_d
+        lim_d = Decimal(str(max_drawdown))
+        if (dd_exact >= lim_d) and not (dd_float >= max_drawdown):
+            flips.append(
+                {
+                    "kind": "drawdown",
+                    "float_value": dd_float,
+                    "decimal_value": dd_exact,
+                    "limit": max_drawdown,
+                }
+            )
+
+    denom = day_start_equity(account)
+    if denom > 0:
+        # Float side is the STORED fraction -- exactly what the SURVIVAL gate
+        # below compares. Decimal side is the exact recompute from the same
+        # equity/day-anchor floats.
+        pnl_float = account.daily_pnl_pct
+        pnl_exact = (
+            decimal_from_float(account.equity) - decimal_from_float(denom)
+        ) / decimal_from_float(denom)
+        lim_d = Decimal(str(daily_loss_limit))
+        breach_float = pnl_float <= -daily_loss_limit
+        breach_exact = pnl_exact <= -lim_d
+        if breach_exact and not breach_float:
+            flips.append(
+                {
+                    "kind": "daily_loss",
+                    "float_value": pnl_float,
+                    "decimal_value": pnl_exact,
+                    "limit": daily_loss_limit,
+                }
+            )
+    return flips
+
+
+def _log_epsilon_flips(flips: list[dict]) -> None:
+    for flip in flips:
+        logger.warning(
+            "DRAWDOWN_EPSILON_FLIP [%s]: exact-decimal=%s crosses limit %.16f "
+            "but float=%.18f does not -- float gate misses a true boundary "
+            "crossing (F-0342 class; observation only, gate behavior unchanged)",
+            flip["kind"],
+            str(flip["decimal_value"]),
+            flip["limit"],
+            flip["float_value"],
+        )
 
 
 @dataclass(frozen=True)
@@ -103,6 +184,11 @@ class SurvivalEngine:
         evt_res: Optional[EVTRiskResult],
     ) -> AccountSurvivalStatus:
         cfg = self.config
+
+        # SQUAD DM-1 wave-1 (F-0342): observation-only Decimal dual-run. Logged
+        # before any gate fires so the divergence record exists even when the
+        # float path rejects; never influences tier selection.
+        _log_epsilon_flips(_epsilon_flips(account, cfg.max_drawdown, cfg.daily_loss_limit))
 
         # 1. Check Hard Kill Switch or Max Drawdown -> COOLDOWN
         if account.kill_switch:

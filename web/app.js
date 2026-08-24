@@ -174,6 +174,8 @@
 
     // Modal
     backtestModal: document.getElementById('backtestModal'),
+    // AX-1: polite live region for engine announcements
+    engineStatusRegion: document.getElementById('engineStatusRegion'),
     btnCloseModal: document.getElementById('btnCloseModal'),
     btnExecuteModalBacktest: document.getElementById('btnExecuteModalBacktest'),
     modalRiskPct: document.getElementById('modalRiskPct'),
@@ -500,6 +502,7 @@
         }
 
         STATE.activeTrade = null;
+        announce(`Trade ${closed.tradeId} closed: ${verdictWord(closed.verdict)}, R multiple ${exitR.toFixed(2)}`);
       }
     } else if (STATE.survival.allowNewEntries && Math.random() < 0.35) {
       // Propose new Trade entry using Bandit allocation
@@ -519,6 +522,44 @@
         entryCandleIdx: candles.length - 1,
       };
     }
+  }
+
+  /**
+   * AX-1: keep a role=progressbar's visual width and its machine-readable
+   * aria-valuenow in lockstep (screen readers must not read stale values).
+   */
+  function setBar(el, pctExpr) {
+    if (!el) return;
+    const val = Math.max(0, Math.min(100, Number(pctExpr)));
+    el.style.width = `${val}%`;
+    el.setAttribute('aria-valuenow', Math.round(val).toString());
+  }
+
+  /**
+   * AX-1: announce engine events through the polite live region
+   * (#engineStatusRegion) so dynamic updates are spoken, not just shown.
+   */
+  let announceTimer = null;
+  function announce(message) {
+    if (!DOM.engineStatusRegion) return;
+    clearTimeout(announceTimer);
+    DOM.engineStatusRegion.textContent = '';
+    announceTimer = setTimeout(() => {
+      DOM.engineStatusRegion.textContent = message;
+    }, 50);
+  }
+
+  /** AX-1: spoken-friendly outcome word for announcements. */
+  function verdictWord(verdict) {
+    return verdict === 'WIN' ? 'win' : 'loss';
+  }
+
+  /** AX-1: direction icon + word so status is never color-only. */
+  function trendBadge(isUp) {
+    const span = document.createElement('span');
+    span.className = `metric-tag ${isUp ? 'tag-green' : 'tag-red'}`;
+    span.textContent = `${isUp ? '\u25B2' : '\u25BC'} ${isUp ? 'UP' : 'DOWN'}`;
+    return span;
   }
 
   function selectBanditStrategy() {
@@ -554,8 +595,12 @@
     DOM.peakEquityVal.textContent = `$${STATE.peakEquity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     
     const retPct = ((STATE.equity - 10000.0) / 10000.0) * 100;
-    DOM.equityPnlBadge.textContent = `${retPct >= 0 ? '+' : ''}${retPct.toFixed(2)}%`;
-    DOM.equityPnlBadge.className = `metric-tag ${retPct >= 0 ? 'tag-green' : 'tag-red'}`;
+    DOM.equityPnlBadge.textContent = '';
+    DOM.equityPnlBadge.classList.remove('tag-green', 'tag-red');
+    DOM.equityPnlBadge.appendChild(trendBadge(retPct >= 0));
+    DOM.equityPnlBadge.appendChild(document.createTextNode(
+      ` ${retPct >= 0 ? '+' : ''}${retPct.toFixed(2)}%`
+    ));
 
     const ddPct = STATE.peakEquity > 0 ? ((STATE.peakEquity - STATE.equity) / STATE.peakEquity) * 100 : 0;
     DOM.maxDdVal.textContent = `${ddPct.toFixed(2)}%`;
@@ -581,62 +626,106 @@
     DOM.garchMultVal.textContent = `${STATE.garch.volScale.toFixed(2)}x`;
 
     // Survival Tier Badge
-    DOM.survivalTierVal.textContent = `${STATE.survival.tier.toUpperCase()} (${STATE.survival.effectiveRiskMult.toFixed(2)}x)`;
+    const TIER_GLYPHS = { normal: '\u25CF OK', caution: '\u25B2 CAUTION', survival: '\u25BC SURVIVAL', cooldown: '\u25BC HALTED' };
+    DOM.survivalTierVal.textContent = `${TIER_GLYPHS[STATE.survival.tier] || ''} \u2014 ${STATE.survival.tier.toUpperCase()} (${STATE.survival.effectiveRiskMult.toFixed(2)}x)`;
     DOM.survivalBadge.className = `survival-badge tier-${STATE.survival.tier}`;
 
     DOM.sideSurvivalTier.textContent = `${STATE.survival.tier.toUpperCase()} OPERATING TIER`;
     DOM.sideSurvivalDesc.textContent = STATE.survival.rationale;
     DOM.sideRiskMultText.textContent = `${STATE.survival.effectiveRiskMult.toFixed(2)}x (${(STATE.survival.effectiveRiskMult * 0.5).toFixed(2)}% / trade)`;
-    DOM.sideRiskMultBar.style.width = `${Math.min(STATE.survival.effectiveRiskMult * 100, 100)}%`;
+    setBar(DOM.sideRiskMultBar, STATE.survival.effectiveRiskMult * 100);
     DOM.sideMinConfText.textContent = `${(STATE.survival.minConfidenceFloor * 100).toFixed(0)}% required`;
-    DOM.sideMinConfBar.style.width = `${STATE.survival.minConfidenceFloor * 100}%`;
+    setBar(DOM.sideMinConfBar, STATE.survival.minConfidenceFloor * 100);
 
     // Bandit Strategies
     const b = STATE.bandit.strategies;
     DOM.probTrendMom.textContent = `${(b.trend_momentum.prob * 100).toFixed(1)}%`;
-    DOM.barTrendMom.style.width = `${b.trend_momentum.prob * 100}%`;
+    setBar(DOM.barTrendMom, b.trend_momentum.prob * 100);
     DOM.rTrendMom.textContent = `${b.trend_momentum.avgReward >= 0 ? '+' : ''}${b.trend_momentum.avgReward.toFixed(2)}R`;
 
     DOM.probMeanRev.textContent = `${(b.mean_reversion.prob * 100).toFixed(1)}%`;
-    DOM.barMeanRev.style.width = `${b.mean_reversion.prob * 100}%`;
+    setBar(DOM.barMeanRev, b.mean_reversion.prob * 100);
     DOM.rMeanRev.textContent = `${b.mean_reversion.avgReward >= 0 ? '+' : ''}${b.mean_reversion.avgReward.toFixed(2)}R`;
 
     DOM.probBreakout.textContent = `${(b.breakout.prob * 100).toFixed(1)}%`;
-    DOM.barBreakout.style.width = `${b.breakout.prob * 100}%`;
+    setBar(DOM.barBreakout, b.breakout.prob * 100);
     DOM.rBreakout.textContent = `${b.breakout.avgReward >= 0 ? '+' : ''}${b.breakout.avgReward.toFixed(2)}R`;
 
     // HMM Regimes
     DOM.hmmRegimeBadge.textContent = STATE.hmm.currentRegime.replace('_', ' ').toUpperCase();
     DOM.hmmConfVal.textContent = `${(STATE.hmm.confidence * 100).toFixed(1)}%`;
     DOM.hmmBullPct.textContent = `${(STATE.hmm.probs[0] * 100).toFixed(0)}%`;
-    DOM.hmmBullBar.style.width = `${STATE.hmm.probs[0] * 100}%`;
+    setBar(DOM.hmmBullBar, STATE.hmm.probs[0] * 100);
     DOM.hmmBearPct.textContent = `${(STATE.hmm.probs[1] * 100).toFixed(0)}%`;
-    DOM.hmmBearBar.style.width = `${STATE.hmm.probs[1] * 100}%`;
+    setBar(DOM.hmmBearBar, STATE.hmm.probs[1] * 100);
     DOM.hmmChopPct.textContent = `${(STATE.hmm.probs[2] * 100).toFixed(0)}%`;
-    DOM.hmmChopBar.style.width = `${STATE.hmm.probs[2] * 100}%`;
+    setBar(DOM.hmmChopBar, STATE.hmm.probs[2] * 100);
 
     // Ledger Rows
     renderLedgerTable();
   }
 
+  /**
+   * AX-1: ledger rows are built exclusively with createElement/textContent —
+   * no innerHTML string sinks. Verdicts carry an arrow glyph AND a word so
+   * outcome is never encoded by color alone.
+   */
+  function makeCell(text, className, strong) {
+    const td = document.createElement('td');
+    if (className) td.className = className;
+    if (strong) {
+      const s = document.createElement('strong');
+      s.textContent = text;
+      td.appendChild(s);
+    } else {
+      td.textContent = text;
+    }
+    return td;
+  }
+
+  /** AX-1: WIN/LOSS badge with direction glyph + word (not color-only). */
+  function verdictBadge(verdict) {
+    const td = document.createElement('td');
+    const span = document.createElement('span');
+    const isWin = verdict === 'WIN';
+    span.className = `metric-tag ${isWin ? 'tag-green' : 'tag-red'}`;
+    span.textContent = `${isWin ? '\u25B2 WIN' : '\u25BC LOSS'} (Approved)`;
+    td.appendChild(span);
+    return td;
+  }
+
+  function buildLedgerRow(t) {
+    const tr = document.createElement('tr');
+
+    tr.appendChild(makeCell(t.tradeId, 'text-cyan font-mono'));
+    tr.appendChild(makeCell(t.timestamp, 'text-muted'));
+    tr.appendChild(makeCell(t.asset, '', true));
+    tr.appendChild(makeCell(`${t.side} LONG`, 'metric-tag tag-green'));
+    tr.appendChild(makeCell(`$${t.entryPrice.toFixed(2)}`));
+    tr.appendChild(makeCell(`$${t.exitPrice.toFixed(2)}`));
+    tr.appendChild(makeCell(
+      `${t.rMultiple >= 0 ? '+' : ''}${t.rMultiple.toFixed(2)}R`,
+      `${t.rMultiple >= 0 ? 'text-green' : 'text-red'} font-mono`
+    ));
+    tr.appendChild(makeCell(
+      `${t.netPnl >= 0 ? '+' : ''}$${t.netPnl.toFixed(2)}`,
+      `${t.netPnl >= 0 ? 'text-green' : 'text-red'} font-mono`
+    ));
+    tr.appendChild(makeCell(t.strategy, 'tag-badge'));
+    tr.appendChild(makeCell(t.regime, 'text-muted'));
+    tr.appendChild(makeCell(t.posteriorMu.toFixed(3), 'text-cyan font-mono'));
+    tr.appendChild(verdictBadge(t.verdict));
+
+    return tr;
+  }
+
   function renderLedgerTable() {
     DOM.ledgerCountBadge.textContent = `${STATE.closedTrades.length} TRADES`;
-    DOM.ledgerTableBody.innerHTML = STATE.closedTrades.slice(0, 15).map(t => `
-      <tr>
-        <td class="text-cyan font-mono">${t.tradeId}</td>
-        <td class="text-muted">${t.timestamp}</td>
-        <td><strong>${t.asset}</strong></td>
-        <td><span class="metric-tag tag-green">${t.side}</span></td>
-        <td>$${t.entryPrice.toFixed(2)}</td>
-        <td>$${t.exitPrice.toFixed(2)}</td>
-        <td class="${t.rMultiple >= 0 ? 'text-green' : 'text-red'} font-mono">${t.rMultiple >= 0 ? '+' : ''}${t.rMultiple.toFixed(2)}R</td>
-        <td class="${t.netPnl >= 0 ? 'text-green' : 'text-red'} font-mono">${t.netPnl >= 0 ? '+' : ''}$${t.netPnl.toFixed(2)}</td>
-        <td><span class="tag-badge">${t.strategy}</span></td>
-        <td class="text-muted">${t.regime}</td>
-        <td class="text-cyan font-mono">${t.posteriorMu.toFixed(3)}</td>
-        <td><span class="metric-tag ${t.verdict === 'WIN' ? 'tag-green' : 'tag-red'}">${t.verdict} (Approved)</span></td>
-      </tr>
-    `).join('');
+    const fragment = document.createDocumentFragment();
+    for (const t of STATE.closedTrades.slice(0, 15)) {
+      fragment.appendChild(buildLedgerRow(t));
+    }
+    DOM.ledgerTableBody.replaceChildren(fragment);
   }
 
   // -------------------------------------------------------------------------
@@ -888,6 +977,8 @@
       STATE.isPlaying = !STATE.isPlaying;
       DOM.playPauseText.textContent = STATE.isPlaying ? 'LIVE STREAM' : 'PAUSED';
       DOM.btnPlayPause.className = `glow-btn ${STATE.isPlaying ? 'play-btn' : 'secondary-btn'}`;
+      DOM.btnPlayPause.setAttribute('aria-pressed', String(STATE.isPlaying));
+      announce(STATE.isPlaying ? 'Live stream resumed' : 'Live stream paused');
     });
 
     // Shock Button
@@ -898,6 +989,7 @@
       STATE.garch.isHighVol = true;
       updateSurvivalTier();
       updateUI();
+      announce('Volatility shock injected. Risk controls tightened.');
     });
 
     // Reset Button
@@ -911,23 +1003,41 @@
       STATE.learningGraph.edges = [];
       seedInitialTrades();
       updateUI();
+      announce('Simulation state reset.');
     });
 
-    // Tab Navigation
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    // Tab Navigation — AX-1: full ARIA tabs keyboard pattern.
+    // Left/Right arrows move focus AND selection, Home/End jump to the
+    // first/last tab, roving tabindex keeps a single tab stop on the strip.
+    const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
 
-        btn.classList.add('active');
-        const tabId = btn.getAttribute('data-tab');
-        const content = document.getElementById(tabId);
-        if (content) content.classList.add('active');
+    const selectTab = (btn, focus) => {
+      tabButtons.forEach(b => {
+        const selected = b === btn;
+        b.classList.toggle('active', selected);
+        b.setAttribute('aria-selected', String(selected));
+        b.tabIndex = selected ? 0 : -1;
+      });
+      const tabId = btn.getAttribute('data-tab');
+      document.querySelectorAll('.tab-content').forEach(c =>
+        c.classList.toggle('active', c.id === tabId));
+      if (focus) btn.focus();
 
-        resizeCanvases();
-        if (tabId === 'liveTradingChart') renderTradingChart();
-        else if (tabId === 'learningGraphTab') renderLearningGraph();
-        else if (tabId === 'equityCurveTab') renderEquityChart();
+      resizeCanvases();
+      if (tabId === 'liveTradingChart') renderTradingChart();
+      else if (tabId === 'learningGraphTab') renderLearningGraph();
+      else if (tabId === 'equityCurveTab') renderEquityChart();
+    };
+
+    tabButtons.forEach((btn, idx) => {
+      btn.addEventListener('click', () => selectTab(btn, false));
+      btn.addEventListener('keydown', e => {
+        let target = null;
+        if (e.key === 'ArrowRight') target = tabButtons[(idx + 1) % tabButtons.length];
+        else if (e.key === 'ArrowLeft') target = tabButtons[(idx - 1 + tabButtons.length) % tabButtons.length];
+        else if (e.key === 'Home') target = tabButtons[0];
+        else if (e.key === 'End') target = tabButtons[tabButtons.length - 1];
+        if (target) { e.preventDefault(); selectTab(target, true); }
       });
     });
 
@@ -947,12 +1057,27 @@
     });
 
     // Backtest Modal Controls
+    let lastFocusedBeforeModal = null;
+
     DOM.btnRunBacktestModal.addEventListener('click', () => {
+      lastFocusedBeforeModal = document.activeElement;
       DOM.backtestModal.classList.remove('hidden');
+      const firstControl = DOM.modalCandleCount ||
+        DOM.backtestModal.querySelector('select, input, button');
+      if (firstControl) firstControl.focus();
     });
 
-    DOM.btnCloseModal.addEventListener('click', () => {
+    const closeModal = () => {
       DOM.backtestModal.classList.add('hidden');
+      if (lastFocusedBeforeModal && lastFocusedBeforeModal.focus) {
+        lastFocusedBeforeModal.focus();
+      }
+    };
+    DOM.btnCloseModal.addEventListener('click', closeModal);
+
+    // AX-1: keyboard users must be able to dismiss the dialog with Escape.
+    DOM.backtestModal.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeModal();
     });
 
     DOM.modalRiskPct.addEventListener('input', e => {
@@ -985,19 +1110,35 @@
         { name: `Multi-Asset Basket (BTC + ETH + SOL)`, trades: Math.floor(candleCount * 0.12), wr: '23.4%', bayesWr: '23.6%', avgR: '+0.18', ret: '+32.8%', maxDd: `${(maxDd * 0.55).toFixed(1)}%`, sortino: '2.842', tailVar: '0.60%' },
       ];
 
-      DOM.modalBenchmarkTableBody.innerHTML = configs.map(c => `
-        <tr>
-          <td><strong>${c.name}</strong></td>
-          <td>${c.trades.toLocaleString()}</td>
-          <td>${c.wr}</td>
-          <td class="text-cyan">${c.bayesWr}</td>
-          <td class="${c.avgR.startsWith('+') ? 'text-green' : 'text-red'}">${c.avgR}</td>
-          <td class="${c.ret.startsWith('+') ? 'text-green' : 'text-red'}">${c.ret}</td>
-          <td class="text-amber">${c.maxDd}</td>
-          <td class="${parseFloat(c.sortino) > 0 ? 'text-cyan' : 'text-muted'}">${c.sortino}</td>
-          <td class="text-purple">${c.tailVar}</td>
-        </tr>
-      `).join('');
+      // AX-1: rows built via DOM APIs (textContent only), signed metrics get
+      // an arrow glyph + UP/DOWN word next to the sign/color coding.
+      const frag = document.createDocumentFragment();
+      for (const c of configs) {
+        const tr = document.createElement('tr');
+        tr.appendChild(makeCell(c.name, '', true));
+        tr.appendChild(makeCell(c.trades.toLocaleString()));
+        tr.appendChild(makeCell(c.wr));
+        tr.appendChild(makeCell(c.bayesWr, 'text-cyan'));
+
+        const avgRPos = c.avgR.startsWith('+');
+        const retPos = c.ret.startsWith('+');
+        tr.appendChild(makeCell(
+          `${avgRPos ? '\u25B2' : '\u25BC'} ${c.avgR}`,
+          avgRPos ? 'text-green' : 'text-red'
+        ));
+        tr.appendChild(makeCell(
+          `${retPos ? '\u25B2 UP' : '\u25BC DOWN'} ${c.ret}`,
+          retPos ? 'text-green' : 'text-red'
+        ));
+        tr.appendChild(makeCell(c.maxDd, 'text-amber'));
+        tr.appendChild(makeCell(
+          c.sortino,
+          parseFloat(c.sortino) > 0 ? 'text-cyan' : 'text-muted'
+        ));
+        tr.appendChild(makeCell(c.tailVar, 'text-purple'));
+        frag.appendChild(tr);
+      }
+      DOM.modalBenchmarkTableBody.replaceChildren(frag);
 
       DOM.modalElapsedMs.textContent = `Completed ${candleCount.toLocaleString()} candles in 18.2ms`;
     }, 250);

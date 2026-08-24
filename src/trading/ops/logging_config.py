@@ -17,6 +17,7 @@ import logging.handlers
 import os
 import re
 import sys
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -36,11 +37,21 @@ _correlation_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
 
 
 def get_correlation_id() -> str:
-    """Return this context's correlation id, lazily minting one if unset."""
+    """Return this context's correlation id, lazily minting one if unset.
+
+    When real OTel tracing is active, the current span context wins: the
+    W3C trace id is preferred so JSON logs join to distributed traces.
+    """
+    try:  # OTel extras are optional — degrade silently when unavailable
+        from trading.observability.otel import current_trace_ids
+
+        otel_trace_id = current_trace_ids()[0]
+        if otel_trace_id:
+            return otel_trace_id
+    except Exception:
+        pass
     cid = _correlation_id_var.get()
     if not cid:
-        import uuid
-
         cid = uuid.uuid4().hex[:12]
         _correlation_id_var.set(cid)
     return cid

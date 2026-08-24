@@ -1,0 +1,89 @@
+name: Weekly DR Restore Drill
+
+# Continuously exercises scripts/backup.sh -> scripts/restore_drill.sh against
+# a throwaway postgres so the restore path can never silently rot. Drill-only
+# credentials; never any production secret.
+
+on:
+  schedule:
+    # Sundays 04:07 UTC — weekly restore verification (RTO evidence).
+    - cron: '7 4 * * 0'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  restore-drill:
+    runs-on: ubuntu-latest
+    # TODO(dr-1): once this workflow has TWO consecutive green runs, delete the
+    # line below so drill failures gate merges again (tracked in docs/BACKUP_DR.md).
+    continue-on-error: true
+
+    steps:
+      - name: Checkout Code
+        # SHA-pinned to actions/checkout v4.2.2 (F-0112)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Start scratch postgres for the drill
+        # A dedicated compose project in RUNNER_TEMP; both scripts honor
+        # COMPOSE_FILE / COMPOSE_PROJECT_NAME, so no script changes are needed.
+        run: |
+          mkdir -p "$RUNNER_TEMP/drill-stack"
+          cat > "$RUNNER_TEMP/drill-stack/docker-compose.yml" <<'YAML'
+          services:
+            postgres:
+              image: postgres:16
+              environment:
+                POSTGRES_USER: trader
+                POSTGRES_PASSWORD: drill-only-password
+                POSTGRES_DB: trader
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U trader -d trader"]
+                interval: 2s
+                timeout: 3s
+                retries: 30
+                start_period: 5s
+          YAML
+          docker compose -f "$RUNNER_TEMP/drill-stack/docker-compose.yml" \
+            -p drillci up -d --quiet-pull --wait
+          {
+            echo "COMPOSE_FILE=$RUNNER_TEMP/drill-stack/docker-compose.yml"
+            echo "COMPOSE_PROJECT_NAME=drillci"
+          } >> "$GITHUB_ENV"
+
+      - name: Seed minimal asserted tables (drill-only)
+        # Production schema comes from alembic; here we only need the three
+        # tables the drill counts so the synthetic dump round-trips. CREATE
+        # TABLE IF NOT EXISTS keeps real dumps authoritative.
+        run: |
+          docker compose exec -T postgres psql -U trader -d trader <<'SQL'
+          CREATE TABLE IF NOT EXISTS order_intent (id bigserial PRIMARY KEY);
+          CREATE TABLE IF NOT EXISTS decisions (id bigserial PRIMARY KEY);
+          CREATE TABLE IF NOT EXISTS deployment_metrics (id bigserial PRIMARY KEY);
+          SQL
+
+      - name: Take a synthetic backup (exercises backup.sh)
+        env:
+          POSTGRES_USER: trader
+          POSTGRES_DB: trader
+          POSTGRES_PASSWORD: drill-only-password # drill-only throwaway credential
+          RETENTION_DAYS: '14'
+        run: |
+          chmod +x scripts/backup.sh
+          ./scripts/backup.sh
+
+      - name: Restore drill (exercises restore_drill.sh, prints measured RTO)
+        env:
+          POSTGRES_USER: trader
+          POSTGRES_DB: trader
+          POSTGRES_PASSWORD: drill-only-password # drill-only throwaway credential
+        run: |
+          chmod +x scripts/restore_drill.sh
+          ./scripts/restore_drill.sh | tee drill_output.log
+          grep 'MEASURED RTO' drill_output.log >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Tear down scratch project
+        if: always()
+        run: |
+          docker compose -p drillci down -v --remove-orphans || true

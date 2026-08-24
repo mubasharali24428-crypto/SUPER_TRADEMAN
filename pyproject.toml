@@ -12,6 +12,12 @@ dependencies = [
     "copulas>=0.7",
     "scipy>=1.14",
     "networkx>=3.0",
+    # Schema is owned by Alembic (alembic/versions/); the migration stack is a
+    # runtime requirement, not an optional extra (HK-1). Versions matched to
+    # .venv: alembic 1.19.1, sqlalchemy 2.0.52, greenlet 3.5.5.
+    "alembic>=1.13,<2",
+    "sqlalchemy[asyncio]>=2.0,<3",
+    "greenlet>=3",
 ]
 
 [dependency-groups]
@@ -26,6 +32,13 @@ api = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
     "itsdangerous>=2.2",
+]
+# OT-1: OPTIONAL distributed tracing. Nothing here is imported at module load
+# time — trading.observability.otel lazy-imports the SDK and degrades to a
+# no-op tracer when the group is not installed.
+otel = [
+    "opentelemetry-sdk>=1.24",
+    "opentelemetry-exporter-otlp-proto-http>=1.24",
 ]
 
 [tool.pytest.ini_options]

@@ -11,19 +11,48 @@ version: '3.8'
 #   Real credentials live OUTSIDE this repository; see .env.example for
 #   placeholder documentation only.
 #
+# OT-1 additions:
+# * prometheus now loads ./prometheus/prometheus.yml and scrapes the API's
+#   AUTHENTICATED /metrics using $METRICS_BEARER_TOKEN (fail-closed ${VAR:?}):
+#   the token is written at container start to /etc/prometheus/metrics_token,
+#   referenced by prometheus.yml `authorization.credentials_file`. It must
+#   match the METRICS_BEARER_TOKEN the API process itself validates.
+# * alertmanager now loads ./alertmanager/alertmanager.yml; its webhook URLs
+#   come from $ALERT_WEBHOOK_URL (fail-closed ${VAR:?}), sed-injected at start.
+# * loki now runs with ./loki/loki-config.yaml: filesystem storage, 7-day
+#   retention enforced by the compactor (retention_enabled: true).
+#
 # NOTE (image currency, F-028): prometheus v2.47.0 / grafana 10.1.0 /
 # alertmanager v0.26.0 / loki 2.9.0 are 2023-era pins — upgrade separately;
 # out of scope for this change.
+#
+# Optional distributed tracing (OTel): set OTEL_EXPORTER_OTLP_ENDPOINT for the
+# API process (host side) and point it at an OTLP/HTTP collector; see
+# docs/MONITORING_SETUP.md §6. Without it the app uses no-op spans.
 # =============================================================================
 
 services:
   prometheus:
     image: prom/prometheus:v2.47.0
     container_name: super_trademan_prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # Fail closed: scraping the authenticated /metrics endpoint requires a token.
+      METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:?METRICS_BEARER_TOKEN must be set}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        printf '%s' "$$METRICS_BEARER_TOKEN" > /etc/prometheus/metrics_token
+        exec /bin/prometheus \
+          --config.file=/etc/prometheus/prometheus.yml \
+          --storage.tsdb.path=/prometheus
     ports:
       - "127.0.0.1:9090:9090"
     volumes:
-      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
     restart: unless-stopped
 
   grafana:
@@ -42,13 +71,42 @@ services:
   alertmanager:
     image: prom/alertmanager:v0.26.0
     container_name: super_trademan_alertmanager
+    environment:
+      # Fail closed: alerts have nowhere to go without a webhook target.
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:?ALERT_WEBHOOK_URL must be set}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        sed "s|__ALERT_WEBHOOK_URL__|$$ALERT_WEBHOOK_URL|g" \
+          /etc/alertmanager/alertmanager.yml > /etc/alertmanager/alertmanager.rendered.yml
+        exec /bin/alertmanager \
+          --config.file=/etc/alertmanager/alertmanager.rendered.yml \
+          --storage.path=/alertmanager
     ports:
       - "127.0.0.1:9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     restart: unless-stopped
 
   loki:
     image: grafana/loki:2.9.0
     container_name: super_trademan_loki
+    command: -config.file=/etc/loki/loki-config.yaml
+    user: root                      # chown bind-mount dir; loki then writes as needed
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mkdir -p /loki/chunks /loki/tsdb-index /loki/tsdb-cache /loki/compactor /loki/rules
+        chown -R 10001:10001 /loki
+        su-exec 10001:10001 /usr/bin/loki -config.file=/etc/loki/loki-config.yaml
     ports:
       - "127.0.0.1:3100:3100"
+    volumes:
+      - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki_data:/loki
     restart: unless-stopped
+
+volumes:
+  loki_data:

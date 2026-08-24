@@ -1,0 +1,98 @@
+# AX-1 — Accessibility gate (axe-core via Playwright).
+#
+# Launches the authenticated API/dashboard server in insecure dev mode
+# (loopback only) and scans the rendered dashboard with axe-core.
+# Fails the job on any critical/serious violation — but is allow-failure
+# for now while the baseline is being burned down (see TODO below).
+name: a11y
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "tests/a11y/**"
+      - ".github/workflows/a11y.yml"
+      - "server.py"
+      - "src/trading/api/**"
+  pull_request:
+    paths:
+      - "web/**"
+      - "tests/a11y/**"
+      - ".github/workflows/a11y.yml"
+      - "server.py"
+      - "src/trading/api/**"
+  workflow_dispatch:
+
+jobs:
+  axe:
+    name: axe-core scan of dashboard
+    runs-on: ubuntu-latest
+    # TODO(AX-1): once zero critical/serious violations land on main,
+    # delete this line to make the gate blocking.
+    continue-on-error: true
+
+    env:
+      # Loopback-only dev boot of server.py (never exposed; ephemeral secret).
+      API_PORT: "8123"
+      BIND_HOST: "127.0.0.1"
+      API_INSECURE_DEV: "1"
+      API_SESSION_SECRET: "a11y-ci-dummy-secret-not-used-in-prod"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # Server deps: install from lockfile when present, else fall back to
+      # pyproject extras so the job still boots on dependency drift.
+      - name: Install Python dependencies
+        run: |
+          if [ -f uv.lock ]; then
+            pipx install uv
+            uv sync --frozen
+            echo ".venv/bin" >> "$GITHUB_PATH"
+          else
+            python -m pip install --upgrade pip
+            pip install -e ".[api]" || pip install fastapi uvicorn
+          fi
+
+      - name: Install axe harness dependencies
+        working-directory: tests/a11y
+        run: |
+          npm ci || npm install
+          npx playwright install --with-deps chromium
+
+      - name: Start dashboard server
+        run: |
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=python; fi
+          $PY server.py > /tmp/server.log 2>&1 &
+          echo "SERVER_PID=$!" >> "$GITHUB_ENV"
+          for i in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:${API_PORT}/api/health" >/dev/null 2>&1; then
+              echo "server ready on :${API_PORT}"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::dashboard server did not become healthy"; tail -50 /tmp/server.log; exit 1
+
+      - name: Run static a11y checks (node-free)
+        run: |
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=python; fi
+          $PY -m pytest tests/a11y -q
+
+      - name: Run axe-core scan
+        working-directory: tests/a11y
+        env:
+          BASE_URL: "http://127.0.0.1:${{ env.API_PORT }}"
+        run: node axe_check.mjs
+
+      - name: Stop dashboard server
+        if: always()
+        run: kill "${SERVER_PID}" 2>/dev/null || true

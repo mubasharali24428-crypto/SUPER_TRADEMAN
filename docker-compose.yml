@@ -55,5 +55,28 @@ services:
       retries: 5
       start_period: 5s
 
+# =============================================================================
+# Backup sidecar — OPTIONAL profile, never started by `docker compose up -d`.
+#
+#   docker compose --profile backup run --rm db-backup
+#
+# Mounts the same pgdata volume read-only so dumps are taken with the exact
+# postgres:16 tooling that owns the data directory. Requires POSTGRES_USER,
+# POSTGRES_PASSWORD, POSTGRES_DB from the environment (same fail-closed
+# interpolation as every other service). No ports published; no write access
+# to the database volume.
+# =============================================================================
+  db-backup:
+    image: postgres:16
+    profiles: ["backup"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (real creds live outside the repo)}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set}
+    entrypoint: ["sleep", "infinity"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data:ro
+      - ./backups:/backups
+
 volumes:
   pgdata:

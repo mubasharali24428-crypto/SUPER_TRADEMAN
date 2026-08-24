@@ -1,0 +1,47 @@
+# SUPER_TRADEMAN Prometheus configuration (OT-1).
+#
+# Scrape contract:
+# * super_trademan-api — the FastAPI control surface's AUTHENTICATED /metrics
+#   endpoint (trading.observability.metrics_auth.MetricsAuthMiddleware). The
+#   bearer token is injected at container start from $METRICS_BEARER_TOKEN
+#   (see docker-compose.yml entrypoint) into /etc/prometheus/metrics_token;
+#   it MUST hold the same value the API process validates. There is NO default
+#   token anywhere — compose fails closed when the variable is unset.
+#   Target uses host.docker.internal because the API runs on the HOST, not in
+#   the monitoring compose network ("host-gateway" extra_host covers Linux).
+# * alertmanager / loki — internal stack jobs on the compose network.
+#   Published host ports stay bound to 127.0.0.1 ONLY (see compose).
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: super_trademan-api
+    metrics_path: /metrics
+    scheme: http
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/metrics_token
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]
+
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
