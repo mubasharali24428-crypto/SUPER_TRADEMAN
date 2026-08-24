@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -12,10 +13,15 @@ from trading.risk.hmm_regime import HMMRegimeClassifier, HMMRegimeResult
 from trading.risk.evt import EVTRiskEngine, EVTRiskResult
 from trading.risk.copula import CopulaDependencyEngine, CopulaDependencyResult
 from trading.risk.survival import SurvivalEngine, SurvivalTier, AccountSurvivalStatus
+from trading.risk.tier_state import STATE_FILE_ENV
 from trading.learning.graph import LearningGraph
 from trading.learning.policy import ContextualBanditAllocator
 
 logger = logging.getLogger("trading.daemon.heartbeat")
+
+# Minimum candle closes required per symbol before statistical models are fit.
+# Below this, the cycle is SKIPPED rather than fabricating synthetic history.
+MIN_CANDLE_BUFFER = 30
 
 
 @dataclass
@@ -24,9 +30,10 @@ class HeartbeatCycleResult:
     cycle_number: int
     timestamp: datetime
     survival_status: AccountSurvivalStatus
-    garch_forecast: GARCHForecastResult
-    hmm_regime: HMMRegimeResult
-    evt_tail_risk: EVTRiskResult
+    # Model results are None when the cycle was skipped (insufficient data).
+    garch_forecast: Optional[GARCHForecastResult]
+    hmm_regime: Optional[HMMRegimeResult]
+    evt_tail_risk: Optional[EVTRiskResult]
     active_strategy: str
     proposed_signals: int
     approved_orders: List[ApprovedOrder]
@@ -47,11 +54,22 @@ class TradingHeartbeatDaemon:
         learning_graph: Optional[LearningGraph] = None,
         bandit_allocator: Optional[ContextualBanditAllocator] = None,
         interval_seconds: float = 60.0,
+        min_candle_buffer: int = MIN_CANDLE_BUFFER,
+        tier_state_path: Optional[str] = None,
     ):
         self.symbols = list(symbols)
         self.risk_config = risk_config or RiskConfig()
         self.risk_engine = RiskEngine(self.risk_config)
-        self.survival_engine = SurvivalEngine(self.risk_config)
+        # Tier persistence is opt-in via tier_state_path or RISK_TIER_STATE_FILE
+        # so a defended tier (e.g. COOLDOWN) survives a daemon restart.
+        self.tier_state_path = tier_state_path or os.environ.get(STATE_FILE_ENV)
+        self.survival_engine = SurvivalEngine(self.risk_config, state_path=self.tier_state_path)
+        try:
+            self._last_logged_tier = SurvivalTier(self.survival_engine.tier_state.tier)
+        except ValueError:
+            self._last_logged_tier = SurvivalTier.NORMAL
+        self.min_candle_buffer = max(int(min_candle_buffer), 1)
+        self._data_warned: set = set()
         self.garch_model = GARCHVolatilityModel()
         self.hmm_classifier = HMMRegimeClassifier()
         self.evt_engine = EVTRiskEngine()
@@ -75,6 +93,17 @@ class TradingHeartbeatDaemon:
             if len(self.latest_history[symbol]) > 500:
                 self.latest_history[symbol] = self.latest_history[symbol][-500:]
 
+    def _warn_insufficient_data(self, symbol: str):
+        """Log DATA_INSUFFICIENT once per symbol until its buffer recovers."""
+        if symbol not in self._data_warned:
+            self._data_warned.add(symbol)
+            logger.warning(
+                "DATA_INSUFFICIENT symbol=%s have=%d need=%d",
+                symbol,
+                len(self.latest_history.get(symbol, [])),
+                self.min_candle_buffer,
+            )
+
     def tick_cycle(
         self,
         account: AccountState,
@@ -87,9 +116,33 @@ class TradingHeartbeatDaemon:
 
         primary_symbol = self.symbols[0] if self.symbols else "BTC/USDT"
         prices = self.latest_history.get(primary_symbol, [])
-        if len(prices) < 30:
-            # Fallback synthetic seed if buffer is short
-            prices = [100.0 * (1.0 + 0.001 * i) for i in range(40)]
+
+        # 0. Data-sufficiency guard: never fabricate candle history for the models.
+        for sym in self.symbols:
+            if len(self.latest_history.get(sym, [])) < self.min_candle_buffer:
+                self._warn_insufficient_data(sym)
+        if len(prices) < self.min_candle_buffer:
+            logger.info(
+                "Heartbeat Cycle #%d SKIPPED | DATA_INSUFFICIENT symbol=%s (%d/%d candles)",
+                self.cycle_count,
+                primary_symbol,
+                len(prices),
+                self.min_candle_buffer,
+            )
+            # Survival is still evaluated (AccountState-only) so capital
+            # defense and hysteresis bookkeeping continue during data outages.
+            return HeartbeatCycleResult(
+                cycle_number=self.cycle_count,
+                timestamp=now,
+                survival_status=self.survival_engine.evaluate_survival_status(account),
+                garch_forecast=None,
+                hmm_regime=None,
+                evt_tail_risk=None,
+                active_strategy="",
+                proposed_signals=0,
+                approved_orders=[],
+                elapsed_ms=(time.perf_counter() - t0) * 1000,
+            )
 
         # 1. Statistical Modeling (GARCH, HMM, EVT)
         garch_res = self.garch_model.fit_forecast(prices)
@@ -112,7 +165,9 @@ class TradingHeartbeatDaemon:
         proposed_signals_count = 0
 
         # 4. Signal Generation & Risk Gating (Act)
-        if survival_status.allow_new_entries and signal_generator_fn is not None:
+        if survival_status.tier in (SurvivalTier.SURVIVAL, SurvivalTier.COOLDOWN):
+            logger.warning("ENTRY_BLOCKED tier=%s", survival_status.tier.value)
+        elif survival_status.allow_new_entries and signal_generator_fn is not None:
             for symbol in self.symbols:
                 sym_prices = self.latest_history.get(symbol, prices)
                 current_price = sym_prices[-1] if sym_prices else 100.0
@@ -198,11 +253,28 @@ class TradingHeartbeatDaemon:
         while self.is_running:
             account = account_provider()
             res = self.tick_cycle(account, signal_generator_fn)
+
+            # Tier transition telemetry: "<old> -> <new> reason=<...>"
+            cur_tier = res.survival_status.tier
+            if cur_tier is not self._last_logged_tier:
+                logger.info(
+                    "%s -> %s reason=%s",
+                    self._last_logged_tier.value,
+                    cur_tier.value,
+                    res.survival_status.survival_rationale,
+                )
+                self._last_logged_tier = cur_tier
+
+            # Belt-and-braces: strip any entry orders produced while defended.
+            if cur_tier in (SurvivalTier.SURVIVAL, SurvivalTier.COOLDOWN) and res.approved_orders:
+                logger.warning("ENTRY_BLOCKED tier=%s orders=%d", cur_tier.value, len(res.approved_orders))
+                res.approved_orders = []
+
             logger.info(
                 "Heartbeat Cycle #%d | Tier=%s | Regime=%s | Strat=%s | Orders=%d | %0.2fms",
                 res.cycle_number,
-                res.survival_status.tier.value,
-                res.hmm_regime.current_regime,
+                cur_tier.value,
+                res.hmm_regime.current_regime if res.hmm_regime else "data_insufficient",
                 res.active_strategy,
                 len(res.approved_orders),
                 res.elapsed_ms,

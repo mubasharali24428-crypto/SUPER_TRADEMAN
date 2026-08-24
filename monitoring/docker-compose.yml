@@ -1,11 +1,27 @@
 version: '3.8'
 
+# =============================================================================
+# Monitoring stack — SECURITY NOTES
+# =============================================================================
+# * All service ports are bound to 127.0.0.1 ONLY (no LAN/host exposure).
+# * Grafana admin password is REQUIRED from the environment:
+#     GRAFANA_ADMIN_PASSWORD   (generate: openssl rand -base64 32)
+#   Compose refuses to start the grafana service when it is unset
+#   (${VAR:?err} interpolation) — no default credentials exist here.
+#   Real credentials live OUTSIDE this repository; see .env.example for
+#   placeholder documentation only.
+#
+# NOTE (image currency, F-028): prometheus v2.47.0 / grafana 10.1.0 /
+# alertmanager v0.26.0 / loki 2.9.0 are 2023-era pins — upgrade separately;
+# out of scope for this change.
+# =============================================================================
+
 services:
   prometheus:
     image: prom/prometheus:v2.47.0
     container_name: super_trademan_prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml
     restart: unless-stopped
@@ -13,8 +29,12 @@ services:
   grafana:
     image: grafana/grafana:10.1.0
     container_name: super_trademan_grafana
+    environment:
+      # Fail closed: no admin/admin default. Password must be supplied.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
+      GF_USERS_ALLOW_SIGN_UP: "false"
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./grafana/dashboards:/var/lib/grafana/dashboards
     restart: unless-stopped
@@ -23,12 +43,12 @@ services:
     image: prom/alertmanager:v0.26.0
     container_name: super_trademan_alertmanager
     ports:
-      - "9093:9093"
+      - "127.0.0.1:9093:9093"
     restart: unless-stopped
 
   loki:
     image: grafana/loki:2.9.0
     container_name: super_trademan_loki
     ports:
-      - "3100:3100"
+      - "127.0.0.1:3100:3100"
     restart: unless-stopped

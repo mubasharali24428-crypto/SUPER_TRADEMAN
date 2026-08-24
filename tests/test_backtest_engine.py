@@ -7,13 +7,16 @@ from trading.backtest.engine import (
     BacktestConfig,
     _apply_slippage,
     _binomial_sf,
+    _check_exit_with_open,
+    _unrealized_pnl,
     _wilson_ci,
     bootstrap_trade_returns,
     run_backtest,
+    slice_for_purge_embargo,
     split_train_test,
 )
 from trading.risk.engine import RiskEngine
-from trading.risk.models import AccountState, Side
+from trading.risk.models import AccountState, Side, Signal
 from trading.strategy.crypto import generate_signal
 
 
@@ -289,3 +292,196 @@ def test_breakeven_win_rate_falls_back_when_a_side_is_missing():
 
     assert _breakeven_win_rate([]) == pytest.approx(1 / 3)
     assert _breakeven_win_rate([SimpleNamespace(net_pnl=1, r_multiple=2.0)]) == pytest.approx(1 / 3)
+
+
+# --- EX5: pessimistic gap fills (F-0032) -------------------------------------
+
+
+def _candle(start_hour, o, h, l, c, volume=1.0):
+    ts = int((datetime(2024, 1, 1, tzinfo=timezone.utc) + timedelta(hours=start_hour)).timestamp() * 1000)
+    return [ts, o, h, l, c, volume]
+
+
+def _flat_prefix(n=21, price=100.0):
+    return [_candle(i, price, price + 0.5, price - 0.5, price) for i in range(n)]
+
+
+def test_gap_open_through_stop_long_fills_at_open_not_stop():
+    """A long stopped by a bar that OPENS below the stop must fill at the open
+    (worse), never at the stop level (F-0032)."""
+    candles = _flat_prefix()
+    # Bar 21 gaps down: opens at 90.0, far below the 98.0 stop.
+    candles.append(_candle(21, 90.0, 91.0, 89.0, 90.5))
+
+    result = run_backtest(
+        candles, "BTC/USDT", _fires_once_at(20, entry=100.0, stop=98.0, target=200.0),
+        RiskEngine(), AccountState(equity=100_000.0, peak_equity=100_000.0), config=NO_COST,
+    )
+    assert len(result.trades) == 1
+    trade = result.trades[0]
+    assert trade.exit_reason == "stop"
+    # With zero slippage/commission the exit fill IS the gap open.
+    assert trade.exit_fill == pytest.approx(90.0)
+    assert trade.exit_fill < 98.0, "must NOT fill at the optimistic stop price"
+    expected_pnl = (90.0 - 100.0) * trade.position_size
+    assert trade.net_pnl == pytest.approx(expected_pnl)
+
+
+def test_gap_open_through_stop_short_fills_at_open_not_stop():
+    """Short stopped by an up-gap through its (higher) stop: fill AT THE OPEN."""
+    from trading.risk.models import Signal
+
+    fired = []
+
+    def short_fn(candles_, asset, ts):
+        if len(candles_) - 1 == 20 and not fired:
+            fired.append(True)
+            return Signal(
+                asset=asset, asset_class="crypto", side=Side.SHORT,
+                entry_price=100.0, confidence=1.0, timestamp=ts,
+                rationale="test stub", suggested_stop=102.0, suggested_target=95.0,
+            )
+        return None
+
+    candles = _flat_prefix()
+    candles.append(_candle(21, 110.0, 111.0, 109.0, 110.5))  # up-gap through stop
+
+    result = run_backtest(
+        candles, "BTC/USDT", short_fn,
+        RiskEngine(), AccountState(equity=100_000.0, peak_equity=100_000.0), config=NO_COST,
+    )
+    trade = result.trades[0]
+    assert trade.exit_reason == "stop"
+    assert trade.exit_fill == pytest.approx(110.0), "short gap-stop fills at open, not 102"
+
+
+def test_intrabar_stop_still_fills_at_stop_when_no_gap():
+    """No gap through the stop => classic touch-fill at the stop level."""
+    candles = _flat_prefix()
+    candles.append(_candle(21, 99.0, 99.5, 97.5, 98.2))  # dips below stop, opens above it
+
+    result = run_backtest(
+        candles, "BTC/USDT", _fires_once_at(20, entry=100.0, stop=98.0, target=200.0),
+        RiskEngine(), AccountState(equity=100_000.0, peak_equity=100_000.0), config=NO_COST,
+    )
+    trade = result.trades[0]
+    assert trade.exit_reason == "stop"
+    assert trade.exit_fill == pytest.approx(98.0)
+
+
+def test_same_bar_stop_and_target_still_resolves_to_stop():
+    """Invariant preserved: when both levels are touched intrabar, stop wins --
+    even when the OPEN itself is favorable (pessimistic by design)."""
+    candles = _flat_prefix()
+    # Wide bar touches BOTH target 200 and stop 98; opens above entry.
+    candles.append(_candle(21, 150.0, 205.0, 90.0, 160.0))
+
+    result = run_backtest(
+        candles, "BTC/USDT", _fires_once_at(20, entry=100.0, stop=98.0, target=200.0),
+        RiskEngine(), AccountState(equity=100_000.0, peak_equity=100_000.0), config=NO_COST,
+    )
+    trade = result.trades[0]
+    assert trade.exit_reason == "stop"
+    # Open (150) is worse than nothing... but better than stop; no GAP through
+    # stop (open > stop), so rule 2 applies and fills at the stop level.
+    assert trade.exit_fill == pytest.approx(98.0)
+
+
+def test_check_exit_with_open_unit_behavior():
+    # long, gapped through stop
+    assert _check_exit_with_open(Side.LONG, 98.0, 200.0, 90.0, 105.0, 89.0) == (90.0, "stop")
+    # short, gapped through stop
+    assert _check_exit_with_open(Side.SHORT, 102.0, 95.0, 110.0, 111.0, 96.0) == (110.0, "stop")
+    # no gap: delegates to intrabar logic (stop-first on ambiguity)
+    assert _check_exit_with_open(Side.LONG, 98.0, 200.0, 100.0, 205.0, 97.0) == (98.0, "stop")
+    assert _check_exit_with_open(Side.LONG, 98.0, 200.0, 100.0, 201.0, 100.5) == (200.0, "target")
+    assert _check_exit_with_open(Side.LONG, 98.0, 200.0, 100.0, 101.0, 100.5) == (None, None)
+
+
+# --- EX5: mark-to-market equity curve (F-0053) --------------------------------
+
+
+def test_unrealized_pnl_marks_both_sides():
+    t = {"side": Side.LONG, "entry_fill": 100.0, "position_size": 2.0}
+    assert _unrealized_pnl(t, 110.0) == pytest.approx(20.0)
+    s = {"side": Side.SHORT, "entry_fill": 100.0, "position_size": 2.0}
+    assert _unrealized_pnl(s, 110.0) == pytest.approx(-20.0)
+
+
+def test_equity_curve_marks_open_position_at_each_bar_close():
+    """While a position is open, each bar's equity point must move with the
+    close -- no more realized-only flatlines hiding adverse excursions."""
+    candles = _flat_prefix()
+    candles += [
+        _candle(21, 100.0, 100.5, 99.5, 104.0),  # bar A: close 104 -> mark +4/qty
+        _candle(22, 104.0, 104.5, 103.5, 92.0),  # bar B: close 92 -> deep adverse mark
+        _candle(23, 92.0, 92.5, 91.5, 99.0),     # bar C
+    ]
+    result = run_backtest(
+        candles, "BTC/USDT", _fires_once_at(20, entry=100.0, stop=80.0, target=200.0),
+        RiskEngine(), AccountState(equity=100_000.0, peak_equity=100_000.0),
+        config=replace(NO_COST, max_hold_bars=10),
+    )
+    curve = result.equity_curve
+    assert len(curve) == len(candles) + 1
+    # curve[0] is the seed; curve[k] is the point appended after candle k-1.
+    # Entry fired on candle 20 (close=entry => zero unrealized); bars 21..23
+    # are marked to THEIR closes.
+    qty = result.trades[0].position_size if result.trades else None
+    if qty:  # entry approved: marks must track the close path exactly
+        assert curve[21] == pytest.approx(100_000.0)  # entry bar marks at its own close
+        assert curve[22] == pytest.approx(100_000.0 + (104.0 - 100.0) * qty)
+        assert curve[23] == pytest.approx(curve[22] + (92.0 - 104.0) * qty)
+        # The marked drawdown must be deeper than anything realized-only would show:
+        assert min(curve) < 100_000.0
+
+
+def test_marked_curve_diverges_from_realized_until_close():
+    """The MtM point mid-trade differs from realized equity; after the position
+    closes, points return to realized equity."""
+    candles = _flat_prefix()
+    candles.append(_candle(21, 100.0, 100.5, 99.5, 120.0))   # favorable mark
+    candles.append(_candle(22, 120.0, 121.0, 119.0, 118.0))  # time-stop exit bar
+    result = run_backtest(
+        candles, "BTC/USDT", _fires_once_at(20, entry=100.0, stop=50.0, target=300.0),
+        RiskEngine(), AccountState(equity=100_000.0, peak_equity=100_000.0),
+        config=replace(NO_COST, max_hold_bars=2),
+    )
+    curve = result.equity_curve
+    qty = result.trades[-1].position_size
+    # curve[21] <- candle 20 (entry bar, marks at its own close = realized);
+    # curve[22] <- candle 21 (still open): marked ABOVE realized equity...
+    assert curve[21] == pytest.approx(100_000.0)
+    assert curve[22] == pytest.approx(100_000.0 + 20.0 * qty)
+    # Final bar closed the trade: last point is REALIZED equity again.
+    assert curve[-1] == pytest.approx(result.report.final_equity)
+    assert result.report.final_equity == pytest.approx(100_000.0 + 18.0 * qty)
+
+
+# --- EX5: purge/embargo slicing (F-0082) ---------------------------------------
+
+
+HOUR_MS = 3_600_000
+
+
+def test_slice_for_purge_embargo_trims_leading_and_trailing_days():
+    start = int(datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
+    frame = [[start + i * HOUR_MS, 1, 1, 1, 1, 1] for i in range(24 * 10)]  # 10 days hourly
+    out = slice_for_purge_embargo(frame, purge_days=2, embargo_days=3)
+
+    first_ts = datetime.fromtimestamp(out[0][0] / 1000, tz=timezone.utc)
+    last_ts = datetime.fromtimestamp(out[-1][0] / 1000, tz=timezone.utc)
+    assert first_ts.day == 3  # two full leading days purged
+    assert last_ts.day == 7   # three trailing days embargoed
+    assert len(out) == 24 * 5
+    assert all(frame[0][0] <= c[0] <= frame[-1][0] for c in out)
+
+
+def test_slice_noop_and_edge_cases():
+    frame = [[1.0, 0.0, 0.0, 0.0, 0.0, 0.0], [2.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    assert slice_for_purge_embargo(frame) == frame
+    assert slice_for_purge_embargo(frame, purge_days=0, embargo_days=0) == frame
+    assert slice_for_purge_embargo([], purge_days=1, embargo_days=1) == []
+    # Over-aggressive windows may legitimately empty the frame.
+    tiny = [[float(i), 0.0, 0.0, 0.0, 0.0, 0.0] for i in range(10)]
+    assert slice_for_purge_embargo(tiny, purge_days=9, embargo_days=9) == []

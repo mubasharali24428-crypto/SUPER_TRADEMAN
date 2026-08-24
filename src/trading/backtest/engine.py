@@ -1,3 +1,33 @@
+"""Single-position backtest replay engine.
+
+FILL-MODEL ASSUMPTIONS (pessimistic by design):
+
+1. GAP-OPEN-THROUGH-STOP (F-0032): if a bar OPENS beyond the stop level
+   (long: open < stop; short: open > stop), the stop fills AT THE OPEN --
+   the worse price -- never at the stop level. A resting stop cannot get
+   the stop price once the market has already gapped through it.
+2. SAME-BAR STOP+TARGET AMBIGUITY: when both stop and target levels are
+   touched within one bar, the stop is assumed to fill FIRST. This is
+   deliberately conservative: intra-bar path is unknowable from OHLC alone,
+   and assuming the target first systematically overstates edge. Note the
+   interaction with (1): on an up-gap through the target (long), rule 2
+   still resolves to the stop -- pessimistic even when the open itself was
+   favorable -- while down-gap-through-stop bars fill at the open per (1).
+3. VOLUME/LIQUIDITY IS IGNORED: fills execute the full requested size at
+   close/stop/target +/- fixed slippage regardless of bar volume.
+   TODO(F-0091): wire apply_market_impact (backtest/impact.py wraps the
+   execution/tca.py sqrt-law model) into entries/exits using the candle's
+   volume instead of discarding it as ``_v``.
+4. MARK-TO-MARKET EQUITY (F-0053): while a position is open, each bar's
+   equity-curve point marks the open position at THAT bar's close price
+   (unrealized P&L included); realized-PnL accounting (equity, net_pnl,
+   trades) is untouched. Drawdown/Sharpe/Sortino/tail-VaR are computed on
+   the marked curve, so adverse intraday excursions are visible before a
+   stop realizes them. Mark-to-market uses raw bar closes WITHOUT exit
+   slippage/commission -- slightly optimistic mid-trade, strictly less so
+   than the previous realized-only flatline.
+"""
+
 import math
 import random
 import statistics
@@ -79,6 +109,12 @@ def _commission(fill_price: float, position_size: float, config: BacktestConfig)
 
 
 def _check_exit(side: Side, stop_price: float, target_price: float, high: float, low: float):
+    """Legacy intrabar-touch exit check (no gap awareness).
+
+    Kept for backward compatibility -- run_backtest / run_portfolio_backtest
+    use :func:`_check_exit_with_open`, which adds the gap-open-through-stop
+    rule (F-0032). Same-bar stop+target ambiguity resolves to the stop.
+    """
     if side is Side.LONG:
         stop_hit, target_hit = low <= stop_price, high >= target_price
     else:
@@ -88,6 +124,31 @@ def _check_exit(side: Side, stop_price: float, target_price: float, high: float,
     if target_hit:
         return target_price, "target"
     return None, None
+
+
+def _check_exit_with_open(
+    side: Side, stop_price: float, target_price: float, open_: float, high: float, low: float
+):
+    """Gap-aware, pessimistic exit resolution.
+
+    Rule 1 (F-0032): a bar that OPENS through the stop fills at the OPEN --
+    the worse price -- never at the stop level:
+      long:  open <  stop  => fill at open
+      short: open >  stop  => fill at open
+    Rule 2: otherwise an intrabar touch of the stop fills AT the stop, and
+    same-bar stop+target ambiguity still resolves to the STOP (conservative
+    invariant preserved; see module docstring).
+    """
+    gap_through_stop = open_ < stop_price if side is Side.LONG else open_ > stop_price
+    if gap_through_stop:
+        return open_, "stop"
+    return _check_exit(side, stop_price, target_price, high, low)
+
+
+def _unrealized_pnl(open_trade: dict, close: float) -> float:
+    """Unrealized P&L of an open position marked at ``close`` (no slippage/fees)."""
+    sign = 1 if open_trade["side"] is Side.LONG else -1
+    return sign * (close - open_trade["entry_fill"]) * open_trade["position_size"]
 
 
 def _close_trade(open_trade, exit_price, exit_time, reason, asset, config) -> tuple:
@@ -152,13 +213,17 @@ def run_backtest(
     open_trade = None
 
     for i, candle in enumerate(candles):
-        ts, _o, high, low, close, _v = candle
+        ts, open_, high, low, close, _v = candle  # noqa: F841 (_v ignored)
+        # TODO(F-0091): bar volume (_v) is currently discarded -- wire
+        # backtest/impact.apply_market_impact into fills so size interacts
+        # with liquidity instead of executing frictionlessly.
+
         dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
 
         if open_trade is not None:
             open_trade["bars_held"] += 1
-            exit_price, reason = _check_exit(
-                open_trade["side"], open_trade["stop_price"], open_trade["target_price"], high, low
+            exit_price, reason = _check_exit_with_open(
+                open_trade["side"], open_trade["stop_price"], open_trade["target_price"], open_, high, low
             )
             if exit_price is None and open_trade["bars_held"] >= config.max_hold_bars:
                 exit_price, reason = close, "time_stop"
@@ -169,6 +234,8 @@ def run_backtest(
                 trades.append(trade)
                 _record_learning_graph(learning_graph, asset, trade, open_trade["signal"])
                 open_trade = None
+                equity_curve.append(equity)  # realized point on the closing bar
+                continue
             elif config.trail_atr_mult is not None:
                 trail = atr(candles[: i + 1], config.trail_atr_period)
                 if trail is not None:
@@ -177,7 +244,9 @@ def run_backtest(
                         open_trade["stop_price"] = max(open_trade["stop_price"], high - distance)
                     else:
                         open_trade["stop_price"] = min(open_trade["stop_price"], low + distance)
-            equity_curve.append(equity)
+            # Mark-to-market (F-0053): position still open -> mark it at THIS
+            # bar's close so adverse excursions show up before they realize.
+            equity_curve.append(equity + _unrealized_pnl(open_trade, close))
             continue
 
         signal = strategy_fn(candles[: i + 1], asset, dt)
@@ -198,7 +267,12 @@ def run_backtest(
                     "bars_held": 0,
                     "signal": signal,
                 }
-        equity_curve.append(equity)
+        # Flat bars carry realized equity; entry bars are already marked at
+        # their own close (unrealized ~ 0 at the entry price itself).
+        if open_trade is not None:
+            equity_curve.append(equity + _unrealized_pnl(open_trade, close))
+        else:
+            equity_curve.append(equity)
 
     if open_trade is not None:
         last_ts, _o, _h, _l, last_close, _v = candles[-1]
@@ -283,6 +357,45 @@ def _build_report(start_equity, final_equity, equity_curve, trades, breakeven_p=
 def split_train_test(candles: list[list[float]], train_frac: float = 0.7):
     split_idx = int(len(candles) * train_frac)
     return candles[:split_idx], candles[split_idx:]
+
+
+def slice_for_purge_embargo(
+    candles: list[list[float]],
+    purge_days: int = 0,
+    embargo_days: int = 0,
+) -> list[list[float]]:
+    """Timestamp-based fold-boundary hygiene for a candle frame (F-0082).
+
+    ``run_portfolio_backtest`` accepts ``purge_days``/``embargo_days`` but its
+    body never consumed them -- leakage control was cosmetic. This helper is
+    the enforcement primitive: pass each asset's frame through it before
+    replaying a fold::
+
+        candles_by_asset = {
+            asset: slice_for_purge_embargo(frame, purge_days=purge_days,
+                                           embargo_days=embargo_days)
+            for asset, frame in candles_by_asset.items()
+        }
+
+    Semantics (both edges keyed off the frame's OWN timestamps, so irregular
+    or gapped calendars are handled correctly):
+
+    - purge (leading edge): drops bars in the first ``purge_days`` days of the
+      window. Positions opened before a fold boundary can still be held into
+      these bars; evaluating them would leak pre-boundary information in.
+    - embargo (trailing edge): drops bars in the last ``embargo_days`` days of
+      the window. Entries near the edge cannot be resolved without
+      post-boundary information, and their outcomes are serially correlated
+      across the boundary.
+
+    Non-positive/absent params return the frame unchanged (shallow copy).
+    """
+    if not candles or (purge_days <= 0 and embargo_days <= 0):
+        return list(candles)
+    day_ms = 86_400_000
+    purge_cutoff = candles[0][0] + purge_days * day_ms  # inclusive lower bound
+    embargo_cutoff = candles[-1][0] - embargo_days * day_ms  # inclusive upper bound
+    return [c for c in candles if purge_cutoff <= c[0] <= embargo_cutoff]
 
 
 def _breakeven_win_rate(trades: list, fallback: float = 1 / 3) -> float:

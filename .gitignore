@@ -1,4 +1,14 @@
+# --- Secrets / credentials: never commit -------------------------------------
 .env
+.env.*
+!.env.example
+
+# --- Runtime state files (alert/risk state machines) --------------------------
+*.state.json
+ops_alert_state.json
+.risk_tier_state.json
+risk_tier_state.json
+
 __pycache__/
 *.pyc
 .venv/

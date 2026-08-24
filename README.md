@@ -69,3 +69,20 @@ deleted.
 - No funding-rate modelling for perpetual shorts held over days.
 - No gap or liquidity modelling; stops assume a fill at the stop price plus fixed slippage.
 - No live execution layer: no order placement, reconciliation against a venue, or restart semantics.
+
+## Risk Disclaimer
+
+Trading cryptocurrency assets involves substantial risk of loss and is not suitable for every
+investor. The volatility of crypto markets can cause rapid and total loss of invested capital.
+Past performance — including any backtest, simulation, or shadow-mode result presented in this
+repository — is not indicative of future results.
+
+Nothing in this repository, its documentation, or its outputs constitutes financial, investment,
+or trading advice, nor a recommendation to buy, sell, or hold any asset or instrument.
+
+This software is provided "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. In no event shall the authors or copyright holders be liable for any claim,
+damages, or other liability arising from, out of, or in connection with the software or its
+use. Any decision to use this software for live trading is made entirely at your own risk. See
+[LICENSE](LICENSE) for the full license terms.

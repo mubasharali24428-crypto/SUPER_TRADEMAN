@@ -1,36 +1,70 @@
 #!/usr/bin/env python3
-"""Automated Gate 1 Report Generator CLI Script."""
+"""Automated Gate 1 Report Generator CLI Script.
+
+FAIL-CLOSED: renders a promotion report only when the DeploymentMetricsStore
+holds at least MIN_DAYS_REQUIRED real persisted daily records. This script
+NEVER fabricates, hardcodes, or backfills campaign records (audit finding
+F-0007/G-027) — a report recommending live promotion must be earned by data.
+
+Exit codes:
+    0 — report rendered; Gate 1 PASS (PROCEED recommendation possible)
+    1 — report rendered; Gate 1 FAIL / IN_PROGRESS evaluation outcome
+    2 — insufficient data (< MIN_DAYS_REQUIRED persisted daily records)
+    3 — evaluation error (report could not be evaluated/rendered)
+"""
 
 import argparse
 import hashlib
 import json
 import sys
 from datetime import datetime, timezone
-from typing import Dict, Any
+from typing import Any, Dict
 
-from trading.ops.deployment_metrics import DeploymentMetricRecord, DeploymentMetricsStore
+from trading.ops.deployment_metrics import DeploymentMetricsStore
 from trading.ops.shadow_campaign import ShadowCampaign
 
+MIN_DAYS_REQUIRED = 20
 
-def generate_gate1_markdown_report(days: int = 30) -> str:
-    store = DeploymentMetricsStore()
-    campaign = ShadowCampaign(store=store)
+EXIT_REPORT_PASS = 0
+EXIT_REPORT_FAIL = 1
+EXIT_INSUFFICIENT_DATA = 2
+EXIT_EVAL_FAIL = 3
 
-    # Populate sample campaign records for evaluation
-    for d in range(1, days + 1):
-        rec = DeploymentMetricRecord(
-            metric_date=f"2026-08-{d:02d}",
-            execution_mode="shadow",
-            symbols="BTC/USDT",
-            signals_generated=25,
-            signals_approved=23,
-            shadow_fills_generated=23,
-            avg_signal_to_fill_latency_ms=42.0,
-            p99_signal_to_fill_latency_ms=180.0,
-            avg_shadow_slippage_bps=3.5,
-            shadow_pnl_pct=0.002,
+
+class InsufficientDataError(RuntimeError):
+    """Raised when the persisted store cannot support a Gate 1 evaluation."""
+
+
+def _load_persisted_records(store: DeploymentMetricsStore) -> list:
+    """Return all real persisted daily records from the store (no synthesis)."""
+    return list(store.metrics_history)
+
+
+def generate_gate1_markdown_report(
+    days: int = 30,
+    store: "DeploymentMetricsStore | None" = None,
+) -> str:
+    """Render the Gate 1 promotion report strictly from persisted records.
+
+    Raises InsufficientDataError if fewer than MIN_DAYS_REQUIRED distinct daily
+    records exist. Callers (CLI main) map that to exit code 2.
+    """
+    store = store or DeploymentMetricsStore()
+    records = _load_persisted_records(store)
+
+    distinct_dates = {r.metric_date for r in records}
+    if len(distinct_dates) < MIN_DAYS_REQUIRED:
+        raise InsufficientDataError(
+            f"INSUFFICIENT_DATA: {len(distinct_dates)} persisted daily record(s) found, "
+            f"{MIN_DAYS_REQUIRED} required to render a Gate 1 promotion report. "
+            "This generator never fabricates fallback data."
         )
-        campaign.record_daily_metrics(rec)
+
+    # Evaluate over the most recent `days` records, mirroring the store's windowing.
+    campaign = ShadowCampaign(store=store)
+    for rec in records[-days:]:
+        # Re-evaluate without re-persisting: build an evaluator-side view.
+        campaign.daily_records.append(rec)
 
     summary = campaign.evaluate_campaign_status(backtest_expected_pnl_pct=0.06, backtest_std_dev=0.02)
 
@@ -42,6 +76,7 @@ def generate_gate1_markdown_report(days: int = 30) -> str:
 
 **Generated Timestamp (UTC):** {now_str}  
 **Evaluation Campaign Window:** {summary.days_evaluated} Days  
+**Persisted Daily Records:** {len(records)}  
 **Executive Summary:** **[{summary.campaign_status}]**
 
 ---
@@ -56,10 +91,12 @@ def generate_gate1_markdown_report(days: int = 30) -> str:
 ---
 
 ## 2. Risk Metrics & Value at Risk (VaR)
-- **Portfolio 95% 1-Day VaR:** `1.45%`
-- **Portfolio 99% 1-Day VaR:** `2.12%`
-- **Maximum Observed Drawdown:** `3.20%`
-- **Reconciliation Mismatch Count:** `0`
+- **Portfolio 95% 1-Day VaR:** `{records[-1].portfolio_var_95:.2%}`
+- **Portfolio 99% 1-Day VaR:** `{records[-1].portfolio_var_99:.2%}`
+- **Maximum Observed Drawdown:** `{max(r.max_shadow_drawdown_pct for r in records):.2%}`
+- **Reconciliation Mismatch Count:** `{sum(r.reconciliation_mismatches for r in records)}`
+
+*All risk metrics above are computed from persisted campaign records.*
 
 ---
 
@@ -69,7 +106,7 @@ def generate_gate1_markdown_report(days: int = 30) -> str:
 `SHA256:{digital_signature}`
 
 ---
-*Report generated automatically by `scripts/generate_gate1_report.py`.*
+*Report generated automatically by `scripts/generate_gate1_report.py` from persisted DeploymentMetricsStore records only.*
 """
     return md
 
@@ -80,7 +117,14 @@ def main() -> None:
     parser.add_argument("--output", type=str, default="", help="Optional output file path")
     args = parser.parse_args()
 
-    report_md = generate_gate1_markdown_report(days=args.days)
+    try:
+        report_md = generate_gate1_markdown_report(days=args.days)
+    except InsufficientDataError as e:
+        print(f"GATE1_REPORT_STATUS: NOT_RENDERED\nReason: {e}")
+        sys.exit(EXIT_INSUFFICIENT_DATA)
+    except Exception as e:  # noqa: BLE001 — fail-closed on any evaluation error
+        print(f"GATE1_REPORT_STATUS: EVAL_ERROR\nReason: {e}")
+        sys.exit(EXIT_EVAL_FAIL)
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:
@@ -88,6 +132,16 @@ def main() -> None:
         print(f"Report written to {args.output}")
     else:
         print(report_md)
+
+    # Exit code reflects evaluation outcome, not just render success.
+    if "[GATE_1_PASS]" in report_md:
+        sys.exit(EXIT_REPORT_PASS)
+    elif "[GATE_1_FAIL]" in report_md:
+        sys.exit(EXIT_REPORT_FAIL)
+    else:
+        # e.g. IN_PROGRESS — not enough signal to promote; treated as eval-fail for gating.
+        print("Note: campaign status is not GATE_1_PASS.", file=sys.stderr)
+        sys.exit(EXIT_EVAL_FAIL)
 
 
 if __name__ == "__main__":

@@ -12,10 +12,12 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        # SHA-pinned to actions/checkout v4.2.2 (F-0112)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v4
+        # SHA-pinned to actions/setup-python v5.3.0 (F-0112)
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b
         with:
           python-version: '3.12'
 
@@ -51,7 +53,64 @@ jobs:
           PYTHONPATH=src:. python scripts/shadow_report.py --days 20 --format json
 
       - name: Upload Test & Coverage Artifacts
-        uses: actions/upload-artifact@v3
+        # SHA-pinned to actions/upload-artifact v4.4.3 (F-0112)
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
         with:
           name: test-coverage-report
           path: coverage.xml
+
+  security-gates:
+    runs-on: ubuntu-latest
+    needs: validate-and-test
+
+    steps:
+      - name: Checkout Code
+        # SHA-pinned to actions/checkout v4.2.2 (F-0112)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0  # full history so gitleaks can scan every commit
+
+      - name: Set up Python 3.12
+        # SHA-pinned to actions/setup-python v5.3.0 (F-0112)
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b
+        with:
+          python-version: '3.12'
+
+      # TODO(security-triage): flip continue-on-error to false for ALL three gates
+      # below once the initial findings have been triaged (~1 week of runs), per
+      # upgrade-strategy risk #4. Gates start advisory so a red dependency audit
+      # cannot block the deployment pipeline on day one.
+
+      - name: Dependency Vulnerability Audit (pip-audit)
+        continue-on-error: true
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          pip-audit --strict --progress-spinner off
+
+      - name: Secret Scan (gitleaks)
+        continue-on-error: true
+        # SHA-pinned to gitleaks/gitleaks-action v2.3.8 (F-0112)
+        uses: gitleaks/gitleaks-action@f586c14365d4643c6aa59d472ae6e984bf47bb34
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Filesystem Vulnerability Scan (trivy)
+        continue-on-error: true
+        # SHA-pinned to aquasecurity/trivy-action v0.36.0 (F-0112)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: fs
+          scan-ref: '.'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Upload Security Scan Results
+        if: always()
+        # SHA-pinned to actions/upload-artifact v4.4.3 (F-0112)
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        with:
+          name: security-scan-results
+          path: |
+            trivy-report.*
+            gitleaks-report.*
+          if-no-files-found: ignore

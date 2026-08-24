@@ -7,15 +7,34 @@ from trading.risk.models import AccountState, RiskConfig
 from trading.risk.garch import GARCHForecastResult
 from trading.risk.hmm_regime import HMMRegimeResult
 from trading.risk.evt import EVTRiskResult
+from trading.risk.tier_state import TierState, load_state, save_state
 
 logger = logging.getLogger("trading.risk.survival")
 
+# De-escalation hysteresis: the raw evaluation must sit BELOW the current tier
+# for this many consecutive cycles before stepping down one level. Escalation
+# remains instantaneous. Overridable per-engine via constructor; kept as a
+# module constant because RiskConfig is frozen and shared.
+MIN_DWELL_CYCLES = 3
+
 
 class SurvivalTier(Enum):
-    NORMAL = "normal"          # Standard operations (1.0x risk capacity)
+    NORMAL = "normal"          # Standard operations (1.0x risk capacity, hard-capped)
     CAUTION = "caution"        # Throttled operations (0.5x risk capacity, high confidence required)
     SURVIVAL = "survival"      # Capital defense mode (de-risking only, no new risk taken)
     COOLDOWN = "cooldown"      # Circuit breaker active / system paused
+
+
+_TIER_ORDER = (
+    SurvivalTier.NORMAL,
+    SurvivalTier.CAUTION,
+    SurvivalTier.SURVIVAL,
+    SurvivalTier.COOLDOWN,
+)
+
+
+def _severity(tier: SurvivalTier) -> int:
+    return _TIER_ORDER.index(tier)
 
 
 @dataclass(frozen=True)
@@ -36,19 +55,53 @@ class SurvivalEngine:
 
     Monitors account equity drawdowns, consecutive losses, GARCH volatility spikes,
     HMM regime shifts, and EVT tail risk to dynamically modulate operational tiers.
+
+    Tier dynamics:
+      - Escalation is INSTANT: any cycle whose raw evaluation is more severe than
+        the current tier moves the tier up immediately.
+      - De-escalation requires hysteresis: the raw evaluation must stay strictly
+        below the current tier for ``min_dwell_cycles`` consecutive cycles before
+        stepping down exactly ONE level. This prevents tier flapping.
+      - When ``state_path`` is provided, tier state is loaded at construction and
+        atomically persisted after every evaluation, so a process restart cannot
+        silently reset a defended tier back to NORMAL.
     """
 
-    def __init__(self, config: Optional[RiskConfig] = None):
+    def __init__(
+        self,
+        config: Optional[RiskConfig] = None,
+        min_dwell_cycles: Optional[int] = None,
+        state_path: Optional[str] = None,
+    ):
         self.config = config or RiskConfig()
+        self.min_dwell_cycles = (
+            int(min_dwell_cycles) if min_dwell_cycles is not None else MIN_DWELL_CYCLES
+        )
+        self.state_path = state_path
+        self.cycle_count = 0
+        if state_path:
+            self.tier_state = load_state(state_path)
+            try:
+                SurvivalTier(self.tier_state.tier)
+            except ValueError:
+                logger.warning(
+                    "Invalid persisted tier '%s'; resetting to NORMAL", self.tier_state.tier
+                )
+                self.tier_state = TierState(tier="normal")
+        else:
+            # No persistence requested: start from a fresh in-memory state.
+            self.tier_state = TierState(tier="normal")
 
-    def evaluate_survival_status(
+    # ------------------------------------------------------------------
+    # Raw (stateless) tier ladder — unchanged semantics, NORMAL capped at 1.0
+    # ------------------------------------------------------------------
+    def _evaluate_raw_status(
         self,
         account: AccountState,
-        garch_res: Optional[GARCHForecastResult] = None,
-        hmm_res: Optional[HMMRegimeResult] = None,
-        evt_res: Optional[EVTRiskResult] = None,
+        garch_res: Optional[GARCHForecastResult],
+        hmm_res: Optional[HMMRegimeResult],
+        evt_res: Optional[EVTRiskResult],
     ) -> AccountSurvivalStatus:
-        """Evaluates comprehensive account health and computes operational survival tier."""
         cfg = self.config
 
         # 1. Check Hard Kill Switch or Max Drawdown -> COOLDOWN
@@ -67,7 +120,7 @@ class SurvivalEngine:
         drawdown = 0.0
         if account.peak_equity > 0:
             drawdown = (account.peak_equity - account.equity) / account.peak_equity
-        
+
         if drawdown >= cfg.max_drawdown:
             return AccountSurvivalStatus(
                 tier=SurvivalTier.COOLDOWN,
@@ -127,13 +180,13 @@ class SurvivalEngine:
                 survival_rationale=f"Caution mode: {', '.join(reasons)}",
             )
 
-        # 4. NORMAL Operating Tier
+        # 4. NORMAL Operating Tier -- multiplier hard-capped at 1.0 (never amplified).
         base_multiplier = 1.0
         if garch_res:
             base_multiplier *= garch_res.volatility_scale_factor
         if evt_res:
             base_multiplier *= evt_res.recommended_risk_scale
-        base_multiplier = float(min(base_multiplier, 1.25))
+        base_multiplier = float(min(base_multiplier, 1.0))
 
         return AccountSurvivalStatus(
             tier=SurvivalTier.NORMAL,
@@ -145,3 +198,93 @@ class SurvivalEngine:
             evt_tail_var_99=evt_res.cvar_99 if evt_res else 0.04,
             survival_rationale="Nominal operating conditions: equity healthy and risk parameters normal",
         )
+
+    # ------------------------------------------------------------------
+    # Hysteresis automaton around the raw ladder
+    # ------------------------------------------------------------------
+    def _current_tier(self) -> SurvivalTier:
+        try:
+            return SurvivalTier(self.tier_state.tier)
+        except ValueError:
+            return SurvivalTier.NORMAL
+
+    def _tier_template(self, tier: SurvivalTier, raw: AccountSurvivalStatus) -> AccountSurvivalStatus:
+        """Per-tier operational constants for the *held* tier."""
+        if tier is SurvivalTier.COOLDOWN:
+            mult, entries, floor, why = 0.0, False, 1.0, "Cooldown: circuit breaker engaged"
+        elif tier is SurvivalTier.SURVIVAL:
+            mult, entries, floor, why = 0.0, False, 0.85, "Survival mode: capital defense, no new entries"
+        elif tier is SurvivalTier.CAUTION:
+            mult, entries, floor, why = 0.50, True, 0.70, "Caution mode: throttled risk capacity"
+        else:
+            mult, entries, floor, why = 1.00, True, 0.55, "Nominal operating conditions"
+        return AccountSurvivalStatus(
+            tier=tier,
+            effective_risk_multiplier=mult,
+            allow_new_entries=entries,
+            min_confidence_floor=floor,
+            active_regime=raw.active_regime,
+            garch_vol_forecast=raw.garch_vol_forecast,
+            evt_tail_var_99=raw.evt_tail_var_99,
+            survival_rationale=(
+                raw.survival_rationale if raw.tier is tier
+                else f"{why} [hysteresis; raw eval: {raw.tier.value}; below_count={self.tier_state.below_count}/{self.min_dwell_cycles}]"
+            ),
+        )
+
+    def evaluate_survival_status(
+        self,
+        account: AccountState,
+        garch_res: Optional[GARCHForecastResult] = None,
+        hmm_res: Optional[HMMRegimeResult] = None,
+        evt_res: Optional[EVTRiskResult] = None,
+    ) -> AccountSurvivalStatus:
+        """Evaluates comprehensive account health and computes operational survival tier.
+
+        Public signature is unchanged. Each call advances the internal cycle
+        counter by one and runs the tier automaton (instant escalation,
+        dwell-gated single-step de-escalation, optional persistence).
+        """
+        self.cycle_count += 1
+        raw = self._evaluate_raw_status(account, garch_res, hmm_res, evt_res)
+
+        current = self._current_tier()
+        raw_sev = _severity(raw.tier)
+        cur_sev = _severity(current)
+
+        new_tier = current
+        below_count = self.tier_state.below_count
+        reason = "hold"
+
+        if raw_sev > cur_sev:
+            # Escalation is immediate.
+            new_tier = raw.tier
+            below_count = 0
+            reason = f"escalation: {raw.survival_rationale}"
+        elif raw_sev < cur_sev:
+            below_count += 1
+            if below_count >= self.min_dwell_cycles:
+                new_tier = _TIER_ORDER[max(cur_sev - 1, 0)]
+                below_count = 0
+                reason = f"de-escalation: {self.min_dwell_cycles} consecutive below-tier cycles elapsed"
+            else:
+                reason = f"hold: below-tier {below_count}/{self.min_dwell_cycles}"
+        else:
+            below_count = 0
+            reason = f"hold: raw eval matches tier ({raw.survival_rationale})"
+
+        prev_tier = current
+        self.tier_state = TierState(
+            tier=new_tier.value,
+            entered_cycle=self.cycle_count if new_tier is not prev_tier else self.tier_state.entered_cycle,
+            below_count=below_count,
+        )
+        if new_tier is not prev_tier:
+            logger.info("%s -> %s reason=%s", prev_tier.value, new_tier.value, reason)
+            if self.state_path:
+                save_state(self.tier_state, self.state_path)
+        elif self.state_path:
+            # Persist below-count progress so restarts do not cheat the dwell.
+            save_state(self.tier_state, self.state_path)
+
+        return self._tier_template(new_tier, raw)

@@ -1,3 +1,15 @@
+# SUPER_TRADEMAN Prometheus alert rules.
+#
+# Metric-name contract: every expr must reference a metric actually exported by
+# src/trading/ops/metrics_collector.py::generate_prometheus_metrics(), which
+# currently exposes ONLY:
+#   super_trademan_signals_total, super_trademan_fills_total,
+#   super_trademan_latency_p95_ms, super_trademan_latency_p99_ms,
+#   super_trademan_shadow_pnl_pct, super_trademan_max_drawdown_pct,
+#   super_trademan_staleness_trips, super_trademan_cpu_usage_pct,
+#   super_trademan_memory_usage_mb
+#
+# Runbooks: docs/INCIDENT_RESPONSE.md (section anchors).
 groups:
   - name: super_trademan_alerts
     rules:
@@ -9,6 +21,7 @@ groups:
         annotations:
           summary: "High Signal-to-Fill Latency (p95 > 500ms)"
           description: "Signal-to-fill 95th percentile latency is {{ $value }} ms."
+          runbook_url: "docs/INCIDENT_RESPONSE.md#1-exchange-downtime-or-api-timeout"
 
       - alert: StaleMarketDataDataStream
         expr: super_trademan_staleness_trips > 3
@@ -18,6 +31,7 @@ groups:
         annotations:
           summary: "Stale Market Data Circuit Breaker Tripped"
           description: "Staleness sentinel tripped {{ $value }} times."
+          runbook_url: "docs/INCIDENT_RESPONSE.md#2-websocket-disconnect--data-staleness"
 
       - alert: ExcessivePortfolioDrawdown
         expr: super_trademan_max_drawdown_pct > 0.05
@@ -26,13 +40,21 @@ groups:
           severity: critical
         annotations:
           summary: "Excessive Portfolio Drawdown (> 5%)"
-          description: "Portfolio drawdown reached {{ $value }}%."
+          description: "Portfolio drawdown reached {{ $value }}."
+          runbook_url: "docs/INCIDENT_RESPONSE.md#4-portfolio-drawdown-spike-tier-3-circuit-breaker"
 
+      # DISABLED (audit finding: expr references a metric that is never exported).
+      # TODO(metrics-collector lane): export super_trademan_reconciliation_mismatches_total
+      # from MetricsCollector.generate_prometheus_metrics() (source: cumulative
+      # DeploymentMetricRecord.reconciliation_mismatches), rename the expr below to
+      # that series, then set enabled: true. Until then this rule can never fire.
       - alert: ReconciliationMismatch
         expr: super_trademan_reconciliation_mismatches > 0
         for: 0m
+        enabled: false
         labels:
           severity: emergency
         annotations:
           summary: "State Reconciliation Mismatch Detected"
           description: "Local vs venue reconciliation mismatch count is {{ $value }}."
+          runbook_url: "docs/INCIDENT_RESPONSE.md#3-position-or-balance-mismatch"

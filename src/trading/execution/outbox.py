@@ -13,8 +13,15 @@ __all__ = ["OrderIntent", "generate_client_order_id", "OutboxStore"]
 
 
 def generate_client_order_id(strategy_id: str, signal_id: str) -> str:
-    """Generates a deterministic, unique client order ID."""
-    uid = str(uuid.uuid4())[:8]
+    """Generates a deterministic-format, unique client order ID.
+
+    The uuid4 is kept in FULL (32 hex chars) -- the previous 8-char truncation
+    left only 32 bits of entropy per signal suffix, making birthday collisions
+    across many orders plausible enough to break venue-side idempotency
+    (F-0138). If a venue enforces shorter/charset-restricted IDs, enforce that
+    at the venue adapter boundary, not by destroying entropy here.
+    """
+    uid = str(uuid.uuid4())
     return f"{strategy_id}:{signal_id}:{uid}"
 
 

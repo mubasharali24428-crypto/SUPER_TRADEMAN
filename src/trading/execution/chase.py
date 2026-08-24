@@ -46,6 +46,8 @@ class TokenBucketRateLimiter:
         self.tokens = float(capacity)
         self.last_refill_time = time.time()
         self._lock = asyncio.Lock()
+        # Denied-acquire telemetry (EX5): a denial must be visible, not silent.
+        self.denied_count = 0
 
     async def acquire(self) -> bool:
         async with self._lock:
@@ -57,6 +59,7 @@ class TokenBucketRateLimiter:
             if self.tokens >= 1.0:
                 self.tokens -= 1.0
                 return True
+            self.denied_count += 1
             return False
 
 
@@ -86,6 +89,9 @@ class OrderChaser:
         self.chase_timeout_ms = chase_timeout_ms
         self.rate_limiter = rate_limiter or TokenBucketRateLimiter()
         self.working_orders: Dict[str, WorkingOrderInfo] = {}
+        # Count of order-touching actions skipped because the rate limiter
+        # denied the acquire (EX5: denials must be observable, never silent).
+        self.denied_actions: int = 0
 
     def register_order(self, info: WorkingOrderInfo) -> None:
         self.working_orders[info.client_order_id] = info
@@ -105,13 +111,22 @@ class OrderChaser:
                 order.status = OrderState.FILLED
 
     async def check_and_chase(self, current_time_ms: Optional[float] = None, oms_reference: Optional[Any] = None) -> List[str]:
-        """Scans working orders and performs cancel/reprice or remainder abandonment."""
+        """Scans working orders and performs cancel/reprice or remainder abandonment.
+
+        Rate-limit invariant (EX5): EVERY order-touching venue action (cancel,
+        reprice/resubmit, remainder abandonment) must first win a token from
+        the limiter. A denied acquire means the action is SKIPPED and logged --
+        never silently swallowed -- and the scan simply resumes on a later call;
+        it does not spin into an unthrottled rescan storm. Denials are counted
+        on ``rate_limiter.denied_count`` and ``self.denied_actions``.
+        """
         now_ms = current_time_ms if current_time_ms is not None else (time.time() * 1000.0)
         action_log: List[str] = []
 
         to_remove = []
         for client_order_id, order in list(self.working_orders.items()):
-            if order.status in (OrderState.FILLED, OrderState.CANCELED, OrderState.REJECTED, OrderState.PARTIAL_FILL_FINALIZED):
+            if order.status in (OrderState.FILLED, OrderState.CANCELED, OrderState.REJECTED,
+                                OrderState.PARTIAL_FILL_FINALIZED):
                 to_remove.append(client_order_id)
                 continue
 
@@ -121,7 +136,27 @@ class OrderChaser:
                 instrument = await self.venue_adapter.get_instrument_info(order.symbol)
 
                 current_notional = remaining_qty * order.submitted_price
-                if current_notional < instrument.min_notional or remaining_qty < instrument.min_qty:
+                below_min = (
+                    current_notional < instrument.min_notional or remaining_qty < instrument.min_qty
+                )
+                # Gate EVERY order-touching action on the shared rate limiter:
+                # abandonment (cancel + OMS finalize) and cancel/reprice alike.
+                acquired = await self.rate_limiter.acquire()
+                if not acquired:
+                    # Denied => skip-and-log. The stale order stays tracked and
+                    # will be reconsidered by a future scan once budget frees
+                    # up; no unthrottled rescan storm.
+                    self.denied_actions += 1
+                    logger.warning(
+                        f"[RATE_LIMIT_DENIED] Chase action for {client_order_id} "
+                        f"({'abandon_remainder' if below_min else 'cancel_and_reprice'}) "
+                        f"skipped; will retry next scan."
+                        f" (denied_actions={self.denied_actions})"
+                    )
+                    action_log.append(f"RATE_LIMIT_DENIED:{client_order_id}")
+                    continue
+
+                if below_min:
                     # Abandon remainder below min_notional threshold
                     logger.info(
                         f"[REMAINDER_ABANDONED_MIN_NOTIONAL] Order {client_order_id} remaining notional "
@@ -137,15 +172,43 @@ class OrderChaser:
                             initial_stop_price=order.stop_price,
                             asset=order.symbol,
                         )
+                    else:
+                        # No OMS wired in: still resolve the remainder EXPLICITLY.
+                        # The canceled remainder must not vanish from tracking
+                        # without a terminal status + audit log (F-0280).
+                        logger.warning(
+                            f"[REMAINDER_UNRESOLVED_NO_OMS] {client_order_id}: remaining qty "
+                            f"{remaining_qty} abandoned with filled_qty={order.filled_qty} "
+                            f"preserved; NO replacement registered -- position may be "
+                            f"under-filled vs strategy intent."
+                        )
                     action_log.append(f"ABANDONED:{client_order_id}")
                     to_remove.append(client_order_id)
                 else:
-                    # Issue CANCEL_AND_REPRICE if rate limiter permits
-                    acquired = await self.rate_limiter.acquire()
-                    if acquired:
-                        logger.info(f"[CANCEL_AND_REPRICE] Stale order {client_order_id} (age {elapsed_ms:.0f}ms). Canceling for reprice.")
-                        await self.venue_adapter.cancel_order(client_order_id, order.symbol)
-                        action_log.append(f"REPRICED:{client_order_id}")
+                    # Cancel-and-reprice: this implementation cancels and then
+                    # RESOLVES the remainder explicitly (abandonment with OMS
+                    # risk-deviation when available). Re-quoting at a fresh
+                    # market price would require a live reference price, which
+                    # VenueAdapter does not expose; until it does, abandoning
+                    # beats silently dropping the remainder (F-0280).
+                    logger.info(f"[CANCEL_AND_REPRICE] Stale order {client_order_id} (age {elapsed_ms:.0f}ms). Canceling.")
+                    await self.venue_adapter.cancel_order(client_order_id, order.symbol)
+                    order.status = OrderState.PARTIAL_FILL_FINALIZED
+                    if oms_reference is not None and hasattr(oms_reference, "finalize_partial_fill"):
+                        await oms_reference.finalize_partial_fill(
+                            client_order_id=client_order_id,
+                            filled_qty=order.filled_qty,
+                            intended_qty=order.requested_qty,
+                            initial_stop_price=order.stop_price,
+                            asset=order.symbol,
+                        )
+                    else:
+                        logger.warning(
+                            f"[REMAINDER_UNRESOLVED_NO_OMS] {client_order_id}: remaining qty "
+                            f"{remaining_qty} abandoned after chase-cancel with "
+                            f"filled_qty={order.filled_qty} preserved."
+                        )
+                    action_log.append(f"REPRICED:{client_order_id}")
 
         for cid in to_remove:
             self.working_orders.pop(cid, None)

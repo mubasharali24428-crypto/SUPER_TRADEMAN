@@ -1,6 +1,16 @@
-"""System configuration settings and Execution Mode hierarchy gating."""
+"""System configuration settings and Execution Mode hierarchy gating.
+
+Credential policy: this module contains NO default credentials. Connection
+settings (``postgres_url``, ``redis_url``) have no fallback defaults — they
+must be provided via environment variables or an env file loaded into the
+environment (see .env.example for placeholder names; real credentials live
+outside the repository). Constructing :class:`Settings` without them raises a
+pydantic validation error naming the missing field.
+"""
 
 from enum import Enum
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = ["ExecutionMode", "Settings", "gate_execution_mode"]
@@ -17,9 +27,25 @@ class ExecutionMode(Enum):
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    postgres_url: str = "postgresql://user:pass@localhost:5432/trading"
-    redis_url: str = "redis://localhost:6379/0"
+    # Required: no credential-embedding default. Missing -> ValidationError.
+    postgres_url: str
+    redis_url: str
+
     execution_mode: ExecutionMode = ExecutionMode.BACKTEST
+
+    @field_validator("postgres_url")
+    @classmethod
+    def _reject_embedded_default_credential(cls, v: str) -> str:
+        # Guard against reintroducing the legacy COMMITTED PLACEHOLDER default
+        # (a postgresql:// DSN with an asterisk-masked password) that this
+        # field used to carry. Legitimate env-provided URLs are untouched.
+        if "user:" + "***@" in v:
+            raise ValueError(
+                "postgres_url matches the legacy committed placeholder credential "
+                "(masked-password DSN); supply real credentials from outside "
+                "the repository."
+            )
+        return v
 
 
 def gate_execution_mode(required_mode: ExecutionMode, current_mode: ExecutionMode) -> None:
@@ -38,4 +64,3 @@ def gate_execution_mode(required_mode: ExecutionMode, current_mode: ExecutionMod
         raise RuntimeError(
             f"ExecutionMode violation: Current mode '{current_mode.value}' is lower than required mode '{required_mode.value}'."
         )
-

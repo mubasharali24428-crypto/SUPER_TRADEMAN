@@ -3,6 +3,12 @@
 
 Generates daily and cumulative Shadow Mode validation reports and computes
 Gate 1 Go/No-Go status before execution mode promotion.
+
+FAIL-CLOSED: this report is generated exclusively from metrics previously
+persisted in the DeploymentMetricsStore by the running campaign. This script
+NEVER synthesizes, seeds, or backfills records (see audit findings F-0044/G-026).
+With an empty or insufficient (< MIN_DAYS_REQUIRED) store it refuses to render
+a gate decision and exits non-zero.
 """
 
 import argparse
@@ -13,12 +19,29 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from trading.ops.deployment_metrics import DeploymentMetricRecord, DeploymentMetricsStore
 
+# Gate 1 requires at least this many distinct persisted daily records before any
+# evaluation is meaningful. Fewer days => INSUFFICIENT_DATA => non-zero exit.
+MIN_DAYS_REQUIRED = 20
+
+EXIT_OK = 0
+EXIT_INSUFFICIENT_DATA = 2
+EXIT_GATE_FAIL = 3
+
+
+def count_persisted_days(store: DeploymentMetricsStore) -> int:
+    """Number of distinct persisted daily metric dates in the store."""
+    return len({r.metric_date for r in store.metrics_history})
+
 
 def evaluate_gate_1(
     record: DeploymentMetricRecord,
     backtest_expected_pnl_pct: Optional[float] = 0.05,
     backtest_pnl_std_dev: Optional[float] = 0.02,
 ) -> Tuple[bool, List[str], Dict[str, Any]]:
+    """Evaluate cumulative shadow metrics against Gate 1 criteria.
+
+    Pure function over the provided record — no store access, no seeding.
+    """
     failures: List[str] = []
     gate_details: Dict[str, Any] = {}
 
@@ -65,28 +88,33 @@ def main() -> None:
     parser.add_argument("--format", type=str, default="table", choices=["table", "json"], help="Output format")
     args = parser.parse_args()
 
+    # Read-only view of the persisted campaign store. NO synthetic seeding.
     store = DeploymentMetricsStore()
-    # Mock populate record for demonstration/CLI invocation if empty
-    sample = DeploymentMetricRecord(
-        metric_date="2026-08-18",
-        execution_mode="shadow",
-        symbols=args.symbol,
-        signals_generated=42,
-        signals_approved=38,
-        signals_rejected_capital=4,
-        shadow_fills_generated=38,
-        liquidity_deficit_pct=0.01,
-        avg_signal_to_fill_latency_ms=45.0,
-        p95_signal_to_fill_latency_ms=120.0,
-        p99_signal_to_fill_latency_ms=210.0,
-        shadow_pnl_pct=0.048,
-    )
-    store.record_metrics(sample)
+    persisted_days = count_persisted_days(store)
+
+    if persisted_days < MIN_DAYS_REQUIRED:
+        if args.format == "json":
+            print(json.dumps({
+                "gate_1_status": "NOT_EVALUABLE",
+                "reason": "INSUFFICIENT_DATA",
+                "persisted_days": persisted_days,
+                "required_days": MIN_DAYS_REQUIRED,
+            }, indent=2))
+        else:
+            print(
+                f"GATE_1_STATUS: NOT_EVALUABLE\n"
+                f"Reason: INSUFFICIENT_DATA — persisted daily records: {persisted_days}, "
+                f"required: >= {MIN_DAYS_REQUIRED}.\n"
+                "This script never fabricates metrics; run the shadow campaign until "
+                f"{MIN_DAYS_REQUIRED}+ daily records are persisted."
+            )
+        sys.exit(EXIT_INSUFFICIENT_DATA)
 
     agg = store.get_cumulative_metrics(days=args.days)
     if not agg:
-        print("GATE_1_STATUS: FAIL\nReason: No metrics data available.")
-        sys.exit(1)
+        # Defensive: >=MIN_DAYS_REQUIRED distinct dates but aggregation unavailable.
+        print("GATE_1_STATUS: NOT_EVALUABLE\nReason: INSUFFICIENT_DATA — no aggregate available from persisted store.")
+        sys.exit(EXIT_INSUFFICIENT_DATA)
 
     gate_pass, failures, gate_details = evaluate_gate_1(agg)
 
@@ -100,9 +128,10 @@ def main() -> None:
         print(json.dumps(out, indent=2))
     else:
         print("\n=======================================================")
-        print(f"      SUPER_TRADEMAN SHADOW MODE VALIDATION REPORT")
+        print("      SUPER_TRADEMAN SHADOW MODE VALIDATION REPORT")
         print("=======================================================\n")
         print(f"Evaluation Days  : {args.days}")
+        print(f"Persisted Days   : {persisted_days}")
         print(f"Signals Generated: {agg.signals_generated}")
         print(f"Signals Approved : {agg.signals_approved}")
         print(f"Shadow Fills     : {agg.shadow_fills_generated}")
@@ -116,7 +145,7 @@ def main() -> None:
                 print(f"  - {f}")
         print("-------------------------------------------------------\n")
 
-    sys.exit(0 if gate_pass else 1)
+    sys.exit(EXIT_OK if gate_pass else EXIT_GATE_FAIL)
 
 
 if __name__ == "__main__":
