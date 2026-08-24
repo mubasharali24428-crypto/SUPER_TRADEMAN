@@ -5,6 +5,10 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 from trading.observability.logger import get_logger
+from trading.observability.shadow_metrics import (
+    daily_z_score,
+    lower_tail_breach,
+)
 from trading.ops.deployment_metrics import DeploymentMetricRecord, DeploymentMetricsStore
 
 __all__ = [
@@ -67,16 +71,32 @@ class ShadowCampaign:
         avg_slippage = sum(r.avg_shadow_slippage_bps for r in self.daily_records) / days_count
         p99_lat = max(r.p99_signal_to_fill_latency_ms for r in self.daily_records)
 
-        z_score = (cum_pnl - backtest_expected_pnl_pct) / backtest_std_dev if backtest_std_dev > 0 else 0.0
+        # Campaign-level z-score: cumulative pnl vs campaign expectation, scaled by
+        # the campaign std (consistent: both numerator and denominator at campaign scale).
+        z_score = (
+            (cum_pnl - backtest_expected_pnl_pct) / backtest_std_dev
+            if backtest_std_dev > 0
+            else 0.0
+        )
 
+        # Per-day breach detection uses per-day expectation AND per-day std —
+        # both derived with the same sqrt(days) variance law (see shadow_metrics).
         # Compute max consecutive threshold breaches across all records
         consecutive_breaches = 0
         max_consecutive = 0
-        expected_daily_pnl = backtest_expected_pnl_pct / max(1, days_count)
 
         for rec in self.daily_records:
-            rec_z = (rec.shadow_pnl_pct - expected_daily_pnl) / backtest_std_dev if backtest_std_dev > 0 else 0.0
-            is_breach = abs(rec_z) > self.max_z_score_threshold or rec.avg_shadow_slippage_bps > self.max_slippage_bps_threshold
+            rec_z = daily_z_score(
+                rec.shadow_pnl_pct,
+                backtest_expected_pnl_pct,
+                backtest_std_dev,
+                days_count,
+            )
+            # One-sided LOWER-tail test: only UNDERPERFORMANCE breaches.
+            # A day that massively outperforms is not a failure signal.
+            is_breach = lower_tail_breach(rec_z, self.max_z_score_threshold) or (
+                rec.avg_shadow_slippage_bps > self.max_slippage_bps_threshold
+            )
             if is_breach:
                 consecutive_breaches += 1
                 max_consecutive = max(max_consecutive, consecutive_breaches)
@@ -89,8 +109,10 @@ class ShadowCampaign:
         if self.consecutive_breaches >= 3:
             failures.append(f"HARD_STOP_TRIGGERED: {self.consecutive_breaches} consecutive days exceeding variance thresholds.")
 
-        if abs(z_score) > self.max_z_score_threshold:
-            failures.append(f"Z_SCORE_EXCEEDED: Tracking error z-score {z_score:.2f} > {self.max_z_score_threshold}")
+        # Gate-1 z-test is also one-sided (lower tail): underperformance fails the gate;
+        # outperformance does not. `expected_daily_pnl`/`daily_std` kept consistent above.
+        if z_score < -self.max_z_score_threshold:
+            failures.append(f"Z_SCORE_EXCEEDED: Tracking error z-score {z_score:.2f} < -{self.max_z_score_threshold}")
 
         if days_count >= 20 and len(failures) == 0:
             status = "GATE_1_PASS"

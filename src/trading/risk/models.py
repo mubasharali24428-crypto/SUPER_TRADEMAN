@@ -74,6 +74,39 @@ class AccountState:
     high_volatility: bool = False
     minutes_to_next_major_event: float | None = None
     correlations: dict[frozenset, float] = field(default_factory=dict)
+    # Settled equity recorded when the current trading day began. None means
+    # no day boundary has been observed yet (day_start_equity falls back to
+    # the current settled equity).
+    day_start_settled_equity: float | None = None
+
+
+def day_start_equity(account: "AccountState") -> float:
+    """THE ``daily_pnl_pct`` denominator, defined exactly once.
+
+    It is the settled equity recorded at the start of the current trading day
+    (``day_start_settled_equity``). Before any day boundary has been recorded
+    it falls back to the current settled equity -- never to ``peak_equity``,
+    which would silently shrink loss percentages on recovering accounts.
+    Lives in models.py (not risk/equity.py) because equity.py already imports
+    models for the account/position types; the reverse import would be
+    circular. equity.py re-exports it as the single caller-facing import site.
+    """
+    anchor = account.day_start_settled_equity
+    return account.equity if anchor is None else anchor
+
+
+def daily_pnl_pct(account: "AccountState") -> float:
+    """Intraday P&L fraction measured against day_start_equity(account).
+
+    Every producer of ``AccountState.daily_pnl_pct`` must go through this --
+    survival.py's and engine.py's ``daily_loss_limit`` breakers compare the
+    stored fraction against a limit, so the denominator cannot be re-derived
+    ad hoc at each call site.
+    """
+    denom = day_start_equity(account)
+    if denom <= 0:
+        return 0.0
+    return (account.equity - denom) / denom
 
 
 @dataclass(frozen=True)

@@ -9,7 +9,14 @@
 #   super_trademan_staleness_trips, super_trademan_cpu_usage_pct,
 #   super_trademan_memory_usage_mb
 #
-# Runbooks: docs/INCIDENT_RESPONSE.md (section anchors).
+# Severity contract: labels use the AlertSeverity vocabulary from
+# src/trading/ops/alert_manager.py — WARNING | CRITICAL | EMERGENCY (lowercase).
+# The disabled ReconciliationMismatch rule keeps `emergency`, matching
+# AlertSeverity.EMERGENCY's never-suppress semantics.
+#
+# Runbooks: every rule carries a runbook_url annotation pointing at the
+# matching section anchor in docs/INCIDENT_RESPONSE.md (anchors verified against
+# the doc headings; GitHub-style slugs, lowercase, spaces -> hyphens).
 groups:
   - name: super_trademan_alerts
     rules:

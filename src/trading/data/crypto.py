@@ -1,8 +1,11 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 
 import asyncpg
 import ccxt
+
+logger = logging.getLogger(__name__)
 
 
 async def fetch_ohlcv_with_backoff(exchange, symbol, timeframe, since, limit, max_retries=5):
@@ -18,17 +21,58 @@ async def fetch_ohlcv_with_backoff(exchange, symbol, timeframe, since, limit, ma
 
 
 async def fetch_ohlcv_range(exchange, symbol, timeframe, since, until, limit=1000):
+    """Fetch OHLCV candles over [since, until) with pagination.
+
+    Sub-09 fixes:
+    - Termination is now explicit and logged: stop when a page returns fewer
+      rows than requested (exchange history exhausted) OR when the cursor
+      fails to advance (stuck/exhausted cursor), instead of relying on the
+      empty-batch break alone.
+    - Rows fetched are logged per page and in total.
+    """
     timeframe_ms = exchange.parse_timeframe(timeframe) * 1000
     candles = []
     cursor = since
+    rows_fetched = 0
     while cursor < until:
         batch = await fetch_ohlcv_with_backoff(exchange, symbol, timeframe, cursor, limit)
         if not batch:
+            logger.info(
+                "fetch_ohlcv_range %s %s: empty page at cursor=%s; stopping (%d rows fetched)",
+                symbol,
+                timeframe,
+                cursor,
+                rows_fetched,
+            )
             break
         candles.extend(batch)
-        cursor = batch[-1][0] + timeframe_ms
+        rows_fetched += len(batch)
+        logger.info(
+            "fetch_ohlcv_range %s %s: page cursor=%s -> %d rows (%d total)",
+            symbol,
+            timeframe,
+            cursor,
+            len(batch),
+            rows_fetched,
+        )
+        next_cursor = batch[-1][0] + timeframe_ms
+        # Page shorter than the requested limit => exchange has no more history.
         if len(batch) < limit:
             break
+        # Cursor exhausted / no forward progress would loop forever.
+        if next_cursor <= cursor:
+            logger.warning(
+                "fetch_ohlcv_range %s %s: cursor did not advance (%s -> %s); stopping "
+                "(%d rows fetched)",
+                symbol,
+                timeframe,
+                cursor,
+                next_cursor,
+                rows_fetched,
+            )
+            break
+        cursor = next_cursor
+    logger.info("fetch_ohlcv_range %s %s: complete, %d rows fetched", symbol, timeframe, rows_fetched)
     return [c for c in candles if c[0] < until]
 
 

@@ -1,3 +1,4 @@
+# ALEX-FORCE SUB-08: security hooks added (bandit + semgrep), HIGH severity gate.
 repos:
   - repo: https://github.com/psf/black
     rev: 23.9.1
@@ -15,6 +16,22 @@ repos:
     hooks:
       - id: flake8
         args: ['--max-line-length=120']
+
+  - repo: https://github.com/pycqa/bandit
+    rev: 1.7.5
+    hooks:
+      # HIGH-severity findings only; LOW/MEDIUM stay advisory so the hook does
+      # not drown real problems in noise. Tests are scanned too (they build
+      # credentials/fixtures); exclude nothing without cause.
+      - id: bandit
+        args: ['--severity-level', 'high', '--quiet']
+        files: '^(src|scripts|tests)/.*\.py$'
+
+  - repo: https://github.com/returntocorp/semgrep
+    rev: v1.45.0
+    hooks:
+      - id: semgrep
+        args: ['--config', 'p/ci', '--config', 'p/secrets', '--severity', 'ERROR', '--error', '--metrics=off']
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.5.1

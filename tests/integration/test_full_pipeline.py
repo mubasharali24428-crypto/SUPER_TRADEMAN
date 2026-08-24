@@ -8,7 +8,8 @@ import pandas as pd
 import pytest
 
 from trading.backtest.engine import BacktestConfig
-from trading.backtest.funding import FundingEvent, apply_funding
+# SUB-09: trading.backtest.funding deleted (wire-or-delete adjudication — no src
+# consumer; wiring into engine fill path forbidden). See tests/test_wire_or_delete.md.
 from trading.backtest.impact import apply_market_impact
 from trading.backtest.portfolio import FoldBoundaryAction, run_portfolio_backtest
 from trading.data.quality import validate_ohlcv
@@ -81,11 +82,9 @@ async def test_full_pipeline_end_to_end():
     )
     assert len(result.trades) >= 1
 
-    # 5. Economic Realism - Funding Fee Deduction (Phase 2)
-    open_trades = {"BTC": {"side": Side.LONG, "position_size": 0.1}}
-    event = FundingEvent(timestamp=datetime.now(timezone.utc), symbol="BTC", funding_rate=0.0001, mark_price=50000.0)
-    updated_account, fee = apply_funding(starting_account, open_trades, event)
-    assert fee == 0.5
+    # SUB-09: funding-fee section (Phase 2) removed -- trading.backtest.funding
+    # was deleted by wire-or-delete adjudication; see tests/test_wire_or_delete.md.
+
 
     # 6. Market Impact Model (Phase 5)
     impact_pct, exec_notional, was_capped = apply_market_impact(

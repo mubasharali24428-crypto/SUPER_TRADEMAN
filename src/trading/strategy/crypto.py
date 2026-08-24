@@ -1,3 +1,4 @@
+import math
 import statistics
 from datetime import datetime
 
@@ -6,12 +7,38 @@ from trading.risk.models import Side, Signal
 
 
 def _rsi(closes: list[float], period: int) -> float:
-    window = closes[-(period + 1) :]
-    deltas = [window[i] - window[i - 1] for i in range(1, len(window))]
-    gains = [d for d in deltas if d > 0]
-    losses = [-d for d in deltas if d < 0]
-    avg_gain = sum(gains) / period
-    avg_loss = sum(losses) / period
+    """Wilder-smoothed RSI (sub-09 fix).
+
+    Two bugs fixed versus the previous implementation:
+
+    1. SHORT-WINDOW GARBAGE: with fewer than ``period + 1`` closes the delta
+       list was shorter than ``period``, yet averages were still divided by
+       ``period`` (and the slice silently shrank) -- garbage out. Now returns
+       NaN instead whenever history is insufficient or ``period <= 0``.
+
+    2. NO WILDER SMOOTHING: the old code was a plain mean over just the last
+       ``period`` deltas (a divide-by-window-length bug for any truncated
+       window). Proper Wilder RSI seeds with the simple mean of the first
+       ``period`` deltas, then recursively smooths every later delta:
+       avg = (avg * (period - 1) + new) / period.
+    """
+    if period <= 0 or len(closes) < period + 1:
+        return math.nan
+
+    deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+
+    # Seed: simple mean of the first `period` deltas (Wilder's initial average).
+    seed = deltas[:period]
+    avg_gain = sum(d for d in seed if d > 0) / period
+    avg_loss = sum(-d for d in seed if d < 0) / period
+
+    # Wilder smoothing over all remaining deltas.
+    for d in deltas[period:]:
+        gain = d if d > 0 else 0.0
+        loss = -d if d < 0 else 0.0
+        avg_gain = (avg_gain * (period - 1) + gain) / period
+        avg_loss = (avg_loss * (period - 1) + loss) / period
+
     if avg_loss == 0:
         return 100.0
     rs = avg_gain / avg_loss
@@ -91,6 +118,8 @@ def generate_signal(
     stop_distance *= atr_stop_mult
 
     rsi = _rsi(closes, rsi_period)
+    if math.isnan(rsi):
+        return None  # insufficient history -> RSI unknown; treat as disagreement
 
     if z <= -z_threshold:
         side = Side.LONG

@@ -47,6 +47,11 @@ def generate_cpcv_splits(
         the total purge window (purge_days + max_holding_days + label_horizon_days).
 
     This guarantees strict causality: no future information leaks into the training set.
+
+    Additionally, ``embargo_days`` is applied on the TEST-side boundary: the
+    first ``embargo_days`` samples of each test block are dropped, so that
+    labels/positions formed near the end of the training window (which need
+    future data beyond the cutoff) cannot influence test evaluation either.
     """
     if len(df) < cfg.min_train_size + cfg.min_test_size:
         raise ValueError(
@@ -92,6 +97,14 @@ def generate_cpcv_splits(
         )
 
         test_indices = np.arange(test_start_idx, test_end_idx)
+
+        # Embargo on the TEST side: drop the first embargo_days samples of the
+        # test block. Positions opened at the end of the training window may
+        # still be resolving during those samples; excluding them keeps the
+        # test evaluation clean of train-adjacent label spillover.
+        if cfg.embargo_days > 0 and len(test_indices) > cfg.min_test_size:
+            test_indices = test_indices[cfg.embargo_days:]
+
         if len(test_indices) < cfg.min_test_size:
             continue
 

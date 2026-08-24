@@ -1,9 +1,29 @@
+"""Trade decision journal: persistence of DecisionRecord rows.
+
+Schema ownership: the ``decisions`` table is created by Alembic migrations
+(alembic/versions/0001_initial), NOT at runtime. The migration adds a
+``decision_id TEXT NOT NULL UNIQUE`` idempotency key so replaying the same
+trade (same asset/entry_time/side) updates rather than duplicates.
+"""
+
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any, Protocol
 
 import asyncpg
 
 from trading.risk.models import Signal
+
+
+class JournalPool(Protocol):
+    """Structural subset of asyncpg.Pool used by the journal (test-friendly)."""
+
+    async def execute(self, sql: str, *args: Any) -> Any: ...
+
+    async def executemany(self, sql: str, rows: Any) -> Any: ...
+
+__all__ = ["DecisionRecord", "build_decision_record", "decision_id_for", "store_decisions"]
 
 
 @dataclass(frozen=True)
@@ -47,28 +67,26 @@ def build_decision_record(signal: Signal, trade) -> DecisionRecord:
     )
 
 
-async def ensure_schema(pool: asyncpg.Pool):
-    await pool.execute(
-        """
-        CREATE TABLE IF NOT EXISTS decisions (
-            id BIGSERIAL PRIMARY KEY,
-            asset TEXT NOT NULL,
-            entry_time TIMESTAMPTZ NOT NULL,
-            side TEXT NOT NULL,
-            decision TEXT NOT NULL,
-            expected_reward_risk DOUBLE PRECISION NOT NULL,
-            consequence_r_multiple DOUBLE PRECISION NOT NULL,
-            consequence_net_pnl DOUBLE PRECISION NOT NULL,
-            exit_reason TEXT NOT NULL,
-            verdict TEXT NOT NULL
-        )
-        """
-    )
+def decision_id_for(record: DecisionRecord) -> str:
+    """Deterministic identity for one decision row.
+
+    A trade is identified by (asset, entry_time, side): replaying backtests or
+    re-running the journal for the same session must UPDATE in place, never
+    duplicate. SHA-256 keeps the key stable and collision-free.
+    """
+    raw = f"{record.asset}|{record.entry_time.isoformat()}|{record.side}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-async def store_decisions(pool: asyncpg.Pool, records: list[DecisionRecord]):
+async def store_decisions(pool: "JournalPool", records: list[DecisionRecord]):
+    """Persist decision records idempotently.
+
+    INSERT .. ON CONFLICT (decision_id) DO UPDATE: re-storing the same trade
+    refreshes consequences/verdict instead of raising on the unique key.
+    """
     rows = [
         (
+            decision_id_for(r),
             r.asset,
             r.entry_time,
             r.side,
@@ -83,9 +101,17 @@ async def store_decisions(pool: asyncpg.Pool, records: list[DecisionRecord]):
     ]
     await pool.executemany(
         """
-        INSERT INTO decisions (asset, entry_time, side, decision, expected_reward_risk,
-                                consequence_r_multiple, consequence_net_pnl, exit_reason, verdict)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        INSERT INTO decisions (decision_id, asset, entry_time, side, decision,
+                               expected_reward_risk, consequence_r_multiple,
+                               consequence_net_pnl, exit_reason, verdict)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        ON CONFLICT (decision_id) DO UPDATE SET
+            decision = EXCLUDED.decision,
+            expected_reward_risk = EXCLUDED.expected_reward_risk,
+            consequence_r_multiple = EXCLUDED.consequence_r_multiple,
+            consequence_net_pnl = EXCLUDED.consequence_net_pnl,
+            exit_reason = EXCLUDED.exit_reason,
+            verdict = EXCLUDED.verdict
         """,
         rows,
     )

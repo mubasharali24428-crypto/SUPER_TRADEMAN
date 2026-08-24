@@ -8,9 +8,12 @@ using only the standard library (urllib.request) — no new dependencies.
   (PAGERDUTY_ROUTING_KEY) are attempted when configured.
 - EMERGENCY severity always attempts delivery and retries twice with linear
   backoff; other severities get a single attempt (failures are logged).
-- Cooldown/dedup state (last_alert_time, alert_counts) is persisted to
-  ops_alert_state.json so suppression windows and escalation counters survive
-  process restarts (findings F-0156/G-003, F-0376/G-111).
+- Cooldown/dedup state lives behind a storage interface (findings F-0156/G-003,
+  F-0376/G-111): FileCooldownStore persists to ops_alert_state.json (default,
+  DEGRADED single-process mode); RedisCooldownStore (selected when REDIS_URL is
+  set) keeps SETEX suppression windows + escalation counters shared across
+  active/passive daemons. Suppression windows and escalation counters survive
+  process restarts either way.
 - Dispatch outcomes are logged with channel, status code, and attempt count.
 """
 
@@ -23,7 +26,8 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
+from urllib.parse import quote, unquote
 
 from trading.observability.logger import get_logger
 from trading.ops.deployment_metrics import AlertRecord, DeploymentMetricsStore
@@ -32,10 +36,17 @@ __all__ = [
     "AlertSeverity",
     "AlertRule",
     "WebhookDispatchResult",
+    "FileCooldownStore",
+    "RedisCooldownStore",
     "AlertManager",
 ]
 
 logger = get_logger("trading.ops.alert_manager")
+
+REDIS_URL_ENV = "REDIS_URL"
+REDIS_COOLDOWN_PREFIX = "trading:alerts:cooldown"
+REDIS_ESCALATION_HASH = "trading:alerts:escalation"
+DEFAULT_REDIS_TTL_SEC = 7 * 24 * 3600
 
 
 class AlertSeverity:
@@ -75,6 +86,156 @@ class AlertManagerConfig:
     dispatch_interval: float = 60.0  # minimum seconds between webhook batches (dedup window)
 
 
+# ---------------------------------------------------------------------------
+# Cooldown / escalation STORAGE backends (sub-04)
+#
+# Suppression state is extracted behind one interface so it can live in Redis
+# (shared across active/passive daemons) instead of a per-process JSON file.
+# FileCooldownStore keeps the legacy ops_alert_state.json behaviour byte-
+# compatible ({last_alert_time, alert_counts}); RedisCooldownStore uses SETEX
+# window keys per rule+severity plus a hash for escalation counters, selected
+# when REDIS_URL is set. EMERGENCY bypass is dispatch policy and stays in
+# AlertManager below — untouched.
+# ---------------------------------------------------------------------------
+
+
+def _redis_safe_token(value: str) -> str:
+    """URL-quote rule names so Redis keys stay single-token."""
+    return quote(value, safe="")
+
+
+class FileCooldownStore:
+    """Legacy JSON-file cooldown store (default; atomic tmp + os.replace)."""
+
+    def __init__(self, state_path: "str | Path"):
+        self.state_path = Path(state_path)
+
+    def load_all(self) -> Tuple[Dict[str, float], Dict[str, int]]:
+        try:
+            if self.state_path.exists():
+                data = json.loads(self.state_path.read_text(encoding="utf-8"))
+                last_alert_time = {
+                    str(k): float(v) for k, v in (data.get("last_alert_time") or {}).items()
+                }
+                alert_counts = {
+                    str(k): int(v) for k, v in (data.get("alert_counts") or {}).items()
+                }
+                return last_alert_time, alert_counts
+        except (OSError, ValueError, TypeError) as exc:
+            logger.warning(f"[ALERT_STATE_LOAD_FAILED] {exc}; starting with empty dedup state.")
+        return {}, {}
+
+    def persist_snapshot(self, last_alert_time: Dict[str, float], alert_counts: Dict[str, int]) -> None:
+        """Atomically write the manager's current dedup/escalation dicts."""
+        payload = {
+            "last_alert_time": dict(last_alert_time),
+            "alert_counts": dict(alert_counts),
+        }
+        try:
+            tmp_path = self.state_path.with_suffix(self.state_path.suffix + ".tmp")
+            tmp_path.write_text(json.dumps(payload), encoding="utf-8")
+            os.replace(tmp_path, self.state_path)
+        except OSError as exc:
+            logger.warning(f"[ALERT_STATE_PERSIST_FAILED] {exc}")
+
+
+class RedisCooldownStore:
+    """Redis-backed cooldown store (SETEX window keys per rule+severity).
+
+    Key layout:
+      <prefix>:<RULE>:<SEVERITY>   -> value = epoch ts of last accepted alert,
+                                      TTL = manager cooldown window (SETEX).
+      <escalation-hash>             -> HINCRBY counter per rule name.
+    Suppression check is an EXISTS on the window key, so cross-process dedup
+    needs no read-modify-write cycle.
+    """
+
+    def __init__(
+        self,
+        client: Any = None,
+        redis_url: Optional[str] = None,
+        prefix: str = REDIS_COOLDOWN_PREFIX,
+        escalation_hash: str = REDIS_ESCALATION_HASH,
+        default_ttl_sec: float = DEFAULT_REDIS_TTL_SEC,
+    ):
+        if client is None:
+            try:
+                import redis  # noqa: PLC0415 — lazy import (optional dependency)
+            except ImportError as exc:  # pragma: no cover - venv-dependent
+                raise RuntimeError(
+                    "REDIS_URL is set but the 'redis' package is not available in this venv. "
+                    "Install redis-py to use the distributed alert-cooldown backend."
+                ) from exc
+            url = redis_url or os.environ.get(REDIS_URL_ENV)
+            if not url:
+                raise ValueError("RedisCooldownStore requires a client or REDIS_URL")
+            client = redis.Redis.from_url(url, decode_responses=True)
+        self.client = client
+        self.prefix = prefix
+        self.escalation_hash = escalation_hash
+        self.default_ttl_sec = default_ttl_sec
+
+    def _window_key(self, rule_name: str, severity: str) -> str:
+        return f"{self.prefix}:{_redis_safe_token(rule_name)}:{_redis_safe_token(severity)}"
+
+    def load_all(self) -> Tuple[Dict[str, float], Dict[str, int]]:
+        """Project Redis keys into the legacy dict shape (best-effort)."""
+        last_alert_time: Dict[str, float] = {}
+        alert_counts: Dict[str, int] = {}
+        try:
+            pattern = f"{self.prefix}:*"
+            plen = len(self.prefix)
+            for key in self.client.scan_iter(match=pattern):
+                body = str(key)[plen + 1:]  # strip "<prefix>:"
+                rule_part, _, severity_part = body.rpartition(":")
+                if not rule_part:
+                    continue  # defensive: malformed key
+                raw = self.client.get(key)
+                if raw is not None:
+                    try:
+                        rule = unquote(rule_part)
+                        last_alert_time[rule] = max(last_alert_time.get(rule, 0.0), float(raw))
+                    except (TypeError, ValueError):
+                        continue
+            raw_counts = self.client.hgetall(self.escalation_hash)
+            alert_counts = {str(k): int(v) for k, v in (raw_counts or {}).items()}
+        except Exception as exc:  # noqa: BLE001 — state introspection must not page anyone
+            logger.warning(f"[ALERT_STATE_REDIS_SCAN_FAILED] {exc}")
+        return last_alert_time, alert_counts
+
+    def should_suppress(self, rule_name: str, severity: str, now_ts: float, cooldown_sec: float) -> bool:
+        del now_ts  # expiry enforced by Redis TTL, not wall-clock arithmetic
+        ttl_ms = max(1, int(round(max(cooldown_sec, 0.001) * 1000)))
+        key = self._window_key(rule_name, severity)
+        try:
+            acquired = bool(self.client.set(key, time.time(), nx=True, px=ttl_ms))
+        except Exception as exc:  # noqa: BLE001 — fail-open: never block alerting on state-store loss
+            logger.warning(f"[ALERT_STATE_REDIS_ERROR] {exc}; allowing alert through.")
+            return False
+        return not acquired
+
+    def record_escalation(self, rule_name: str) -> int:
+        try:
+            return int(self.client.hincrby(self.escalation_hash, rule_name, 1))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[ALERT_ESCALATION_REDIS_ERROR] {exc}")
+            return 0
+
+
+def select_cooldown_store(state_path: "str | Path | None" = None, redis_client: Any = None):
+    """File store by default; Redis only when explicitly injected or REDIS_URL set."""
+    if redis_client is not None:
+        logger.info("[ALERT_STATE_BACKEND] redis (injected client)")
+        return RedisCooldownStore(client=redis_client)
+    redis_url = (os.environ.get(REDIS_URL_ENV) or "").strip()
+    if redis_url:
+        logger.info(f"[ALERT_STATE_BACKEND] redis (REDIS_URL)")
+        return RedisCooldownStore(redis_url=redis_url)
+    resolved = Path(state_path) if state_path else Path(os.getenv("OPS_ALERT_STATE_PATH", "ops_alert_state.json"))
+    logger.info(f"[ALERT_STATE_BACKEND] file {resolved} (DEGRADED: single-process cooldowns)")
+    return FileCooldownStore(resolved)
+
+
 class AlertManager:
     """Evaluates metrics against alert rules and dispatches deduplicated alerts over real webhooks."""
 
@@ -87,6 +248,7 @@ class AlertManager:
         webhook_url: str = "",
         state_path: "str | Path | None" = None,
         config: Optional[AlertManagerConfig] = None,
+        cooldown_store: Optional[Any] = None,
     ):
         self.store = store or DeploymentMetricsStore()
         self.cooldown_sec = cooldown_sec
@@ -94,7 +256,17 @@ class AlertManager:
         self.pagerduty_key = pagerduty_key or os.getenv("PAGERDUTY_ROUTING_KEY", "")
         self.webhook_url = webhook_url or os.getenv("ALERT_WEBHOOK_URL", "")
         self.config = config or AlertManagerConfig()
-        self.state_path = Path(state_path) if state_path else Path(os.getenv("OPS_ALERT_STATE_PATH", "ops_alert_state.json"))
+        # Cooldown STORAGE backend: explicit injection wins, then REDIS_URL,
+        # then the legacy per-process JSON file (DEGRADED single-process mode).
+        if cooldown_store is not None:
+            self.cooldown_store = cooldown_store
+        else:
+            self.cooldown_store = select_cooldown_store(state_path=state_path)
+        self.state_path = (
+            Path(state_path)
+            if state_path
+            else Path(os.getenv("OPS_ALERT_STATE_PATH", "ops_alert_state.json"))
+        )
 
         self.last_alert_time: Dict[str, float] = {}
         self.alert_counts: Dict[str, int] = {}
@@ -108,37 +280,23 @@ class AlertManager:
         self._load_state()
 
     # ------------------------------------------------------------------
-    # Persisted cooldown / dedup state
+    # Persisted cooldown / dedup state (storage delegated to cooldown_store)
     # ------------------------------------------------------------------
     def _load_state(self) -> None:
         """Restore cooldown and escalation counters across restarts."""
-        try:
-            if self.state_path.exists():
-                data = json.loads(self.state_path.read_text(encoding="utf-8"))
-                self.last_alert_time = {
-                    str(k): float(v) for k, v in (data.get("last_alert_time") or {}).items()
-                }
-                self.alert_counts = {
-                    str(k): int(v) for k, v in (data.get("alert_counts") or {}).items()
-                }
-                logger.info(
-                    f"[ALERT_STATE_LOADED] rules={len(self.last_alert_time)} from {self.state_path}"
-                )
-        except (OSError, ValueError, TypeError) as exc:
-            logger.warning(f"[ALERT_STATE_LOAD_FAILED] {exc}; starting with empty dedup state.")
+        self.last_alert_time, self.alert_counts = self.cooldown_store.load_all()
+        if self.last_alert_time or self.alert_counts:
+            logger.info(
+                f"[ALERT_STATE_LOADED] rules={len(self.last_alert_time)} "
+                f"backend={type(self.cooldown_store).__name__}"
+            )
 
     def _persist_state(self) -> None:
-        """Write cooldown and escalation counters atomically to the state file."""
-        payload = {
-            "last_alert_time": dict(self.last_alert_time),
-            "alert_counts": dict(self.alert_counts),
-        }
-        try:
-            tmp_path = self.state_path.with_suffix(self.state_path.suffix + ".tmp")
-            tmp_path.write_text(json.dumps(payload), encoding="utf-8")
-            os.replace(tmp_path, self.state_path)
-        except OSError as exc:
-            logger.warning(f"[ALERT_STATE_PERSIST_FAILED] {exc}")
+        """Persist cooldown and escalation counters via the active backend."""
+        persist = getattr(self.cooldown_store, "persist_snapshot", None)
+        if callable(persist):
+            # File backend: write the full snapshot atomically.
+            persist(self.last_alert_time, self.alert_counts)
 
     def should_suppress(self, rule_name: str, now_ts: float) -> bool:
         """Deduplicates and checks the cooldown period for alert rules.
@@ -146,6 +304,9 @@ class AlertManager:
         EMERGENCY-severity alerts are never suppressed by this window — see
         ``should_suppress_for_severity`` (finding F-0376/G-111).
         """
+        redis_suppress = getattr(self.cooldown_store, "should_suppress", None)
+        if callable(redis_suppress):
+            return bool(redis_suppress(rule_name, AlertSeverity.WARNING, now_ts, self.cooldown_sec))
         last_t = self.last_alert_time.get(rule_name, 0.0)
         return (now_ts - last_t) < self.cooldown_sec
 
@@ -153,12 +314,22 @@ class AlertManager:
         """Severity-aware suppression: EMERGENCY always pages, others respect cooldown."""
         if severity == AlertSeverity.EMERGENCY:
             return False
-        return self.should_suppress(rule_name, now_ts)
+        redis_suppress = getattr(self.cooldown_store, "should_suppress", None)
+        if callable(redis_suppress):
+            return bool(
+                redis_suppress(rule_name, severity, now_ts, self.cooldown_sec)
+            )
+        last_t = self.last_alert_time.get(rule_name, 0.0)
+        return (now_ts - last_t) < self.cooldown_sec
 
     def escalate_severity(self, rule_name: str, current_severity: str) -> str:
         """Escalates severity if triggered repeatedly within a short window."""
-        count = self.alert_counts.get(rule_name, 0) + 1
-        self.alert_counts[rule_name] = count
+        record_escalation = getattr(self.cooldown_store, "record_escalation", None)
+        if callable(record_escalation):
+            count = int(cast(Callable[[str], int], record_escalation)(rule_name))  # HINCRBY — atomic cross-process
+        else:
+            count = self.alert_counts.get(rule_name, 0) + 1
+            self.alert_counts[rule_name] = count
         if count >= 3 and current_severity == AlertSeverity.WARNING:
             return AlertSeverity.CRITICAL
         if count >= 5 and current_severity == AlertSeverity.CRITICAL:

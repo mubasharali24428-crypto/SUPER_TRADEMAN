@@ -1,12 +1,53 @@
 """Centralized Operational & Quantitative Metrics Collector for Prometheus Export."""
 
 import os
-import time
-from typing import Dict, Any, List, Optional
+import uuid
+from typing import Any, Dict, List, Optional
 
-from trading.ops.deployment_metrics import DeploymentMetricRecord, DeploymentMetricsStore
+from trading.ops.deployment_metrics import (
+    AlertRecord,
+    DeploymentMetricRecord,
+    DeploymentMetricsStore,
+    persist_alert,
+)
+from trading.observability.logger import get_logger
 
-__all__ = ["MetricsCollector"]
+__all__ = [
+    "MetricsCollector",
+    "super_trademan_reconciliation_mismatches",
+]
+
+
+class SuperTrademanReconciliationMismatches:
+    """Counter hook for reconciliation mismatches (super_trademan strategy).
+
+    Exported as a module-level singleton ``super_trademan_reconciliation_mismatches``
+    so any subsystem can ``.increment()`` it; wiring into the reconciliation
+    runner happens later (wired-later contract). The current value is exposed
+    in the Prometheus text export.
+    """
+
+    def __init__(self) -> None:
+        self._value: int = 0
+        self.labels: Dict[str, str] = {
+            "strategy": "super_trademan_v1",
+        }
+
+    @property
+    def value(self) -> int:
+        return self._value
+
+    def increment(self, amount: int = 1) -> int:
+        """Increment the mismatch counter by ``amount`` (default 1)."""
+        if amount < 0:
+            raise ValueError("counter increment must be non-negative")
+        self._value += amount
+        return self._value
+
+
+# Module-level counter hook -- wired-later: call sites increment this; the
+# Prometheus exporter below reads it.
+super_trademan_reconciliation_mismatches = SuperTrademanReconciliationMismatches()
 
 
 class MetricsCollector:
@@ -19,6 +60,50 @@ class MetricsCollector:
             "strategy": "super_trademan_v1",
             "symbol": "BTC/USDT",
         }
+
+    # -- alerts --------------------------------------------------------------
+
+    async def record_alert(
+        self,
+        alert_name: str,
+        severity: str,
+        message: str,
+        channel: str = "slack",
+        alert_id: Optional[str] = None,
+        timestamp_utc: Any = None,
+    ) -> AlertRecord:
+        """Build an :class:`AlertRecord`, persist it to the alerts table when a
+        Postgres pool is attached, and return it regardless.
+
+        Graceful degradation: DB failures are logged at CRITICAL and never
+        propagate -- in-memory operation continues so alerting itself is not
+        lost to a database outage.
+        """
+        record = AlertRecord(
+            alert_id=alert_id or f"alert-{uuid.uuid4()}",
+            alert_name=alert_name,
+            severity=severity,
+            message=message,
+            channel=channel,
+        )
+        pool = getattr(self.store, "pool", None)
+        if pool is not None:
+            try:
+                await persist_alert(pool, record)
+            except Exception as exc:  # noqa: BLE001 - degrade on ANY DB failure
+                get_logger(__name__).critical(
+                    "[ALERT_DB_UNAVAILABLE] failed to persist alert %s (%s: %s); "
+                    "continuing memory-only",
+                    record.alert_id,
+                    type(exc).__name__,
+                    exc,
+                )
+        else:
+            get_logger(__name__).warning(
+                "[ALERT_NOT_PERSISTED] no Postgres pool attached; alert %s kept memory-only",
+                record.alert_id,
+            )
+        return record
 
     def collect_system_metrics(self) -> Dict[str, float]:
         """Collects lightweight OS/system metrics."""
@@ -64,6 +149,10 @@ class MetricsCollector:
             "# HELP super_trademan_staleness_trips Total staleness circuit breaker trips.",
             "# TYPE super_trademan_staleness_trips counter",
             f'super_trademan_staleness_trips{{{lbl_str}}} {cum.staleness_circuit_breaker_trips if cum else 0}',
+            "",
+            "# HELP super_trademan_reconciliation_mismatches_total Reconciliation mismatch events.",
+            "# TYPE super_trademan_reconciliation_mismatches_total counter",
+            f"super_trademan_reconciliation_mismatches_total{{{lbl_str}}} {super_trademan_reconciliation_mismatches.value}",
             "",
             "# HELP super_trademan_cpu_usage_pct System CPU usage percentage.",
             "# TYPE super_trademan_cpu_usage_pct gauge",

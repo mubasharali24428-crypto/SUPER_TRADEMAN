@@ -46,24 +46,9 @@ class OutboxStore:
     def __init__(self, pool: asyncpg.Pool):
         self.pool = pool
 
-    async def ensure_schema(self) -> None:
-        await self.pool.execute(
-            """
-            CREATE TABLE IF NOT EXISTS order_intent (
-                client_order_id TEXT PRIMARY KEY,
-                strategy_id TEXT NOT NULL,
-                signal_id TEXT NOT NULL,
-                asset TEXT NOT NULL,
-                side TEXT NOT NULL,
-                price DOUBLE PRECISION NOT NULL,
-                stop_price DOUBLE PRECISION NOT NULL,
-                quantity DOUBLE PRECISION NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL,
-                status TEXT NOT NULL,
-                exchange_order_id TEXT
-            );
-            """
-        )
+    # NOTE: schema for ``order_intent`` is owned by Alembic migrations
+    # (alembic/versions/0001_initial). Runtime code must not issue DDL.
+    # Apply it with: POSTGRES_URL=... .venv/bin/alembic upgrade head
 
     async def save_intent(self, intent: OrderIntent) -> None:
         await self.pool.execute(

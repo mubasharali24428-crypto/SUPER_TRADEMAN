@@ -2,6 +2,20 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <!--
+    Content Security Policy (ALEX-FORCE SUB-05)
+    * default-src 'self': baseline lockdown — scripts/connectives may only come
+      from this origin (external app.js / style.css are same-origin, fine).
+    * style-src 'unsafe-inline': DOCUMENTED EXCEPTION. This file contains NO
+      inline <script> or <style> blocks (verified at SUB-05 time); however the
+      UI depends on dozens of inline style="" attributes (progress-bar widths,
+      badges, modal state), several of which app.js mutates at runtime.
+      Removing them was too invasive for this pass, so 'unsafe-inline' is
+      granted for STYLES ONLY — never for scripts.
+    * Google Fonts (preconnect + stylesheet above) => explicit style/font
+      sources for fonts.googleapis.com / fonts.gstatic.com.
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SUPER_TRADEMAN ❖ Quantum Automaton AI Trading Terminal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">

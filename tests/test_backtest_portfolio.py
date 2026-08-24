@@ -6,8 +6,19 @@ import pytest
 
 from trading.backtest.engine import BacktestConfig
 from trading.backtest.portfolio import run_portfolio_backtest
+from trading.risk import equity as risk_equity
+from trading.risk import models as risk_models
 from trading.risk.engine import RiskEngine
-from trading.risk.models import AccountState, RiskConfig, Side, Signal
+from trading.risk.equity import marked_equity
+from trading.risk.models import (
+    AccountState,
+    Position,
+    RiskConfig,
+    Side,
+    Signal,
+    daily_pnl_pct,
+    day_start_equity,
+)
 
 DAY_MS = 86_400_000
 NO_COST = BacktestConfig(slippage_pct=0.0, commission_pct=0.0, max_hold_bars=200)
@@ -259,3 +270,162 @@ def test_end_of_data_closes_each_still_open_asset_at_its_own_last_bar():
     assert h_trade.exit_fill == pytest.approx(100.0)  # H's own last close, zero slippage
     assert i_trade.exit_time == i_start + timedelta(days=44)  # I's own last bar, NOT H's
     assert i_trade.exit_fill == pytest.approx(50.0)  # I's own last close
+
+
+# --- (f) MtM curve diverges from settled equity while a position is open ----
+
+
+def test_marked_equity_diverges_from_settled_while_position_open():
+    # One long opens at bar 10 (entry 100, stop 50 -> size = 100000*0.01/50
+    # = 20 units). Bar 15 closes at 150: MARKED equity must jump to
+    # 100000 + 20*50 = 101000 while SETTLED equity stays at 100000 -- the
+    # open position moves the curve without moving realized P&L.
+    closes = [100.0] * 15 + [150.0] + [100.0] * 5
+    candles_by_asset = {"MMM/USDT": _candles(closes)}
+    fire_map = {"MMM/USDT": {10: (Side.LONG, 100.0, 50.0, 500.0)}}
+    strategy_fn = _fixed_signal_strategy(fire_map)
+    account = AccountState(equity=100_000.0, peak_equity=100_000.0)
+    risk_engine = RiskEngine(RiskConfig(risk_pct=0.01, min_reward_risk=2.0))
+
+    result = run_portfolio_backtest(candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST)
+
+    curve = result.equity_curve  # curve[k + 1] is the point after bar k
+    # before the price pop, marked == settled == 100000
+    for k in range(10, 15):
+        assert curve[k + 1] == pytest.approx(100_000.0)
+    # bar 15: MtM spike on the OPEN position -- settled cash did NOT move
+    assert curve[16] == pytest.approx(100_000.0 + 20 * (150.0 - 100.0))
+    assert curve[16] > result.report.final_equity  # divergence itself
+    # end-of-data settle at close 100 -> realized round trip is flat
+    assert result.report.final_equity == pytest.approx(100_000.0)
+    assert curve[-1] == pytest.approx(result.report.final_equity)
+
+    # canonical helper agrees with the curve arithmetic, floats only
+    pos = Position(
+        asset="MMM/USDT",
+        asset_class="crypto",
+        side=Side.LONG,
+        entry_price=100.0,
+        stop_price=50.0,
+        risk_pct=0.01,
+        position_size=20.0,
+    )
+    marked_acct = AccountState(equity=100_000.0, peak_equity=100_000.0, open_positions=[pos])
+    assert marked_equity(marked_acct, {"MMM/USDT": 150.0}) == pytest.approx(101_000.0)
+    assert marked_acct.equity == pytest.approx(100_000.0)  # settled untouched
+    # 20 units x $50 favorable move = $1,000 unrealized
+    assert risk_equity.unrealized_pnl([pos], {"MMM/USDT": 150.0}) == pytest.approx(1_000.0)
+    # missing mark -> marked at entry (zero unrealized); short side sign flips
+    assert marked_equity(marked_acct, {}) == pytest.approx(100_000.0)
+    short = Position(
+        asset="NNN/USDT",
+        asset_class="crypto",
+        side=Side.SHORT,
+        entry_price=100.0,
+        stop_price=150.0,
+        risk_pct=0.01,
+        position_size=20.0,
+    )
+    # short: 20 units x ($100 - $90) = +$200
+    assert marked_equity(AccountState(100_000.0, 100_000.0, [short]), {"NNN/USDT": 90.0}) == pytest.approx(
+        100_200.0
+    )
+
+
+# --- (g) F-0301: replace() snapshots are deep-copied, no cross-config leak ---
+
+
+class _SnapshotRecorder:
+    """Records every AccountState snapshot handed to the risk engine."""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.snapshots = []
+
+    def evaluate(self, signal, account):
+        self.snapshots.append(account)
+        return self.inner.evaluate(signal, account)
+
+    def evaluate_exit_signal(self, signal, account):
+        return self.inner.evaluate_exit_signal(signal, account)
+
+
+def test_snapshot_mutations_cannot_leak_into_caller_account():
+    closes = [100.0] * 25
+    candles_by_asset = {"KKK/USDT": _candles(closes)}
+    fire_map = {"KKK/USDT": {10: (Side.LONG, 100.0, 98.0, 110.0)}}
+    strategy_fn = _fixed_signal_strategy(fire_map)
+    account = AccountState(equity=100_000.0, peak_equity=100_000.0)
+    risk_engine = _SnapshotRecorder(RiskEngine(RiskConfig(risk_pct=0.01, min_reward_risk=2.0)))
+
+    before = repr(account)
+    run_portfolio_backtest(candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST)
+    assert repr(account) == before  # caller's own account: byte-identical
+
+    # A hostile downstream consumer mangles EVERYTHING it was handed in the
+    # snapshot: halt flag, phantom position, poisoned correlation pair.
+    snap = risk_engine.snapshots[0]
+    snap.kill_switch = True
+    snap.open_positions.append(
+        Position(asset="ZZZ/USDT", asset_class="crypto", side=Side.LONG, entry_price=1.0, stop_price=0.5, risk_pct=0.05)
+    )
+    snap.correlations[frozenset({"ZZZ/USDT", "KKK/USDT"})] = 1.0
+
+    # caller's account STILL untouched (non-frozen dataclass, mutable fields):
+    assert repr(account) == before
+    assert account.kill_switch is False
+    assert account.open_positions == []
+
+    # A second config run over the SAME starting_account (fresh strategy --
+    # the first fired once per its own bookkeeping): if any snapshot state had
+    # leaked into the caller's account via shared references -- the poisoned
+    # correlations pair above being exactly the F-0301 leak vector -- the
+    # correlation guard would reject this trade and trades would stay empty.
+    strategy_fn2 = _fixed_signal_strategy(fire_map)
+    risk_engine2 = _SnapshotRecorder(RiskEngine(RiskConfig(risk_pct=0.01, min_reward_risk=2.0)))
+    result2 = run_portfolio_backtest(candles_by_asset, strategy_fn2, risk_engine2, account, config=NO_COST)
+    assert len(result2.trades) == 1
+    assert result2.trades[0].asset == "KKK/USDT"
+
+
+# --- (h) one daily denominator: portfolio curve <-> day_start_equity --------
+
+
+def test_daily_pnl_denominator_matches_day_start_definition():
+    # Single definition: equity.py re-exports the exact models.py function.
+    assert risk_equity.day_start_equity is risk_models.day_start_equity
+
+    # Helper semantics: anchored day-start settled equity is THE denominator.
+    acct = AccountState(equity=99_000.0, peak_equity=100_000.0, day_start_settled_equity=100_000.0)
+    assert day_start_equity(acct) == pytest.approx(100_000.0)
+    assert daily_pnl_pct(acct) == pytest.approx(-0.01)
+    # No day boundary observed yet -> falls back to current settled equity.
+    fresh = AccountState(equity=100_000.0, peak_equity=100_000.0)
+    assert day_start_equity(fresh) == pytest.approx(100_000.0)
+    assert daily_pnl_pct(fresh) == 0.0
+    # Non-positive denominator never divides.
+    wiped = AccountState(equity=-5.0, peak_equity=0.0, day_start_settled_equity=0.0)
+    assert daily_pnl_pct(wiped) == 0.0
+
+    # The portfolio curve's implicit day-over-day denominators ARE this
+    # definition: (curve[i] - curve[i-1]) / day_start_equity(anchor=curve[i-1])
+    # reproduces the stored daily_pnl_pct for every curve step.
+    closes = [100.0, 112.0, 112.0]  # target 110 hit on bar 1
+    candles_by_asset = {"PPP/USDT": _candles(closes)}
+    fire_map = {"PPP/USDT": {0: (Side.LONG, 100.0, 98.0, 110.0)}}
+    strategy_fn = _fixed_signal_strategy(fire_map)
+    account = AccountState(equity=100_000.0, peak_equity=100_000.0)
+    risk_engine = RiskEngine(RiskConfig(risk_pct=0.01, min_reward_risk=2.0))
+    result = run_portfolio_backtest(candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST)
+
+    curve = result.equity_curve
+    assert curve[-1] == pytest.approx(result.report.final_equity)
+    assert len(curve) >= 3
+    for i in range(1, len(curve)):
+        step_acct = AccountState(
+            equity=curve[i],
+            peak_equity=max(curve[: i + 1]),
+            day_start_settled_equity=curve[i - 1],
+        )
+        implied = (curve[i] - curve[i - 1]) / day_start_equity(step_acct)
+        assert implied == pytest.approx(daily_pnl_pct(step_acct))

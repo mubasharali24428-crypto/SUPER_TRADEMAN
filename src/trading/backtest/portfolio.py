@@ -6,6 +6,7 @@ single-position; this is a materially different execution loop with different
 state (a dict of open trades keyed by asset, not one `open_trade`), kept in
 its own file so the single-asset path and its tests are untouched.
 """
+from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timezone
 
@@ -21,6 +22,7 @@ from trading.backtest.engine import (
 )
 from trading.indicators import atr, log_return_correlation
 from trading.risk.engine import RiskEngine
+from trading.risk.equity import marked_equity
 from trading.risk.models import AccountState, ApprovedExit, Position, Side, _ISSUER
 
 
@@ -58,15 +60,53 @@ def run_portfolio_backtest(
         for i, candle in enumerate(candles)
     )
 
-    equity = starting_account.equity
+    settled_equity = starting_account.equity
     peak_equity = starting_account.peak_equity
-    equity_curve = [equity]
-    trades = []
+    # F-0301: deep-copy the account used as the risk-engine snapshot base.
+    # AccountState is NOT frozen and open_positions is a mutable list; without
+    # the copy, Position objects minted here (or mutated elsewhere) would be
+    # shared across every config/fold run through this same caller-owned
+    # starting_account, letting state leak between runs.
+    snapshot_base = deepcopy(starting_account)
+
+    # Latest observed close per asset, kept as each asset's own bar streams
+    # through -- open positions are marked at THEIR asset's price, never the
+    # currently-processing asset's bar (calendars can be misaligned).
+    last_close: dict[str, float] = {}
     open_trades: dict[str, dict] = {}
+
+    def _mark_prices() -> dict[str, float]:
+        return {asset: last_close[asset] for asset in open_trades}
+
+    def _curve_point() -> float:
+        # ONE series for drawdown/breakers AND reporting: settled cash equity
+        # plus unrealized P&L marked at the current bars' closes.
+        mark_account = replace(
+            snapshot_base,
+            equity=settled_equity,
+            peak_equity=peak_equity,
+            open_positions=[
+                Position(
+                    asset=asset,
+                    asset_class=trade["asset_class"],
+                    side=trade["side"],
+                    entry_price=trade["entry_fill"],
+                    stop_price=trade["stop_price"],
+                    risk_pct=trade["risk_pct"],
+                    position_size=trade["position_size"],
+                )
+                for asset, trade in open_trades.items()
+            ],
+        )
+        return marked_equity(mark_account, _mark_prices())
+
+    equity_curve = [_curve_point()]
+    trades = []
 
     for ts, asset, i in timeline:
         asset_candles = candles_by_asset[asset]
         _ts, _o, high, low, close, _v = asset_candles[i]
+        last_close[asset] = close
         dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
 
         open_trade = open_trades.get(asset)
@@ -79,8 +119,8 @@ def run_portfolio_backtest(
                 exit_price, reason = close, "time_stop"
             if exit_price is not None:
                 trade, net_pnl = _close_trade(open_trade, exit_price, dt, reason, asset, config)
-                equity += net_pnl
-                peak_equity = max(peak_equity, equity)
+                settled_equity += net_pnl
+                peak_equity = max(peak_equity, settled_equity)
                 trades.append(trade)
                 del open_trades[asset]
             elif config.trail_atr_mult is not None:
@@ -91,7 +131,7 @@ def run_portfolio_backtest(
                         open_trade["stop_price"] = max(open_trade["stop_price"], high - distance)
                     else:
                         open_trade["stop_price"] = min(open_trade["stop_price"], low + distance)
-            equity_curve.append(equity)
+            equity_curve.append(_curve_point())
             continue
 
         signal = strategy_fn(asset_candles[: i + 1], asset, dt)
@@ -114,8 +154,8 @@ def run_portfolio_backtest(
                     correlations[frozenset({other_asset, asset})] = corr
 
             snapshot = replace(
-                starting_account,
-                equity=equity,
+                snapshot_base,
+                equity=settled_equity,
                 peak_equity=peak_equity,
                 open_positions=other_positions,
                 correlations=correlations,
@@ -136,11 +176,12 @@ def run_portfolio_backtest(
                     "risk_pct": order.risk_pct,
                     "asset_class": order.asset_class,
                 }
-        equity_curve.append(equity)
+        equity_curve.append(_curve_point())
 
     # End of data / Fold boundary: close every asset still open using synthetic ApprovedExit.
-    for asset, open_trade in open_trades.items():
-        last_ts, _o, _h, _l, last_close, _v = candles_by_asset[asset][-1]
+    # list(): we delete entries as we settle them.
+    for asset, open_trade in list(open_trades.items()):
+        last_ts, _o, _h, _l, exit_close, _v = candles_by_asset[asset][-1]
         exit_time = datetime.fromtimestamp(last_ts / 1000, tz=timezone.utc)
         
         reason_str = "end_of_data"
@@ -155,11 +196,13 @@ def run_portfolio_backtest(
             )
             assert approved_exit.issuer is _ISSUER
 
-        trade, net_pnl = _close_trade(open_trade, last_close, exit_time, reason_str, asset, config)
-        equity += net_pnl
+        trade, net_pnl = _close_trade(open_trade, exit_close, exit_time, reason_str, asset, config)
+        settled_equity += net_pnl
         trades.append(trade)
-    if open_trades:
-        equity_curve[-1] = equity
+        del open_trades[asset]
+    # Final point is fully settled (all positions flat) so the reported series
+    # ends exactly at report.final_equity -- one series, no reconciliation gap.
+    equity_curve[-1] = settled_equity
 
-    report = _build_report(starting_account.equity, equity, equity_curve, trades, breakeven_p)
+    report = _build_report(starting_account.equity, settled_equity, equity_curve, trades, breakeven_p)
     return BacktestResult(report=report, trades=trades, equity_curve=equity_curve)

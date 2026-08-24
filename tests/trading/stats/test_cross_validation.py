@@ -12,6 +12,11 @@ from trading.stats.cross_validation import (
 )
 
 
+def _daily_df(n: int) -> pd.DataFrame:
+    dates = pd.date_range("2025-01-01", periods=n, freq="D")
+    return pd.DataFrame({"close": np.arange(n, dtype=float)}, index=dates)
+
+
 def test_generate_cpcv_splits_basic():
     # 100 days of synthetic daily candles
     dates = pd.date_range("2025-01-01", periods=100, freq="D")
@@ -66,4 +71,73 @@ def test_generate_cpcv_splits_short_df_raises():
     df = pd.DataFrame({"val": range(10)})
     cfg = CPCVConfig(min_train_size=20, min_test_size=10)
     with pytest.raises(ValueError, match="Dataframe length"):
+        generate_cpcv_splits(df, cfg)
+
+
+# --------------------------------------------------------------------- #
+# Sub-06 rigor: embargo applied on the TEST-side boundary                #
+# --------------------------------------------------------------------- #
+
+def test_embargo_applied_to_test_side_boundary():
+    # Same data/config differing ONLY in embargo_days: the embargoed config's
+    # test block must start LATER (embargo samples trimmed from the left of
+    # each test block), while the training side is untouched by embargo.
+    df = _daily_df(120)
+    base = dict(
+        n_folds=4, purge_days=2, max_holding_days=3,
+        min_train_size=10, min_test_size=5, signal_lookback_days=0,
+    )
+    no_emb = generate_cpcv_splits(df, CPCVConfig(embargo_days=0, **base))
+    emb = generate_cpcv_splits(df, CPCVConfig(embargo_days=4, **base))
+
+    assert len(no_emb) == len(emb) > 0
+    for s_plain, s_emb in zip(no_emb, emb):
+        # Test-side effect: embargoed test starts strictly later.
+        assert np.min(s_emb.test_idx) > np.min(s_plain.test_idx)
+        assert s_emb.test_idx[0] == s_plain.test_idx[0] + 4
+        # Train side unchanged by embargo.
+        np.testing.assert_array_equal(s_emb.train_idx, s_plain.train_idx)
+        # And the gap from train end to test start grew by >= embargo_days.
+        gap_plain = int(np.min(s_plain.test_idx) - np.max(s_plain.train_idx))
+        gap_emb = int(np.min(s_emb.test_idx) - np.max(s_emb.train_idx))
+        assert gap_emb >= gap_plain + 4
+
+
+def test_purge_gap_at_least_signal_lookback_days():
+    # Contract: for every split, the temporal purge gap between the last
+    # training sample and the first TEST sample must be >= signal_lookback_days
+    # (plus the rest of the purge window).
+    df = _daily_df(150)
+    cfg = CPCVConfig(
+        n_folds=5,
+        purge_days=3,
+        embargo_days=2,
+        max_holding_days=5,
+        signal_lookback_days=10,
+        feature_lookback_days=0,
+        label_horizon_days=0,
+        min_train_size=10,
+        min_test_size=5,
+    )
+    splits = generate_cpcv_splits(df, cfg)
+    assert splits
+    dates = df.index
+    for split in splits:
+        last_train_time = dates[np.max(split.train_idx)]
+        first_test_time = dates[np.min(split.test_idx)]
+        gap_days = (first_test_time - last_train_time) / pd.Timedelta(days=1)
+        assert gap_days >= cfg.signal_lookback_days, (
+            f"purge gap {gap_days}d violated signal_lookback_days "
+            f"{cfg.signal_lookback_days}d"
+        )
+
+
+def test_embargo_never_shrinks_test_below_min_size():
+    # A huge embargo must drop whole folds rather than emit undersized tests.
+    df = _daily_df(120)
+    cfg = CPCVConfig(
+        n_folds=4, purge_days=1, embargo_days=500,
+        max_holding_days=1, min_train_size=10, min_test_size=5,
+    )
+    with pytest.raises(ValueError, match="Could not generate any valid"):
         generate_cpcv_splits(df, cfg)

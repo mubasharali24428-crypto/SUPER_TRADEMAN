@@ -1,20 +1,30 @@
-"""In-Memory Synthetic Limit Order Book (LOB) Engine with Queue Priority, Dynamic Friction, and Endogeneity Tagging."""
+"""In-Memory Synthetic Limit Order Book (LOB) Engine.
+
+Queue priority, dynamic friction, endogeneity tagging, injectable RNG for
+deterministic replay, and insert-time crossing detection (SUB-07).
+"""
 
 import collections
 import math
-import random
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Deque, Dict, List, Optional, Tuple
+
+import numpy as np
 
 from trading.observability.logger import get_logger
 
 __all__ = [
     "LimitOrder",
     "SyntheticLOB",
+    "BookIntegrityViolation",
 ]
 
 logger = get_logger("trading.synthetic.lob")
+
+
+class BookIntegrityViolation(RuntimeError):
+    """Raised when a placement would leave the book crossed (best_bid >= best_ask)."""
 
 
 @dataclass
@@ -48,21 +58,58 @@ class LimitOrder:
         return self.agent_id.startswith("SUPER_TRADEMAN")
 
 
+def _resolve_rng(rng: Optional[Any]) -> Any:
+    """Return an injected RNG (Generator or duck-typed double), or derive one.
+
+    ``None`` -> a draw from process-global numpy entropy; int -> seeded
+    Generator; anything with a ``.random()`` method passes through untouched
+    so test doubles / alternative PRNGs can be injected.
+    """
+    if rng is None:
+        return np.random.default_rng(np.random.randint(0, 2**63 - 1))
+    if isinstance(rng, np.random.Generator) or hasattr(rng, "random"):
+        return rng
+    return np.random.default_rng(rng)
+
+
 class SyntheticLOB:
-    """Simulates high-performance limit order book matching, queue priority, and endogeneity-tagged event logs."""
+    """Simulates high-performance limit order book matching, queue priority, and endogeneity-tagged event logs.
+
+    Determinism contract (SUB-07): pass ``rng=numpy.random.default_rng(seed)``
+    (an int seed is also accepted) for reproducible friction draws; without one,
+    each book falls back to a draw from process-global numpy entropy.
+    """
 
     def __init__(
         self,
         symbol: str = "BTC/USDT",
         initial_price: float = 50000.0,
         base_fill_probability: float = 0.85,
+        rng: Optional[Any] = None,
+        fill_probability_floor: float = 0.0,
     ):
+        """
+        Args:
+            symbol: Book symbol label.
+            initial_price: Mid price used to seed initial depth.
+            base_fill_probability: Frictionless-market fill probability.
+            rng: Optional ``numpy.random.Generator`` (or int seed).  Injected so
+                simulations are deterministic under a fixed seed; defaults to
+                entropy drawn from process-global numpy state.
+            fill_probability_floor: Lower bound on the effective fill
+                probability under stress.  Defaults to **0.0** (stress can push
+                fills to zero); the previous hardcoded floor of 0.20 is
+                available by passing ``fill_probability_floor=0.20``.
+        """
         self.symbol = symbol
         self.current_price = initial_price
         self.base_fill_probability = base_fill_probability
+        self.rng = _resolve_rng(rng)
+        self.fill_probability_floor = max(0.0, min(1.0, float(fill_probability_floor)))
         self.bids: List[LimitOrder] = []  # Sorted descending by price, then ascending by priority_timestamp_ms
         self.asks: List[LimitOrder] = []  # Sorted ascending by price, then ascending by priority_timestamp_ms
         self.event_log: Deque[Dict[str, Any]] = collections.deque(maxlen=10000)
+        self.integrity_violation_count = 0
 
         # Seed initial depth around initial_price
         self._seed_initial_book()
@@ -86,11 +133,18 @@ class SyntheticLOB:
         return best_bid, best_ask
 
     def get_effective_fill_probability(self, stress_score: float = 0.0) -> float:
-        """Scales fill probability dynamically from base_fill_probability down under stress."""
+        """Scales fill probability dynamically from base_fill_probability down under stress.
+
+        The result is floored at ``self.fill_probability_floor`` (default 0.0;
+        was previously hardcoded to 0.20).
+        """
         if self.base_fill_probability <= 0.0:
             return 0.0
         clamped_stress = max(0.0, min(1.0, stress_score))
-        return max(0.20, self.base_fill_probability - (0.25 * clamped_stress))
+        raw = self.base_fill_probability - (0.25 * clamped_stress)
+        # Floor keeps fills from collapsing under stress, but never lifts the
+        # probability above the unstressed base.
+        return min(max(self.fill_probability_floor, raw), self.base_fill_probability)
 
     def get_micro_price(self) -> float:
         """Calculates volume-weighted micro-price with exponential depth decay over top 3 levels."""
@@ -117,9 +171,45 @@ class SyntheticLOB:
 
         return (best_bid * total_weighted_ask_vol + best_ask * total_weighted_bid_vol) / total_vol
 
+    def _check_book_integrity(self) -> None:
+        """Reject a crossed book: best_bid >= best_ask after any insert."""
+        if self.bids and self.asks and self.bids[0].price >= self.asks[0].price:
+            self._log_violation_and_raise(
+                f"crossed book after insert: best_bid={self.bids[0].price} "
+                f">= best_ask={self.asks[0].price}"
+            )
+
+    def _reject_crossing_residual(self, order: LimitOrder) -> None:
+        """Remove a just-rested residual order so it does not stay on the book."""
+        for book in (self.bids, self.asks):
+            try:
+                book.remove(order)
+            except ValueError:
+                pass
+
+    def _log_violation_and_raise(self, message: str) -> None:
+        """Single book-integrity metric/log hook: counts, logs, raises."""
+        self.integrity_violation_count += 1
+        logger.warning(
+            "[BOOK_INTEGRITY_VIOLATION] %s",
+            message,
+            extra={
+                "event": "book_integrity_violation",
+                "metric": "book_integrity_violations_total",
+                "symbol": self.symbol,
+            },
+        )
+        raise BookIntegrityViolation(message)
+
     def place_order(self, order: LimitOrder, stress_score: float = 0.0) -> List[Dict[str, Any]]:
-        """Processes limit/market order placement with queue friction and returns fill events."""
-        fills = []
+        """Processes limit/market order placement with queue friction and returns fill events.
+
+        Crossing orders are rejected: if matching would leave the book crossed
+        (best_bid >= best_ask), the residual order does NOT rest on the book —
+        a ``book_integrity_violation`` warning/metric is logged and
+        :class:`BookIntegrityViolation` is raised.
+        """
+        fills: List[Dict[str, Any]] = []
         fill_prob = self.get_effective_fill_probability(stress_score)
         slip_penalty = 50.0 if stress_score < 0.70 else 75.0
 
@@ -130,10 +220,17 @@ class SyntheticLOB:
                 best_ask = self.asks[0]
                 if order.price >= best_ask.price:
                     # Stochastic queue slip friction check
-                    if random.random() > fill_prob:
+                    if self.rng.random() > fill_prob:
                         logger.debug(f"[FRICTION] Order {order.order_id} experienced queue slip (penalty +{slip_penalty}ms).")
                         order.priority_timestamp_ms += slip_penalty
-                        break
+                        # A slipped crossing order must NOT rest: its limit
+                        # price still crosses the outstanding ask.
+                        self._reject_crossing_residual(order)
+                        self._log_violation_and_raise(
+                            f"order {order.order_id} slipped while crossing "
+                            f"(limit {order.price} >= best_ask {best_ask.price}); "
+                            "residual not rested"
+                        )
 
                     matched_qty = min(order.qty - order.filled_qty, best_ask.qty - best_ask.filled_qty)
                     order.filled_qty += matched_qty
@@ -169,16 +266,32 @@ class SyntheticLOB:
             if order.filled_qty < order.qty and order.price > 0:
                 self.bids.append(order)
                 self.bids.sort(key=lambda o: (-o.price, o.priority_timestamp_ms))
+                try:
+                    self._check_book_integrity()
+                except BookIntegrityViolation:
+                    # Reject the crossing order: remove the just-rested residual.
+                    try:
+                        self.bids.remove(order)
+                    except ValueError:
+                        pass
+                    raise
 
         elif order.side == "sell":
             while self.bids and order.filled_qty < order.qty:
                 best_bid = self.bids[0]
                 if order.price <= best_bid.price:
                     # Stochastic queue slip friction check
-                    if random.random() > fill_prob:
+                    if self.rng.random() > fill_prob:
                         logger.debug(f"[FRICTION] Order {order.order_id} experienced queue slip (penalty +{slip_penalty}ms).")
                         order.priority_timestamp_ms += slip_penalty
-                        break
+                        # A slipped crossing order must NOT rest: its limit
+                        # price still crosses the outstanding bid.
+                        self._reject_crossing_residual(order)
+                        self._log_violation_and_raise(
+                            f"order {order.order_id} slipped while crossing "
+                            f"(limit {order.price} <= best_bid {best_bid.price}); "
+                            "residual not rested"
+                        )
 
                     matched_qty = min(order.qty - order.filled_qty, best_bid.qty - best_bid.filled_qty)
                     order.filled_qty += matched_qty
@@ -214,6 +327,17 @@ class SyntheticLOB:
             if order.filled_qty < order.qty and order.price > 0:
                 self.asks.append(order)
                 self.asks.sort(key=lambda o: (o.price, o.priority_timestamp_ms))
+                try:
+                    self._check_book_integrity()
+                except BookIntegrityViolation:
+                    try:
+                        self.asks.remove(order)
+                    except ValueError:
+                        pass
+                    raise
+
+        else:
+            raise ValueError(f"invalid order side: {order.side!r}")
 
         return fills
 

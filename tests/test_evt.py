@@ -1,4 +1,3 @@
-import numpy as np
 import pytest
 
 from trading.risk.evt import EVTRiskEngine, EVTRiskResult
@@ -15,10 +14,9 @@ def test_evt_fallback_short_series():
     assert 0.20 <= res.recommended_risk_scale <= 1.25
 
 
-def test_evt_heavy_tail_estimation():
-    np.random.seed(42)
+def test_evt_heavy_tail_estimation(rng):
     # Generate Student's t heavy-tailed returns (df=3 has fat tails)
-    heavy_returns = np.random.standard_t(df=3, size=250) * 0.02
+    heavy_returns = list(rng.standard_t(df=3, size=250) * 0.02)
 
     engine = EVTRiskEngine(threshold_quantile=0.85, min_samples=40)
     res = engine.estimate_tail_risk(heavy_returns, is_returns=True)

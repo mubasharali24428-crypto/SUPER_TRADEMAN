@@ -20,12 +20,34 @@ dev = [
     "pytest-asyncio>=0.24",
 ]
 
+[project.optional-dependencies]
+# ALEX-FORCE SUB-05: authenticated FastAPI dashboard/API server (server.py).
+api = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "itsdangerous>=2.2",
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 # Tests import helpers from scripts/ at the repo root. The `pytest` console script
 # does not put the rootdir on sys.path (unlike `python -m pytest`), so set it here
 # to keep a bare `uv run pytest` working from a fresh clone.
 pythonpath = ["."]
+addopts = "-q --strict-markers"
+markers = [
+    "fast: quick unit tests (default tier; no network, no heavy fitting)",
+    "slow: long-running tests (full GARCH/EVT fits, large simulations)",
+    "integration: cross-component tests (DB, docker-compose services)",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 60
+show_missing = true
 
 [build-system]
 requires = ["hatchling"]
