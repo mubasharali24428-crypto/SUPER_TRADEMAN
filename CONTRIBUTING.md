@@ -24,6 +24,12 @@ pre-commit install               # hooks: black, isort, flake8, bandit(HIGH), se
 pre-commit run --all-files       # run the full gate locally before pushing
 ```
 
+> **VC-032:** `pre-commit install` is a REQUIRED setup step — without it the
+> `.git/hooks/pre-commit` gate does not exist on your machine and lint/
+> security hooks are silently bypassed for local commits. Re-run it once after
+> every fresh clone or `uv sync`. (`pre-commit` ships in the dev toolchain;
+> install it into your active environment first if the command is missing.)
+
 Bandit is configured to fail only on HIGH severity findings; semgrep fails on
 ERROR-severity rules (`p/ci`, `p/secrets`). LOW/MEDIUM advisory noise stays out
 of the blocking path on purpose.

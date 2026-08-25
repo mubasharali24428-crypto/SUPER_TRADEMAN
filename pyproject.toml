@@ -24,6 +24,9 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
+    # VC-030: `make coverage` runs pytest --cov; without this declared dep the
+    # gate (fail_under = 60) is unenforceable on a fresh clone.
+    "pytest-cov>=5",
 ]
 
 [project.optional-dependencies]

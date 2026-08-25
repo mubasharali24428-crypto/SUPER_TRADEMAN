@@ -8,7 +8,11 @@
 #   it MUST hold the same value the API process validates. There is NO default
 #   token anywhere — compose fails closed when the variable is unset.
 #   Target uses host.docker.internal because the API runs on the HOST, not in
-#   the monitoring compose network ("host-gateway" extra_host covers Linux).
+#   the monitoring compose network. VC-020: this resolves on every platform —
+#   Docker Desktop provides it natively on macOS/Windows, and the monitoring
+#   compose defines an `api` service with
+#   extra_hosts: ["host.docker.internal:host-gateway"] so Linux engines map the
+#   name to the host gateway too. Keep target + alias in sync.
 # * alertmanager / loki — internal stack jobs on the compose network.
 #   Published host ports stay bound to 127.0.0.1 ONLY (see compose).
 global:

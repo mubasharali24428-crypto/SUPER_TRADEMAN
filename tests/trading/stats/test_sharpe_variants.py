@@ -10,6 +10,7 @@ from scipy import stats as scistats
 
 from trading.stats.sharpe_variants import (
     deflated_sharpe_ratio,
+    estimate_moments,
     expected_max_sharpe,
     probabilistic_sharpe_ratio,
 )
@@ -189,3 +190,55 @@ def test_dsr_perfectly_skillful_strategy_stays_above_half():
         var_sharpe_trials=0.01,  # sd(SR)=0.1 across trials -> SR0 ~= 0.235
     )
     assert dsr > 0.999999
+
+
+# --------------------------------------------------------------------- #
+# Wave-6 RECT-ALPHA (VB-079): pinned moment estimator                    #
+# --------------------------------------------------------------------- #
+
+def test_vb079_estimate_moments_biased_pearson_convention():
+    """estimate_moments must return biased plug-in Pearson moments: g4 ~ 3.0
+    for normal data (NOT scipy's excess ~0), and ddof=0 dispersion."""
+    rng = np.random.default_rng(77)
+    r = rng.normal(0.0005, 0.01, 5000)
+    sr, g3, g4 = estimate_moments(r)
+    # Hand-check Sharpe against ddof=0.
+    assert sr == pytest.approx(float(np.mean(r) / np.std(r)), rel=1e-12)
+    # Normal population -> biased Pearson kurtosis ~ 3, skew ~ 0.
+    assert abs(g3) < 0.15
+    assert 2.7 < g4 < 3.3
+
+
+def test_vb079_estimate_moments_feeds_psr_end_to_end():
+    r = np.concatenate([
+        np.random.default_rng(5).normal(-0.01, 0.02, 250),
+        np.random.default_rng(6).normal(0.02, 0.01, 250),
+    ])
+    sr, g3, g4 = estimate_moments(r)
+    psr = probabilistic_sharpe_ratio(
+        benchmark_sharpe=0.0,
+        sharpe_observed=sr,
+        n_observations=len(r),
+        skew=g3,
+        kurtosis=g4,
+    )
+    # Strong positive edge vs zero benchmark -> near-certain PSR.
+    assert psr > 0.99
+    dsr = deflated_sharpe_ratio(
+        sharpe_observed=sr,
+        n_trials=100,
+        n_observations=len(r),
+        skew=g3,
+        kurtosis=g4,
+        var_sharpe_trials=1e-6,
+    )
+    assert dsr > psr * 0.5  # sanity: deflation applied on same scale
+
+
+def test_vb079_estimate_moments_rejects_degenerate_inputs():
+    with pytest.raises(ValueError, match=">= 2"):
+        estimate_moments([1.0])
+    with pytest.raises(ValueError, match="NaN"):
+        estimate_moments(np.array([0.1, np.nan, 0.2]))
+    with pytest.raises(ValueError, match="zero-variance"):
+        estimate_moments([1.0, 1.0, 1.0])

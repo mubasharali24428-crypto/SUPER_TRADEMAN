@@ -12,7 +12,7 @@ VENV := .venv/bin
 PYTHON := $(VENV)/python
 
 .DEFAULT_GOAL := help
-.PHONY: help setup test test-fast coverage lint run-api migrate migrate-down drill-backup drill-restore
+.PHONY: help setup test test-fast coverage lint run-api migrate migrate-down drill-backup drill-restore docker-up docker-down docker-logs
 
 help:
 	@echo "Targets:"
@@ -26,6 +26,9 @@ help:
 	@echo "  make migrate-down Roll back one migration (alembic downgrade -1)"
 	@echo "  make drill-backup Postgres logical backup passthrough (pg_dump; BACKUP_DIR, default ./backups)"
 	@echo "  make drill-restore Restore latest backup passthrough (pg_restore/psql; BACKUP_FILE required)"
+	@echo "  make docker-up     Start infrastructure services (postgres+redis; needs .env creds)"
+	@echo "  make docker-down   Stop infrastructure services (volumes preserved)"
+	@echo "  make docker-logs   Tail infrastructure service logs"
 
 setup:
 	@if command -v uv >/dev/null 2>&1 && uv sync --locked; then \
@@ -78,3 +81,14 @@ drill-restore:
 	@test -n "$(BACKUP_FILE)" || { echo "[drill-restore] BACKUP_FILE=<path> required."; exit 1; }
 	@test -n "$$POSTGRES_URL" || { echo "[drill-restore] POSTGRES_URL must be set."; exit 1; }
 	pg_restore --clean --if-exists --dbname="$$POSTGRES_URL" "$(BACKUP_FILE)"
+
+# VC-023: compose convenience passthroughs for the infrastructure stack
+# (root docker-compose.yml: postgres + redis, loopback-only ports).
+docker-up:
+	docker compose up -d
+
+docker-down:
+	docker compose down
+
+docker-logs:
+	docker compose logs -f --tail=200

@@ -78,8 +78,11 @@ exit 0 once the variables are set.
   `METRICS_BEARER_TOKEN` you give compose.
 * `prometheus/prometheus.yml` jobs:
   * `super_trademan-api` → `host.docker.internal:8080` over `/metrics`
-    (compose adds the Linux `host-gateway` mapping; adjust the port if your
-    API binds elsewhere).
+    (VC-020: the compose defines a host-side alias service `api` with
+    `extra_hosts: ["host.docker.internal:host-gateway"]`, so the name resolves
+    on Linux engines too — Docker Desktop maps it natively on macOS/Windows.
+    This keeps one scrape target that works for mac dev AND Linux deploys;
+    adjust the port if your API binds elsewhere).
   * `alertmanager` → `alertmanager:9093`; `loki` → `loki:3100`;
     `prometheus` self-scrape.
   * Rules loaded from `/etc/prometheus/alerts.yml` (= `prometheus/alerts.yml`),

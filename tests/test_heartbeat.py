@@ -5,9 +5,9 @@ from trading.risk.models import AccountState, Signal, Side
 from trading.daemon.heartbeat import TradingHeartbeatDaemon, HeartbeatCycleResult
 
 
-def test_heartbeat_single_tick_cycle():
+def test_heartbeat_single_tick_cycle(account_state):
     daemon = TradingHeartbeatDaemon(symbols=["BTC/USDT", "ETH/USDT"])
-    account = AccountState(equity=10000.0, peak_equity=10000.0)
+    account = account_state()
 
     # Feed some price history
     daemon.feed_market_data("BTC/USDT", [100.0 + i * 0.1 for i in range(50)])
@@ -78,13 +78,13 @@ def _signal_gen(confidence: float = 0.95):
     return gen
 
 
-def test_wave4_short_buffer_skips_evaluation_no_fabricated_history(caplog):
+def test_wave4_short_buffer_skips_evaluation_no_fabricated_history(caplog, account_state):
     """Short candle buffer => models are NOT fit and NO orders are produced.
 
     The old behavior fabricated a synthetic 40-point price seed; it must stay dead.
     """
     daemon = TradingHeartbeatDaemon(symbols=["BTC/USDT"], min_candle_buffer=30)
-    account = AccountState(equity=10000.0, peak_equity=10000.0)
+    account = account_state()
     daemon.feed_market_data("BTC/USDT", [100.0, 101.0, 102.0])  # far below warmup
 
     calls = {"garch": 0}
@@ -110,9 +110,9 @@ def test_wave4_short_buffer_skips_evaluation_no_fabricated_history(caplog):
     )
 
 
-def test_wave4_data_insufficient_warned_once_per_symbol(caplog):
+def test_wave4_data_insufficient_warned_once_per_symbol(caplog, account_state):
     daemon = TradingHeartbeatDaemon(symbols=["BTC/USDT"], min_candle_buffer=30)
-    account = AccountState(equity=10000.0, peak_equity=10000.0)
+    account = account_state()
     daemon.feed_market_data("BTC/USDT", [100.0])
 
     with caplog.at_level("WARNING", logger="trading.daemon.heartbeat"):

@@ -24,9 +24,55 @@ __all__ = [
     "expected_max_sharpe",
     "deflated_sharpe_ratio",
     "probabilistic_sharpe_ratio",
+    "estimate_moments",
 ]
 
 _EULER_GAMMA = 0.5772156649015329  # Euler-Mascheroni constant
+
+
+def estimate_moments(returns: np.ndarray | list[float]) -> tuple[float, float, float]:
+    """Reference moment estimator feeding PSR/DSR (wave-6 VB-079).
+
+    Returns ``(sharpe, g3, g4)`` on the PER-PERIOD scale using biased
+    plug-in Pearson moments — exactly the convention the LdP papers and the
+    ``skew``/``kurtosis`` parameters of :func:`probabilistic_sharpe_ratio`
+    and :func:`deflated_sharpe_ratio` expect:
+
+    - ``sharpe``  = mean(r) / sqrt(mean((r-mean)^2))       (ddof=0 sd)
+    - ``g3``      = m3 / m2^{3/2}                          (biased skewness;
+                    pandas ``.skew()`` default differs — it is debias-corrected)
+    - ``g4``      = m4 / m2^2                              (NON-excess Pearson
+                    kurtosis; normal ~3.0, whereas scipy's default
+                    ``kurtosis`` returns EXCESS and pandas ``.kurt()``
+                    returns biased-corrected excess — do not feed either
+                    here unconverted).
+
+    Pinning this estimator removes the end-to-end ambiguity where different
+    producers silently chose different bias conventions.
+
+    Raises:
+        ValueError: On fewer than 2 observations, non-finite values, or a
+            zero-variance series (Sharpe/moments undefined).
+    """
+    r = np.asarray(returns, dtype=float).ravel()
+    if r.size < 2:
+        raise ValueError(f"need >= 2 return observations, got {r.size}")
+    if not np.isfinite(r).all():
+        raise ValueError("returns contain NaN/inf entries")
+    mu = float(r.mean())
+    m2 = float(np.mean((r - mu) ** 2))
+    if m2 <= 0.0:
+        raise ValueError(
+            "zero-variance return series: Sharpe ratio and higher moments "
+            "are undefined."
+        )
+    centered = r - mu
+    m3 = float(np.mean(centered**3))
+    m4 = float(np.mean(centered**4))
+    sharpe = mu / float(np.sqrt(m2))
+    g3 = m3 / m2**1.5
+    g4 = m4 / m2**2
+    return float(sharpe), float(g3), float(g4)
 
 
 def _psr_variance_term(sharpe: float, skew: float, kurtosis: float) -> float:

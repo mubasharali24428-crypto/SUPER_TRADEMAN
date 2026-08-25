@@ -41,8 +41,22 @@ def _database_url() -> str:
         )
     # asyncpg driver for runtime migrations; plain postgresql:// URLs are
     # upgraded transparently.
-    if url.startswith("postgresql://"):
-        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    #
+    # VA-049: accept BOTH libpq spellings ("postgresql://" and the legacy
+    # "postgres://", which asyncpg would otherwise choke on mid-migration),
+    # then validate against the supported scheme set so unsupported drivers
+    # fail here with a clear message instead of deep inside SQLAlchemy during
+    # the migration window.
+    if url.startswith(("postgresql://", "postgres://")):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1).replace(
+            "postgres://", "postgresql+asyncpg://", 1
+        )
+    supported = ("postgresql+asyncpg://", "sqlite://")
+    if not url.startswith(supported):
+        raise RuntimeError(
+            f"Unsupported database URL scheme in POSTGRES_URL/DATABASE_URL "
+            f"(must be postgresql://, postgres://, or sqlite://): {url.split('://')[0]}://"
+        )
     return url
 
 

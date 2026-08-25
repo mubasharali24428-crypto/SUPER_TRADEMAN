@@ -178,3 +178,112 @@ def test_cscv_result_shapes_and_ranges():
     assert np.all(res.lambdas > 0) and np.all(res.lambdas <= 1.0)
     assert np.isfinite(res.logits).all()
     assert set(res.is_best_indices.tolist()) <= set(range(6))
+
+
+# --------------------------------------------------------------------- #
+# Wave-6 RECT-ALPHA                                                     #
+# --------------------------------------------------------------------- #
+
+def test_vb003_conditional_pbo_exposes_concentrated_condemnation():
+    """Pooled PBO dilutes when the IS-best only wins a minority of splits;
+    the per-IS-best-strategy conditional view must still flag it.
+
+    Fixture: strategy 1 is inflated in blocks 0-3 of 16, so it wins IS only
+    on splits whose IS set is dominated by those blocks; whenever it DOES
+    win, it collapses OOS (lambda > 0.5 on ~every such split), while the
+    pooled fraction over all splits stays near coin-flip.
+    """
+    rng = np.random.default_rng(20260824)
+    n_obs, n_strats, T = 480, 6, 16
+    M = rng.normal(0.0002, 0.01, size=(n_obs, n_strats))
+    block = n_obs // T
+    M[0:block * 4, 1] += 0.02          # IS-dominant in early blocks...
+    M[block * 4:, 1] -= 0.03           # ...but collapses everywhere else
+
+    res = compute_pbo_cscv(
+        M, CSCVConfig(n_blocks=T, max_splits=1000, random_state=42)
+    )
+    assert res.n_splits_evaluated == len(res.lambdas)
+    # Backward compat: pooled fields unchanged in meaning.
+    assert 0.0 <= res.pbo <= 1.0
+    # Conditional view keyed by IS-best winner.
+    winners = set(np.unique(res.is_best_indices).tolist())
+    assert set(res.conditional_pbo) == winners
+    # Every conditional value is a valid probability.
+    for v in res.conditional_pbo.values():
+        assert 0.0 <= v <= 1.0
+    # If strategy 1 ever wins IS, it must lose OOS almost always -> its
+    # conditional PBO sits far above the pooled dilution, and the max
+    # conditional gate sees it even if the pool reads ~coin-flip.
+    if 1 in res.conditional_pbo:
+        assert res.conditional_pbo[1] >= 0.99, (
+            f"condemned winner diluted: cond={res.conditional_pbo}, "
+            f"pooled={res.pbo:.3f}"
+        )
+        assert res.max_conditional_pbo == pytest.approx(
+            max(res.conditional_pbo.values())
+        )
+        assert res.max_conditional_pbo > res.pbo
+
+
+def test_vb003_conditional_pbo_default_fields_backward_compatible():
+    """Defaulted new fields keep old result construction working."""
+    r = PBOResult(
+        pbo=0.5,
+        n_strategies=2,
+        n_blocks=4,
+        n_splits_evaluated=1,
+        n_splits_total=1,
+        lambdas=np.array([0.5]),
+        logits=np.array([0.0]),
+        is_best_indices=np.array([0]),
+        combinations=[],
+    )
+    assert r.conditional_pbo == {}
+    assert r.max_conditional_pbo == 0.0
+    assert r.pbo_stderr == 0.0
+
+
+def test_vb012_all_flat_field_sharpe_metric_raises():
+    """A degenerate all-zero-variance field must refuse to elect j*=0
+    silently under metric='sharpe'."""
+    flat = np.zeros((64, 4))
+    flat[:, 0] = np.arange(64)  # one varying column is not enough (need 2)
+    with pytest.raises(ValueError, match="degenerate all-flat"):
+        compute_pbo_cscv(flat, CSCVConfig(metric="sharpe"))
+
+
+def test_vb012_single_varying_strategy_sharpe_raises():
+    M = _synthetic_field(n_obs=160, n_strats=3)
+    M[:, [1, 2]] = 0.0  # only ONE strategy has positive variance
+    with pytest.raises(ValueError, match="positive"):
+        compute_pbo_cscv(M, CSCVConfig(metric="sharpe"))
+
+
+def test_vb044_pbo_stderr_reported_and_warns_on_few_splits():
+    M = _synthetic_field(n_obs=240, n_strats=4)
+    # T=6 -> C(6,3)=20 splits evaluated: no warning at the floor boundary.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        res = compute_pbo_cscv(M, CSCVConfig(n_blocks=6))
+    expected = float(np.sqrt(res.pbo * (1 - res.pbo) / 20))
+    assert res.pbo_stderr == pytest.approx(expected)
+    assert res.n_splits_evaluated == 20
+
+    # Below the reliability floor: warn AND carry the (large) stderr.
+    with pytest.warns(UserWarning, match="standard error"):
+        few = compute_pbo_cscv(M, CSCVConfig(n_blocks=6, max_splits=5))
+    assert few.n_splits_evaluated == 5
+    assert few.pbo_stderr == pytest.approx(
+        float(np.sqrt(few.pbo * (1 - few.pbo) / 5))
+    )
+    assert few.pbo_stderr >= 0.0
+
+
+def test_vb022_compute_pbo_not_reexported_from_package():
+    import trading.stats as pkg
+
+    assert "compute_pbo" not in pkg.__all__
+    assert not hasattr(pkg, "compute_pbo")
+    # The deprecated implementation itself remains importable from pbo.py.
+    from trading.stats.pbo import compute_pbo  # noqa: F401

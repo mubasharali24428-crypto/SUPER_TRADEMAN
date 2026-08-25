@@ -141,3 +141,46 @@ def test_embargo_never_shrinks_test_below_min_size():
     )
     with pytest.raises(ValueError, match="Could not generate any valid"):
         generate_cpcv_splits(df, cfg)
+
+
+# --------------------------------------------------------------------- #
+# Wave-6 RECT-ALPHA (VB-024): no fabricated calendars                   #
+# --------------------------------------------------------------------- #
+
+def test_vb024_integer_index_with_day_windows_raises():
+    """Intraday/integer-indexed data must NOT silently inherit a fabricated
+    daily calendar that turns day-based purges into a few bars."""
+    df = pd.DataFrame({"close": np.arange(120, dtype=float)})  # RangeIndex
+    cfg = CPCVConfig(n_folds=4, purge_days=1, max_holding_days=1)
+    with pytest.raises(ValueError, match="no real timestamps"):
+        generate_cpcv_splits(df, cfg)
+
+
+def test_vb024_integer_index_all_zero_windows_still_yields_splits():
+    """Position-based splitting remains available when every day-based window
+    is zero — the only regime where no calendar is needed."""
+    df = pd.DataFrame({"close": np.arange(120, dtype=float)})
+    cfg = CPCVConfig(
+        n_folds=4,
+        purge_days=0,
+        max_holding_days=0,
+        label_horizon_days=0,
+        signal_lookback_days=0,
+        feature_lookback_days=0,
+        embargo_days=0,
+    )
+    splits = generate_cpcv_splits(df, cfg)
+    assert splits
+    for split in splits:
+        assert np.all(split.train_idx < np.min(split.test_idx))
+        assert set(split.train_idx).isdisjoint(set(split.test_idx))
+
+
+def test_vb024_timestamp_column_accepted_without_datetime_index():
+    df = pd.DataFrame({
+        "timestamp": pd.date_range("2025-01-01", periods=120, freq="D"),
+        "close": np.arange(120, dtype=float),
+    })
+    cfg = CPCVConfig(n_folds=4, purge_days=2, max_holding_days=1)
+    splits = generate_cpcv_splits(df, cfg)
+    assert splits

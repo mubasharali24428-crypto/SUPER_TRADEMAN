@@ -10,7 +10,6 @@ from trading.stats.effective_trials import effective_trials
 from trading.stats.pbo import (
     CSCVConfig,
     PBOResult,
-    compute_pbo,
     compute_pbo_cscv,
 )
 from trading.stats.sharpe_variants import (
@@ -24,7 +23,6 @@ __all__ = [
     "TrainTestSplit",
     "generate_cpcv_splits",
     "apply_split",
-    "compute_pbo",
     "compute_pbo_cscv",
     "CSCVConfig",
     "PBOResult",

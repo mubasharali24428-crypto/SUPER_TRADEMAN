@@ -16,6 +16,17 @@ Missing-data policy (documented, conservative)
 - A non-positive denominator (possible when avg_corr < -1/(N-1)) raises
   :class:`ValueError`; callers should pass correlations in the admissible
   range rather than silently receiving the full N.
+
+Caller contract (wave-6 VB-007)
+-------------------------------
+The ValueError raise path is INTENTIONAL and load-bearing: any future
+production call site MUST either pre-validate inputs (clip rho_bar above
+the -1/(N-1) floor) or wrap the call in try/except that maps failure to a
+conservative ``N_eff = N`` (uncorrected) plus a logged warning — never let
+the exception escape mid-evaluation. Sample correlation matrices from
+``np.corrcoef`` CAN reach the forbidden range numerically (small N,
+strongly anticorrelated trials), so defensive wrapping is required, not
+optional. See ``docs/stats_wire_plan.md`` for the planned first consumer.
 """
 
 from __future__ import annotations
@@ -45,6 +56,10 @@ def effective_trials(
     Raises:
         ValueError: If ``avg_corr`` yields a non-positive denominator
             (rho_bar <= -1/(N-1)), or inputs are otherwise invalid.
+
+        Callers are expected to pre-validate or catch (see module docstring,
+        "Caller contract"); the raise must never surface unhandled inside a
+        live evaluation loop.
     """
     if avg_corr is not None:
         if isinstance(data, (int, float)):

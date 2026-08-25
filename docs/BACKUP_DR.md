@@ -119,8 +119,8 @@ then start the application stack (`docker compose up -d`).
 
 | Role | Contact | When |
 |---|---|---|
-| Primary on-call | `_PLACEHOLDER_` (fill in) | any failed backup or drill |
-| Secondary / infra owner | `_PLACEHOLDER_` | primary unreachable > 15 min |
+| Primary on-call | `<OWNER>` (assign before production cutover) | any failed backup or drill |
+| Secondary / infra owner | `<OWNER-BACKUP>` | primary unreachable > 15 min |
 | Incident record | open issue + link in `docs/INCIDENT_RESPONSE.md` | every real DR event |
 
 ---

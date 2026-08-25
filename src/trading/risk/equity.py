@@ -32,7 +32,12 @@ def unrealized_pnl(positions: list[Position], mark_prices: dict[str, float]) -> 
     for pos in positions:
         entry = pos.entry_price
         mark = mark_prices.get(pos.asset, entry)
-        size = getattr(pos, "position_size", 1.0)
+        # Wave-6 VB-016: direct attribute access. Position always carries
+        # ``position_size`` (models.py default 1.0), so the former
+        # getattr(..., 1.0) fallback only ever fired on corrupted/duck-typed
+        # position objects — silently valuing them at 1 unit. Fail loudly
+        # instead of mispricing the book.
+        size = pos.position_size
         if pos.side is Side.LONG:
             total += size * (mark - entry)
         else:

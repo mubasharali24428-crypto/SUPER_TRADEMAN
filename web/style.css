@@ -1179,3 +1179,103 @@ canvas {
   font-size: 12.5px;
   letter-spacing: 0.02em;
 }
+
+/* ==========================================================================
+   VC-002: JS ERROR BANNER
+   role="alert" surface rendered by app.js when an uncaught error fires.
+   ========================================================================== */
+.error-banner {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  max-width: min(720px, calc(100vw - 32px));
+  padding: 10px 16px;
+  border: 1px solid rgba(255, 51, 102, 0.55);
+  border-radius: 8px;
+  background: rgba(40, 10, 20, 0.95);
+  color: #ffd9e0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+.error-banner.dismissed {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+
+/* ==========================================================================
+   VC-003: prefers-reduced-motion
+   Vestibular-safety switch: kill decorative animation/transition movement.
+   Layout-affecting opacity/color transitions are kept so state changes stay
+   perceivable.
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  .glow-orb,
+  .logo-pulse {
+    animation: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ==========================================================================
+   VC-004: RESPONSIVE BREAKPOINT TIERS
+   (1200px tier lives next to .workspace-grid above.)
+   ========================================================================== */
+
+/* Tablet ≤768px: single-column HUD, nav wraps instead of overflowing */
+@media (max-width: 768px) {
+  .glass-nav {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+  .nav-center-controls {
+    order: 3;
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .metrics-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+  }
+  .workspace-grid,
+  .sidebar-grid {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+  .card-nav-tabs {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+
+/* Phone ≤480px: stacked cards, full-width controls */
+@media (max-width: 480px) {
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+  .timeframe-pills {
+    flex-wrap: wrap;
+  }
+  .glow-btn,
+  .action-btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .tab-btn-group {
+    width: 100%;
+    overflow-x: auto;
+  }
+}

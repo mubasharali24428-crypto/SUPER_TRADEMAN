@@ -47,9 +47,9 @@ def test_slippage_direction_is_always_unfavorable():
     assert _apply_slippage(100.0, Side.SHORT, entering=False, config=cfg) == pytest.approx(101.0)
 
 
-def test_backtest_runs_and_produces_trades_on_synthetic_mean_reverting_data():
+def test_backtest_runs_and_produces_trades_on_synthetic_mean_reverting_data(account_state):
     candles = make_synthetic_candles()
-    account = AccountState(equity=100_000.0, peak_equity=100_000.0)
+    account = account_state(equity=100_000.0)
     result = run_backtest(candles, "BTC/USDT", generate_signal, RiskEngine(), account)
 
     assert len(result.equity_curve) == len(candles) + 1  # seeded with starting equity before bar 0
@@ -60,9 +60,9 @@ def test_backtest_runs_and_produces_trades_on_synthetic_mean_reverting_data():
     assert result.report.final_equity == pytest.approx(result.equity_curve[-1])
 
 
-def test_fees_and_slippage_reduce_returns():
+def test_fees_and_slippage_reduce_returns(account_state):
     candles = make_synthetic_candles()
-    account = AccountState(equity=100_000.0, peak_equity=100_000.0)
+    account = account_state(equity=100_000.0)
 
     zero_cost = run_backtest(
         candles,
@@ -123,9 +123,9 @@ def test_sample_size_verdict_thresholds():
     assert "reasonable" in _sample_size_verdict(150)
 
 
-def test_backtest_report_includes_statistical_fields():
+def test_backtest_report_includes_statistical_fields(account_state):
     candles = make_synthetic_candles()
-    account = AccountState(equity=100_000.0, peak_equity=100_000.0)
+    account = account_state(equity=100_000.0)
     result = run_backtest(candles, "BTC/USDT", generate_signal, RiskEngine(), account)
     r = result.report
     assert 0.0 <= r.win_rate_p_value <= 1.0
@@ -148,10 +148,10 @@ def test_bootstrap_trade_returns_handles_no_trades():
     assert result == {"p5": 0.0, "p50": 0.0, "p95": 0.0}
 
 
-def test_train_and_test_windows_both_report_full_metrics():
+def test_train_and_test_windows_both_report_full_metrics(account_state):
     candles = make_synthetic_candles(n=300)
     train, test = split_train_test(candles, train_frac=0.7)
-    account = AccountState(equity=100_000.0, peak_equity=100_000.0)
+    account = account_state(equity=100_000.0)
 
     train_result = run_backtest(train, "BTC/USDT", generate_signal, RiskEngine(), account)
     test_result = run_backtest(test, "BTC/USDT", generate_signal, RiskEngine(), account)
@@ -204,9 +204,9 @@ def _ramp_then_drop():
 NO_COST = BacktestConfig(slippage_pct=0.0, commission_pct=0.0, max_hold_bars=200)
 
 
-def test_trailing_stop_exits_above_entry_after_a_favorable_run():
+def test_trailing_stop_exits_above_entry_after_a_favorable_run(account_state):
     candles = _ramp_then_drop()
-    account = AccountState(equity=100_000.0, peak_equity=100_000.0)
+    account = account_state(equity=100_000.0)
     result = run_backtest(
         candles,
         "BTC/USDT",
@@ -223,7 +223,7 @@ def test_trailing_stop_exits_above_entry_after_a_favorable_run():
     assert trade.net_pnl > 0
 
 
-def test_trailing_stop_never_loosens_against_the_position():
+def test_trailing_stop_never_loosens_against_the_position(account_state):
     """An immediately adverse move must still exit at the original stop -- the
     ratchet is one-way, so a falling price can never widen the stop."""
     start = datetime(2024, 1, 1, tzinfo=timezone.utc)
@@ -232,7 +232,7 @@ def test_trailing_stop_never_loosens_against_the_position():
         [int((start + timedelta(hours=i)).timestamp() * 1000), c, c + 1, c - 1, c, 1.0]
         for i, c in enumerate(closes)
     ]
-    account = AccountState(equity=100_000.0, peak_equity=100_000.0)
+    account = account_state(equity=100_000.0)
     result = run_backtest(
         candles,
         "BTC/USDT",
@@ -245,11 +245,11 @@ def test_trailing_stop_never_loosens_against_the_position():
     assert result.trades[0].exit_fill == 98.0
 
 
-def test_r_multiple_is_measured_against_entry_risk_not_the_trailed_stop():
+def test_r_multiple_is_measured_against_entry_risk_not_the_trailed_stop(account_state):
     """Regression guard: R must stay anchored to the risk actually taken at entry.
     Dividing by the trailed stop would inflate every trailed winner."""
     candles = _ramp_then_drop()
-    account = AccountState(equity=100_000.0, peak_equity=100_000.0)
+    account = account_state(equity=100_000.0)
     result = run_backtest(
         candles,
         "BTC/USDT",

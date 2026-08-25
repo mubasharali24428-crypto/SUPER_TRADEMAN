@@ -31,7 +31,17 @@ def require_role(*allowed: Role):
     """Dependency factory: allow only sessions whose role is in `allowed`.
 
     Unauthenticated -> 401; authenticated but wrong role -> 403.
+
+    Security (VA-060 / VA-054): calling ``require_role()`` with no roles used
+    to short-circuit into "allow any authenticated user" — an inverted
+    deny-by-default footgun. That is now a hard error at factory time so the
+    mistake surfaces on first import/route registration, never in prod traffic.
     """
+    if not allowed:
+        raise ValueError(
+            "require_role() requires at least one role; use a specific role "
+            "or the require_viewer/require_operator/require_admin bindings."
+        )
 
     async def _dependency(claims=Depends(get_session_claims)):
         if claims is None:

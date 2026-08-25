@@ -1,3 +1,6 @@
 # Default reviewer for all paths.
-# PLACEHOLDER: replace @your-handle with the maintainer's actual GitHub username.
-* @your-handle
+# PLACEHOLDER (VC-022): `<OWNER>` must be replaced with the maintainer's real
+# GitHub handle before the repository has external contributors. The token is
+# kept deliberately invalid so an unassigned ownership review fails loudly
+# instead of silently passing.
+* <OWNER>

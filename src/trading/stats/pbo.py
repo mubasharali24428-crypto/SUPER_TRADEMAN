@@ -84,6 +84,18 @@ class PBOResult:
     logits: np.ndarray                  # logit(lambda) per split
     is_best_indices: np.ndarray         # IS-best strategy id per split
     combinations: list = field(default_factory=list)  # IS block tuples per split
+    # --- Wave-6 additions (defaulted fields keep results backward-compatible) ---
+    # VB-003: per-IS-best-strategy conditional PBO, mapping
+    # {strategy_id: P(lambda > 0.5 | that strategy won IS)}. The pooled
+    # ``pbo`` averages over ALL splits, so a deterministically-condemned
+    # winner on a minority of splits dilutes toward 0.5; consumers gating on
+    # overfitting should also inspect ``max_conditional_pbo``.
+    conditional_pbo: dict = field(default_factory=dict)
+    max_conditional_pbo: float = 0.0
+    # VB-044: binomial standard error sqrt(p*(1-p)/n_splits_evaluated) of the
+    # pooled estimate. A single-split run carries stderr ~0.5 regardless of
+    # outcome and must not be read as a converged result.
+    pbo_stderr: float = 0.0
 
 
 def _is_scores(block_matrix: np.ndarray, metric: str) -> np.ndarray:
@@ -91,6 +103,17 @@ def _is_scores(block_matrix: np.ndarray, metric: str) -> np.ndarray:
     if metric == "sharpe":
         mu = block_matrix.mean(axis=0)
         sd = block_matrix.std(axis=0, ddof=1)
+        # Degenerate-field guard (wave-6 VB-012): zero-variance trials score
+        # -inf and can never win argmax; if EVERY trial is flat, argmax would
+        # deterministically elect strategy 0 as IS-best and poison j* (hence
+        # every downstream lambda). Fewer than 2 positive-variance strategies
+        # means there is nothing to rank — refuse loudly instead.
+        if int((sd > 0).sum()) < 2:
+            raise ValueError(
+                "metric='sharpe' requires at least 2 strategies with positive "
+                f"return variance in-sample; got {int((sd > 0).sum())} "
+                "(degenerate all-flat field)."
+            )
         out = np.divide(
             mu, sd, out=np.full_like(mu, -np.inf), where=sd > 0
         )
@@ -188,6 +211,26 @@ def compute_pbo_cscv(
     logits = np.log(clipped / (1.0 - clipped))
     pbo = float(np.mean(logits > 0.0))
 
+    # VB-003: group per-split overfitting outcomes by IS-best strategy so a
+    # concentrated condemnation stays visible next to the diluted pool.
+    conditional_pbo: dict[int, float] = {
+        int(strat): float(np.mean(logits[is_best == strat] > 0.0))
+        for strat in np.unique(is_best)
+    }
+    max_conditional_pbo = max(conditional_pbo.values())
+
+    # VB-044: reliability floor — warn when too few splits are evaluated for
+    # the pooled fraction to carry statistical meaning.
+    n_eval = len(combos)
+    pbo_stderr = float(np.sqrt(pbo * (1.0 - pbo) / n_eval))
+    if n_eval < 20:
+        warnings.warn(
+            f"CSCV PBO evaluated on only {n_eval} split(s); binomial standard "
+            f"error is {pbo_stderr:.3f}, so the point estimate is degenerate. "
+            "Increase CSCVConfig.max_splits / n_blocks for a meaningful PBO.",
+            stacklevel=2,
+        )
+
     return PBOResult(
         pbo=pbo,
         n_strategies=n_strats,
@@ -198,6 +241,9 @@ def compute_pbo_cscv(
         logits=logits,
         is_best_indices=is_best,
         combinations=[tuple(c) for c in combos],
+        conditional_pbo=conditional_pbo,
+        max_conditional_pbo=max_conditional_pbo,
+        pbo_stderr=pbo_stderr,
     )
 
 

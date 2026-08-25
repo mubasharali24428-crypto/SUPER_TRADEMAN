@@ -62,18 +62,60 @@ def generate_cpcv_splits(
     n_samples = len(df)
     n_folds = max(2, cfg.n_folds)
 
-    # Determine timestamps or index positions
-    if isinstance(df.index, pd.DatetimeIndex):
-        timestamps = df.index
-    elif "timestamp" in df.columns:
-        timestamps = pd.to_datetime(df["timestamp"])
-    elif "time" in df.columns:
-        timestamps = pd.to_datetime(df["time"])
+    # Determine timestamps or index positions.
+    #
+    # Wave-6 VB-024: no fallback calendar. The previous behavior invented a
+    # synthetic DAILY date_range for frames without real timestamps, so a
+    # 5-minute-bar frame was silently treated as one bar = one day and the
+    # day-unit purge/embargo windows removed only a handful of BARS instead
+    # of days of label horizon — voiding the leakage guarantee while the
+    # disjointness check still "passed" trivially. Callers must supply real
+    # timestamps (DatetimeIndex, or 'timestamp'/'time' column) whenever any
+    # day-based window is configured; integer-only data is accepted only when
+    # every day-based window is zero, in which case splits are position-based.
+    has_real_timestamps = (
+        isinstance(df.index, pd.DatetimeIndex)
+        or "timestamp" in df.columns
+        or "time" in df.columns
+    )
+    if has_real_timestamps:
+        if isinstance(df.index, pd.DatetimeIndex):
+            timestamps = df.index
+        elif "timestamp" in df.columns:
+            timestamps = pd.to_datetime(df["timestamp"])
+        else:
+            timestamps = pd.to_datetime(df["time"])
     else:
-        # Fallback: synthetic daily timestamps if integer indexed
-        timestamps = pd.date_range(
-            start="2020-01-01", periods=n_samples, freq="D"
+        day_windows = (
+            cfg.purge_days,
+            cfg.max_holding_days,
+            cfg.label_horizon_days,
+            cfg.signal_lookback_days,
+            cfg.feature_lookback_days,
+            cfg.embargo_days,
         )
+        window_names = (
+            "purge_days",
+            "max_holding_days",
+            "label_horizon_days",
+            "signal_lookback_days",
+            "feature_lookback_days",
+            "embargo_days",
+        )
+        configured = {
+            name: val
+            for name, val in zip(window_names, day_windows)
+            if val > 0
+        }
+        if configured:
+            raise ValueError(
+                "generate_cpcv_splits: dataframe has no real timestamps "
+                "(needs a DatetimeIndex or a 'timestamp'/'time' column) but "
+                f"day-based windows are configured {configured}. A fabricated "
+                "daily calendar would misalign purge/embargo with actual bar "
+                "frequency — supply real timestamps or set all *_days to 0."
+            )
+        timestamps = None
 
     total_purge_days = (
         cfg.purge_days
@@ -108,14 +150,20 @@ def generate_cpcv_splits(
         if len(test_indices) < cfg.min_test_size:
             continue
 
-        test_start_time = timestamps[test_start_idx]
-
-        # Causal purge: train must end before (test_start_time - purge_delta)
-        cutoff_time = test_start_time - purge_delta
-
-        # Find all valid train indices strictly before cutoff_time
-        train_mask = np.array([t < cutoff_time for t in timestamps[:test_start_idx]])
-        train_indices = np.arange(test_start_idx)[train_mask]
+        # Causal purge: train must end before (test_start_time - purge_delta).
+        # Wave-6 VB-024: integer-indexed frames (only legal when every
+        # day-based window is 0) skip the time arithmetic entirely — with a
+        # zero purge window every position strictly before the test block
+        # qualifies as training data.
+        if timestamps is not None:
+            test_start_time = timestamps[test_start_idx]
+            cutoff_time = test_start_time - purge_delta
+            train_mask = np.array(
+                [t < cutoff_time for t in timestamps[:test_start_idx]]
+            )
+            train_indices = np.arange(test_start_idx)[train_mask]
+        else:
+            train_indices = np.arange(test_start_idx)
 
         if len(train_indices) >= cfg.min_train_size:
             splits.append(

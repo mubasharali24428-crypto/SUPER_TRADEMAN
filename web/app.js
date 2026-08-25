@@ -193,6 +193,9 @@
   // 3. INITIALIZATION & SYNTHETIC DATA SEEDING
   // -------------------------------------------------------------------------
   function init() {
+    // VC-002: install the global error boundary before anything else can throw.
+    installErrorBoundary();
+
     // Generate initial history for all assets (80 candles each)
     for (const [symbol, cfg] of Object.entries(ASSET_CONFIGS)) {
       let price = cfg.basePrice;
@@ -222,6 +225,10 @@
 
     // Event Listeners
     setupEventListeners();
+
+    // VC-001 / VC-005: restore saved view config; wire the chart tooltip.
+    restoreUiState();
+    wireChartTooltip();
 
     // Resize Canvases
     resizeCanvases();
@@ -962,6 +969,133 @@
   }
 
   // -------------------------------------------------------------------------
+  // 6b. ERROR BOUNDARY & UI PERSISTENCE (VC-001 / VC-002)
+  // -------------------------------------------------------------------------
+  // VC-002: a mid-render throw must never blank the dashboard silently.
+  function installErrorBoundary() {
+    let bannerShown = false;
+    const showBanner = message => {
+      let banner = document.getElementById('jsErrorBanner');
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'jsErrorBanner';
+        banner.className = 'error-banner';
+        banner.setAttribute('role', 'alert');
+        document.body.prepend(banner);
+      }
+      banner.textContent =
+        '⚠ Interface error — live data paused. Last state preserved. Detail: ' +
+        String(message || 'unknown error');
+      if (!bannerShown) {
+        bannerShown = true;
+        setTimeout(() => { banner.classList.add('dismissed'); }, 12000);
+      }
+    };
+    window.addEventListener('error', e => {
+      console.error('[boundary] uncaught error:', e.error || e.message);
+      showBanner(e.message);
+    });
+    window.addEventListener('unhandledrejection', e => {
+      console.error('[boundary] unhandled rejection:', e.reason);
+      showBanner(e.reason && e.reason.message ? e.reason.message : e.reason);
+    });
+  }
+
+  // VC-001: persist operator view config (asset/timeframe/tab/stream) so a
+  // refresh restores the cockpit instead of losing it. Simulated market data
+  // is intentionally NOT persisted.
+  const UI_STATE_KEY = 'supertrademan.ui.v1';
+
+  function saveUiState() {
+    try {
+      window.localStorage.setItem(UI_STATE_KEY, JSON.stringify({
+        selectedAsset: STATE.selectedAsset,
+        timeframe: STATE.timeframe,
+        isPlaying: STATE.isPlaying,
+        activeTabId:
+          (document.querySelector('.tab-content.active') || {}).id || null,
+      }));
+    } catch (err) {
+      /* private-mode/quota: persistence is best-effort only */
+    }
+  }
+
+  function restoreUiState() {
+    let saved = null;
+    try {
+      saved = JSON.parse(window.localStorage.getItem(UI_STATE_KEY) || 'null');
+    } catch (err) {
+      return; // corrupted entry: fall through to defaults
+    }
+    if (!saved) return;
+
+    if (
+      saved.selectedAsset &&
+      Object.prototype.hasOwnProperty.call(STATE.candles, saved.selectedAsset)
+    ) {
+      STATE.selectedAsset = saved.selectedAsset;
+      if (DOM.assetSelect) DOM.assetSelect.value = saved.selectedAsset;
+    }
+    if (saved.timeframe) {
+      STATE.timeframe = saved.timeframe;
+      document.querySelectorAll('.tf-btn').forEach(p => {
+        const active = p.getAttribute('data-tf') === saved.timeframe;
+        p.classList.toggle('active', active);
+        p.setAttribute('aria-pressed', String(active));
+      });
+    }
+    if (typeof saved.isPlaying === 'boolean' && !saved.isPlaying) {
+      STATE.isPlaying = false;
+      if (DOM.playPauseText) DOM.playPauseText.textContent = 'PAUSED';
+      if (DOM.btnPlayPause) {
+        DOM.btnPlayPause.className = 'glow-btn secondary-btn';
+        DOM.btnPlayPause.setAttribute('aria-pressed', 'false');
+      }
+    }
+    if (saved.activeTabId) {
+      const tabBtn = document.querySelector(
+        `[data-tab="${saved.activeTabId}"]`
+      );
+      if (tabBtn) {
+        document.querySelectorAll('.tab-btn').forEach(b => {
+          const selected = b === tabBtn;
+          b.classList.toggle('active', selected);
+          b.setAttribute('aria-selected', String(selected));
+          b.tabIndex = selected ? 0 : -1;
+        });
+        document.querySelectorAll('.tab-content').forEach(c =>
+          c.classList.toggle('active', c.id === saved.activeTabId));
+      }
+    }
+  }
+
+  // VC-005: #chartTooltip existed in markup/CSS with zero behavior.
+  function wireChartTooltip() {
+    const wrap = DOM.tradingCanvas.parentElement;
+    const hideTooltip = () => {
+      DOM.chartTooltip.classList.add('hidden');
+    };
+    wrap.addEventListener('mousemove', e => {
+      const candles = STATE.candles[STATE.selectedAsset];
+      if (!candles || candles.length === 0) return;
+      const rect = DOM.tradingCanvas.getBoundingClientRect();
+      const relX = (e.clientX - rect.left) / rect.width;
+      const idx = Math.floor(relX * candles.length) - 2;
+      if (idx < 0 || idx >= candles.length) {
+        hideTooltip();
+        return;
+      }
+      const c = candles[idx];
+      DOM.chartTooltip.textContent =
+        `${new Date(c.ts).toISOString().slice(11, 19)}  ` +
+        `O ${c.open.toFixed(2)}  H ${c.high.toFixed(2)}  ` +
+        `L ${c.low.toFixed(2)}  C ${c.close.toFixed(2)}`;
+      DOM.chartTooltip.classList.remove('hidden');
+    });
+    wrap.addEventListener('mouseleave', hideTooltip);
+  }
+
+  // -------------------------------------------------------------------------
   // 7. EVENT LISTENERS & MODAL HANDLERS
   // -------------------------------------------------------------------------
   function setupEventListeners() {
@@ -970,6 +1104,7 @@
       STATE.selectedAsset = e.target.value;
       updateUI();
       renderTradingChart();
+      saveUiState(); // VC-001: persist view config across refreshes
     });
 
     // Play / Pause
@@ -979,6 +1114,7 @@
       DOM.btnPlayPause.className = `glow-btn ${STATE.isPlaying ? 'play-btn' : 'secondary-btn'}`;
       DOM.btnPlayPause.setAttribute('aria-pressed', String(STATE.isPlaying));
       announce(STATE.isPlaying ? 'Live stream resumed' : 'Live stream paused');
+      saveUiState(); // VC-001: persist stream on/off across refreshes
     });
 
     // Shock Button
@@ -1027,7 +1163,42 @@
       if (tabId === 'liveTradingChart') renderTradingChart();
       else if (tabId === 'learningGraphTab') renderLearningGraph();
       else if (tabId === 'equityCurveTab') renderEquityChart();
+      saveUiState(); // VC-001: remember last chart panel across refreshes
     };
+
+    // VC-005: timeframe pills were markup without behavior — wire them to the
+    // simulated feed's candle cadence so every visible control does something.
+    document.querySelectorAll('.tf-btn').forEach(pill => {
+      pill.addEventListener('click', () => {
+        STATE.timeframe = pill.getAttribute('data-tf') || STATE.timeframe;
+        document.querySelectorAll('.tf-btn').forEach(p => {
+          const active = p === pill;
+          p.classList.toggle('active', active);
+          p.setAttribute('aria-pressed', String(active));
+        });
+        announce(`Chart timeframe set to ${STATE.timeframe} (simulated 1-minute candles).`);
+        saveUiState(); // VC-001: persist timeframe choice
+      });
+    });
+
+    // VC-005: learning-graph toolbar buttons had no JS behavior.
+    DOM.btnCenterGraph.addEventListener('click', () => {
+      const { nodes } = STATE.learningGraph;
+      nodes.forEach((n, i) => {
+        n.x = 120 + (i % 2) * 300;
+        n.y = 70 + Math.floor(i / 2) * 90;
+        n.vx = 0;
+        n.vy = 0;
+      });
+      renderLearningGraph();
+      announce('Learning graph view centered.');
+    });
+    DOM.btnClearGraph.addEventListener('click', () => {
+      STATE.learningGraph.nodes = [];
+      STATE.learningGraph.edges = [];
+      renderLearningGraph();
+      announce('Learning graph view cleared.');
+    });
 
     tabButtons.forEach((btn, idx) => {
       btn.addEventListener('click', () => selectTab(btn, false));
