@@ -186,8 +186,12 @@ class TradingHeartbeatDaemon:
                     proposed_signals_count += 1
                     # Check survival confidence floor
                     if signal.confidence >= survival_status.min_confidence_floor:
-                        # Apply GARCH & Survival risk scaling factor
-                        garch_scale = garch_res.volatility_scale_factor * survival_status.effective_risk_multiplier
+                        # Apply GARCH risk scaling factor ONLY here.
+                        # The survival tier multiplier is enforced separately by the
+                        # survival gate upstream (effective_risk_multiplier); folding it
+                        # into garch_vol_scale double-applied volatility scaling
+                        # (register VA-042): engine.py multiplies by this value again.
+                        garch_scale = garch_res.volatility_scale_factor
                         # Reconstruct signal with garch scaling
                         scaled_signal = Signal(
                             asset=signal.asset,
