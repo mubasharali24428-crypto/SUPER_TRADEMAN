@@ -49,20 +49,21 @@ def make_account(**overrides) -> AccountState:
 # ---------------------------------------------------------------------------
 
 def test_quantization_active_produces_floor_candidate():
-    """step=0.001 injected -> decision carries size_decimal_candidate floored
-    onto the grid; legacy float position_size unchanged."""
+    """step=0.001 injected -> approval stays an exact-type RiskDecision (R2
+    VB-002) with the floored Decimal candidate delivered out-of-band; legacy
+    float position_size unchanged."""
     engine = RiskEngine(instruments={"BTC/USDT": "0.001"})
     account = make_account(equity=123_456.789)
 
     decision = engine.evaluate(make_signal(), account)
 
     assert decision.approved
-    assert isinstance(decision, _QuantizedRiskDecision)
+    assert type(decision) is RiskDecision
 
     order = decision.approved_order
     assert order is not None
     legacy = order.position_size
-    cand = decision.size_decimal_candidate
+    cand = engine.get_size_candidate(order)
 
     # Legacy float path untouched: (equity * risk_pct) / risk_per_unit
     assert legacy == pytest.approx((123_456.789 * 0.01) / 5.0)
@@ -112,7 +113,7 @@ def test_healthy_quantization_never_warns(caplog):
     engine = RiskEngine(instruments={"BTC/USDT": "0.001"})
     with caplog.at_level(logging.WARNING, logger="trading.risk"):
         decision = engine.evaluate(make_signal(), make_account(equity=123_456.789))
-    assert isinstance(decision, _QuantizedRiskDecision)
+    assert type(decision) is RiskDecision
     assert [r for r in caplog.records if r.getMessage().startswith("SIZE_DELTA")] == []
 
 
@@ -129,11 +130,11 @@ def test_size_delta_warning_emitted_when_divergence_ge_one_step(monkeypatch, cap
     with caplog.at_level(logging.WARNING, logger="trading.risk"):
         decision = engine.evaluate(make_signal(), make_account(equity=123_456.789))
 
-    assert isinstance(decision, _QuantizedRiskDecision)
+    assert type(decision) is RiskDecision
     assert decision.approved  # observation only: approval unaffected
     assert decision.approved_order is not None
     assert decision.approved_order.position_size == pytest.approx(246.913578)
-    assert decision.size_decimal_candidate == Decimal("150.000")
+    assert engine.get_size_candidate(decision.approved_order) == Decimal("150.000")
 
     deltas = [r for r in caplog.records if r.getMessage().startswith("SIZE_DELTA")]
     assert deltas, "expected SIZE_DELTA warning for >= 1-step divergence"
@@ -153,8 +154,8 @@ def test_invalid_step_degrades_to_legacy_decision(caplog):
         decision = engine.evaluate(make_signal(), make_account())
 
     assert decision.approved
-    assert type(decision) is _QuantizedRiskDecision  # carrier used, candidate None
-    assert decision.size_decimal_candidate is None
+    assert type(decision) is RiskDecision  # R2 VB-002: no carrier subclass anymore
+    assert engine.get_size_candidate(decision.approved_order) is None  # degraded: no candidate
     assert decision.approved_order is not None
     assert decision.approved_order.position_size == pytest.approx(200.0)
     errs = [

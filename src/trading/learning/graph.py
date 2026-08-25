@@ -502,6 +502,11 @@ class LearningGraph:
                 "trade_id": d.trade_id,
                 "asset": d.signal.get("asset"),
                 "side": d.signal.get("side"),
+                # R2 / VA-022: strategy label lives in the decision signal
+                # payload (see add_trade) -- surfaced explicitly so batch
+                # trainers attribute outcomes by NAME, not by position.
+                "strategy": d.signal.get("strategy"),
+                "regime": d.signal.get("regime"),
                 "entry_price": d.signal.get("entry_price"),
                 "stop_price": d.expected.get("stop_price"),
                 "target_price": d.expected.get("target_price"),
@@ -607,6 +612,11 @@ def signal_to_dict(signal: Any) -> Dict[str, Any]:
     return {
         "asset": getattr(signal, "asset", None),
         "side": getattr(signal, "side", None).name if getattr(signal, "side", None) else None,
+        # R2 / VA-022: strategy/regime belong in every decision signal payload
+        # so recorded trades can be attributed by strategy NAME downstream
+        # (mirrors add_trade's default payload schema).
+        "strategy": getattr(signal, "strategy", None),
+        "regime": getattr(signal, "regime", None),
         "entry_price": getattr(signal, "entry_price", None),
         "suggested_stop": getattr(signal, "suggested_stop", None),
         "suggested_target": getattr(signal, "suggested_target", None),

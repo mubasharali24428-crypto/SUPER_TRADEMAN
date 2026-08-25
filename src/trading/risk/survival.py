@@ -5,11 +5,17 @@ from enum import Enum
 from typing import Optional
 
 from trading.core.money import decimal_from_float
-from trading.risk.models import AccountState, RiskConfig, day_start_equity
+from trading.risk.models import AccountState, RiskConfig
 from trading.risk.garch import GARCHForecastResult
 from trading.risk.hmm_regime import HMMRegimeResult
 from trading.risk.evt import EVTRiskResult
-from trading.risk.tier_state import TierState, load_state, save_state
+from trading.risk.tier_state import (
+    DEFAULT_SCOPE,
+    UNKNOWN_TIER,
+    TierState,
+    load_state,
+    save_state,
+)
 
 logger = logging.getLogger("trading.risk.survival")
 
@@ -55,6 +61,7 @@ def _epsilon_flips(
     account: AccountState,
     max_drawdown: float,
     daily_loss_limit: float,
+    fallback_anchor: Optional[float] = None,
 ) -> list[dict]:
     """Return one entry per limit boundary where the exact Decimal path crosses
     but the legacy float path does not (F-0342 epsilon-flip class).
@@ -62,6 +69,15 @@ def _epsilon_flips(
     Direction matters: this catches FALSE NEGATIVES of the float gate -- the
     account has genuinely reached a limit boundary while float rounding hides
     it -- which is the dangerous miss, not the cosmetic false alarm.
+
+    R2 / VB-001: the daily-loss denominator is ``day_start_settled_equity``
+    when recorded. When it is None (no day boundary observed yet) the exact
+    side previously fed current equity in as BOTH numerator and denominator,
+    structurally zeroing pnl_exact and blinding the detector; instead the
+    prior cycle's settled equity carried in TierState (``fallback_anchor``)
+    is used, and when even that is unavailable the daily-loss check is
+    skipped with an explicit ANCHOR_UNAVAILABLE event rather than silently
+    computing a meaningless 0.0.
     """
     flips: list[dict] = []
 
@@ -81,27 +97,36 @@ def _epsilon_flips(
                 }
             )
 
-    denom = day_start_equity(account)
-    if denom > 0:
-        # Float side is the STORED fraction -- exactly what the SURVIVAL gate
-        # below compares. Decimal side is the exact recompute from the same
-        # equity/day-anchor floats.
-        pnl_float = account.daily_pnl_pct
-        pnl_exact = (
-            decimal_from_float(account.equity) - decimal_from_float(denom)
-        ) / decimal_from_float(denom)
-        lim_d = Decimal(str(daily_loss_limit))
-        breach_float = pnl_float <= -daily_loss_limit
-        breach_exact = pnl_exact <= -lim_d
-        if breach_exact and not breach_float:
-            flips.append(
-                {
-                    "kind": "daily_loss",
-                    "float_value": pnl_float,
-                    "decimal_value": pnl_exact,
-                    "limit": daily_loss_limit,
-                }
-            )
+    denom = account.day_start_settled_equity
+    if denom is None:
+        # R2 / VB-001: never substitute current equity -- it cancels out.
+        denom = fallback_anchor
+    if denom is None or denom <= 0:
+        logger.info(
+            "ANCHOR_UNAVAILABLE: no day-start (or carried) settled equity "
+            "anchor yet; exact-decimal daily-loss dual-run skipped"
+        )
+        return flips
+
+    # Float side is the STORED fraction -- exactly what the SURVIVAL gate
+    # below compares. Decimal side is the exact recompute against the day
+    # anchor (recorded or carried).
+    pnl_float = account.daily_pnl_pct
+    pnl_exact = (
+        decimal_from_float(account.equity) - decimal_from_float(denom)
+    ) / decimal_from_float(denom)
+    lim_d = Decimal(str(daily_loss_limit))
+    breach_float = pnl_float <= -daily_loss_limit
+    breach_exact = pnl_exact <= -lim_d
+    if breach_exact and not breach_float:
+        flips.append(
+            {
+                "kind": "daily_loss",
+                "float_value": pnl_float,
+                "decimal_value": pnl_exact,
+                "limit": daily_loss_limit,
+            }
+        )
     return flips
 
 
@@ -153,22 +178,38 @@ class SurvivalEngine:
         config: Optional[RiskConfig] = None,
         min_dwell_cycles: Optional[int] = None,
         state_path: Optional[str] = None,
+        scope: str = DEFAULT_SCOPE,
     ):
         self.config = config or RiskConfig()
         self.min_dwell_cycles = (
             int(min_dwell_cycles) if min_dwell_cycles is not None else MIN_DWELL_CYCLES
         )
         self.state_path = state_path
+        # R2 / VA-016: persistence scope ('global' preserves legacy behaviour;
+        # per-symbol loops pass their own scope so tiers stop cross-coupling).
+        self.scope = scope or DEFAULT_SCOPE
         self.cycle_count = 0
         if state_path:
-            self.tier_state = load_state(state_path)
+            self.tier_state = load_state(state_path, scope=self.scope)
             try:
                 SurvivalTier(self.tier_state.tier)
             except ValueError:
-                logger.warning(
-                    "Invalid persisted tier '%s'; resetting to NORMAL", self.tier_state.tier
-                )
-                self.tier_state = TierState(tier="normal")
+                if self.tier_state.tier == UNKNOWN_TIER:
+                    # R2 / VA-015 fail-closed: nothing trustworthy known ->
+                    # hold the CAUTION-minimum instead of resetting to NORMAL.
+                    logger.warning(
+                        "Tier state UNKNOWABLE for scope %s; starting at "
+                        "CAUTION-minimum (never NORMAL)",
+                        self.scope,
+                    )
+                    self.tier_state = TierState(
+                        tier=SurvivalTier.CAUTION.value, last_settled_equity=self.tier_state.last_settled_equity
+                    )
+                else:
+                    logger.warning(
+                        "Invalid persisted tier '%s'; resetting to NORMAL", self.tier_state.tier
+                    )
+                    self.tier_state = TierState(tier="normal")
         else:
             # No persistence requested: start from a fresh in-memory state.
             self.tier_state = TierState(tier="normal")
@@ -182,13 +223,18 @@ class SurvivalEngine:
         garch_res: Optional[GARCHForecastResult],
         hmm_res: Optional[HMMRegimeResult],
         evt_res: Optional[EVTRiskResult],
+        fallback_anchor: Optional[float] = None,
     ) -> AccountSurvivalStatus:
         cfg = self.config
 
         # SQUAD DM-1 wave-1 (F-0342): observation-only Decimal dual-run. Logged
         # before any gate fires so the divergence record exists even when the
         # float path rejects; never influences tier selection.
-        _log_epsilon_flips(_epsilon_flips(account, cfg.max_drawdown, cfg.daily_loss_limit))
+        _log_epsilon_flips(
+            _epsilon_flips(
+                account, cfg.max_drawdown, cfg.daily_loss_limit, fallback_anchor=fallback_anchor
+            )
+        )
 
         # 1. Check Hard Kill Switch or Max Drawdown -> COOLDOWN
         if account.kill_switch:
@@ -292,6 +338,11 @@ class SurvivalEngine:
         try:
             return SurvivalTier(self.tier_state.tier)
         except ValueError:
+            if self.tier_state.tier == UNKNOWN_TIER:
+                # R2 / VA-015: unknown must never be read as NORMAL by callers
+                # of the raw accessor; evaluate_survival_status maps it onto
+                # CAUTION before use, but keep the accessor honest too.
+                return SurvivalTier.CAUTION
             return SurvivalTier.NORMAL
 
     def _tier_template(self, tier: SurvivalTier, raw: AccountSurvivalStatus) -> AccountSurvivalStatus:
@@ -332,9 +383,25 @@ class SurvivalEngine:
         dwell-gated single-step de-escalation, optional persistence).
         """
         self.cycle_count += 1
-        raw = self._evaluate_raw_status(account, garch_res, hmm_res, evt_res)
-
+        # R2 / VA-015: an UNKNOWABLE held tier (state store down, no cache) is
+        # consumed as a CAUTION-minimum -- never as NORMAL.
         current = self._current_tier()
+        if current is SurvivalTier.NORMAL and self.tier_state.tier == UNKNOWN_TIER:
+            logger.warning(
+                "Held tier '%s' for scope %s is not trustworthy (state store "
+                "unavailable); treating as CAUTION-minimum this cycle",
+                UNKNOWN_TIER,
+                self.scope,
+            )
+            self.tier_state = TierState(tier=SurvivalTier.CAUTION.value)
+            current = self._current_tier()
+
+        # R2 / VB-001: carry the prior settled equity so the exact-decimal
+        # daily-loss dual-run keeps a usable denominator on sessions where
+        # day_start_settled_equity was never recorded.
+        prior_anchor = self.tier_state.last_settled_equity
+        raw = self._evaluate_raw_status(account, garch_res, hmm_res, evt_res, fallback_anchor=prior_anchor)
+
         raw_sev = _severity(raw.tier)
         cur_sev = _severity(current)
 
@@ -360,10 +427,19 @@ class SurvivalEngine:
             reason = f"hold: raw eval matches tier ({raw.survival_rationale})"
 
         prev_tier = current
+        # R2 / VB-001: record this cycle's settled equity so the NEXT cycle's
+        # exact-decimal daily-loss check has a denominator even when no day
+        # boundary has been observed yet.
+        carried_anchor = (
+            account.day_start_settled_equity
+            if account.day_start_settled_equity is not None
+            else account.equity
+        )
         self.tier_state = TierState(
             tier=new_tier.value,
             entered_cycle=self.cycle_count if new_tier is not prev_tier else self.tier_state.entered_cycle,
             below_count=below_count,
+            last_settled_equity=carried_anchor,
         )
         if new_tier is not prev_tier:
             logger.info("%s -> %s reason=%s", prev_tier.value, new_tier.value, reason)

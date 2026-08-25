@@ -12,6 +12,8 @@ import hmac
 import json
 import logging
 import os
+import time
+from collections import deque
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Optional
@@ -28,11 +30,27 @@ SECRET_ENV_VAR = "API_SESSION_SECRET"
 INSECURE_DEV_ENV_VAR = "API_INSECURE_DEV"
 PASSWORD_HASH_ENV_VAR = "OPERATOR_PASSWORD_HASH"
 
-# Demo operator: sha256("operator") -- override via OPERATOR_PASSWORD_HASH in prod.
+# Demo operator credential. NEVER active by default (R2 / VA-001 fail-closed):
+# login requires OPERATOR_PASSWORD_HASH unless API_INSECURE_DEV=1 explicitly
+# opts into this demo credential, which logs a CRITICAL warning when used.
 DEMO_OPERATOR_PASSWORD = "operator"
-DEFAULT_OPERATOR_PASSWORD_HASH = hashlib.sha256(
-    DEMO_OPERATOR_PASSWORD.encode("utf-8")
-).hexdigest()
+
+# Password hashing (R2 / VA-003): PBKDF2-HMAC-SHA256, random per-call salt.
+# Stored/env format: ``pbkdf2$<iterations>$<salt_hex>$<hash_hex>``.
+PBKDF2_ITERATIONS = 100_000
+
+# Pre-hashed demo credential for API_INSECURE_DEV=1 ONLY (public by design --
+# it guards nothing outside explicitly opted-in local development):
+# pbkdf2$100000$<salt>$<pbkdf2-sha256("operator", salt)>
+INSECURE_DEV_OPERATOR_PASSWORD_HASH = (
+    "pbkdf2$100000$5de10c0ffee57ba5e5ab1776dead17f0$"
+    "3a371df9ff43a383dd81497a42f1ad0f949b4cf1022d3b278bf39267e562cd59"
+)
+
+# Brute-force defense for POST /api/auth/login (R2 / VA-002): slowapi-style
+# fixed-window per-client limit, stdlib-only (no middleware dependency).
+LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 5
+LOGIN_RATE_LIMIT_WINDOW_SECONDS = 60.0
 
 
 class Role(str, Enum):
@@ -80,15 +98,56 @@ def resolve_secret() -> str:
 
 
 def hash_password(password: str) -> str:
-    """sha256 hex digest used for the OPERATOR_PASSWORD_HASH convention."""
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    """Hash a password for the OPERATOR_PASSWORD_HASH convention.
+
+    Format: ``pbkdf2$<iterations>$<salt_hex>$<hash_hex>`` where hash is
+    PBKDF2-HMAC-SHA256 over the UTF-8 password with a fresh random 16-byte
+    salt and ``iterations`` = PBKDF2_ITERATIONS (100_000). Verify with
+    :func:`verify_password`.
+    """
+    salt = os.urandom(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS
+    )
+    return f"pbkdf2${PBKDF2_ITERATIONS}${salt.hex()}${digest.hex()}"
+
+
+def _pbkdf2_verify(password: str, expected_hash: str) -> bool:
+    parts = expected_hash.split("$")
+    if len(parts) != 4 or parts[0] != "pbkdf2":
+        return False
+    try:
+        iterations = int(parts[1])
+        salt = bytes.fromhex(parts[2])
+        expected = bytes.fromhex(parts[3])
+    except ValueError:
+        return False
+    if iterations <= 0 or not salt or not expected:
+        return False
+    actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+    return hmac.compare_digest(actual, expected)
 
 
 def verify_password(password: str, expected_hash: Optional[str]) -> bool:
-    """Constant-time compare of sha256(password) against the configured hash."""
+    """Constant-time verify of ``password`` against the configured hash.
+
+    Accepts the current ``pbkdf2$...`` format. A legacy plain-sha256 hex
+    digest is accepted ONLY to permit migration to pbkdf2; using one logs a
+    deprecation warning telling the operator to re-hash.
+    """
     if not expected_hash:
         return False
-    return hmac.compare_digest(hash_password(password), expected_hash.strip().lower())
+    stored = expected_hash.strip()
+    if "$" in stored:
+        return _pbkdf2_verify(password, stored)
+    # Legacy single unsalted sha256 -- migration path only.
+    logger.warning(
+        "DEPRECATION: OPERATOR_PASSWORD_HASH is a legacy plain-sha256 digest "
+        "(single fast round, unsalted). Re-hash it with "
+        "trading.api.auth.hash_password(...) into the 'pbkdf2$...' format."
+    )
+    legacy = hashlib.sha256(password.encode("utf-8")).hexdigest()
+    return hmac.compare_digest(legacy, stored.lower())
 
 
 class SessionManager:
@@ -130,13 +189,68 @@ def build_session_claims(username: str, role: Role) -> SessionClaims:
     )
 
 
+class LoginRateLimiter:
+    """Slowapi-style per-client fixed-window rate limit, stdlib only.
+
+    Keeps a bounded deque of attempt timestamps per client ip; when more than
+    ``max_attempts`` attempts arrive within ``window_seconds`` the caller must
+    answer 429 until the oldest timestamp leaves the window.
+    """
+
+    def __init__(
+        self,
+        max_attempts: int = LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
+        window_seconds: float = LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+        clock: Any = time.monotonic,
+    ):
+        self.max_attempts = int(max_attempts)
+        self.window_seconds = float(window_seconds)
+        self._clock = clock
+        self._attempts: Dict[str, deque] = {}
+
+    def check(self, client_ip: str) -> bool:
+        """Record an attempt; True if allowed, False if the limit is exceeded."""
+        now = self._clock()
+        bucket = self._attempts.setdefault(client_ip, deque())
+        while bucket and now - bucket[0] > self.window_seconds:
+            bucket.popleft()
+        if len(bucket) >= self.max_attempts:
+            return False
+        bucket.append(now)
+        return True
+
+
+# Process-wide limiter shared by every create_app() instance (per-ip buckets).
+login_rate_limiter = LoginRateLimiter()
+
+
 def authenticate_operator(username: str, password: str) -> Optional[SessionClaims]:
-    """Validate credentials against OPERATOR_PASSWORD_HASH (env).
+    """Validate credentials against OPERATOR_PASSWORD_HASH.
+
+    FAIL-CLOSED (R2 / VA-001): when the env var is unset there is NO default
+    credential -- this returns None and callers must refuse login with
+    AUTH_UNCONFIGURED / HTTP 503. Only an explicit ``API_INSECURE_DEV=1``
+    permits the public demo credential ('operator'), logging CRITICAL each use.
 
     On success returns OPERATOR-role claims; on failure returns None. Any
     non-empty username is accepted for the single shared operator account.
     """
-    expected_hash = os.environ.get(PASSWORD_HASH_ENV_VAR) or DEFAULT_OPERATOR_PASSWORD_HASH
+    expected_hash = os.environ.get(PASSWORD_HASH_ENV_VAR, "").strip()
+    if not expected_hash:
+        if os.environ.get(INSECURE_DEV_ENV_VAR) == "1":
+            logger.critical(
+                "OPERATOR_PASSWORD_HASH is NOT set but API_INSECURE_DEV=1 is "
+                "active: accepting the PUBLIC demo operator password %r. This "
+                "is NOT SAFE for production or any exposed network interface.",
+                DEMO_OPERATOR_PASSWORD,
+            )
+            expected_hash = INSECURE_DEV_OPERATOR_PASSWORD_HASH
+        else:
+            logger.error(
+                "Login refused: OPERATOR_PASSWORD_HASH is not configured "
+                "(fail-closed). Set it via trading.api.auth.hash_password(...)."
+            )
+            return None
     if not username or not verify_password(password, expected_hash):
         return None
     return build_session_claims(username, Role.OPERATOR)

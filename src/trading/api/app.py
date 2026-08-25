@@ -24,6 +24,7 @@ from trading.api.auth import (
     SessionManager,
     authenticate_operator,
     cookie_options,
+    login_rate_limiter,
     resolve_secret,
 )
 from trading.api.deps import require_admin, require_operator, require_viewer
@@ -175,9 +176,25 @@ def create_app() -> FastAPI:
 
     # --- auth ------------------------------------------------------------------
     @app.post("/api/auth/login")
-    def login(body: LoginRequest, response: Response):
+    def login(body: LoginRequest, request: Request, response: Response):
+        # R2 / VA-002: brute-force defense -- fixed window per client ip
+        # (5 attempts / 60s, then 429 until a timestamp exits the window).
+        client_ip = request.client.host if request.client else "unknown"
+        if not login_rate_limiter.check(client_ip):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many login attempts; retry later",
+            )
         claims = authenticate_operator(body.username, body.password)
         if claims is None:
+            if not os.environ.get("OPERATOR_PASSWORD_HASH", "").strip() and os.environ.get(
+                "API_INSECURE_DEV"
+            ) != "1":
+                # R2 / VA-001 fail-closed: no credential configured at all.
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="AUTH_UNCONFIGURED",
+                )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials",

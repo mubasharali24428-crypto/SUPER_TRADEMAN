@@ -110,21 +110,25 @@ class ContextualBanditAllocator:
         else:
             self.failures[name] += 1.0
 
-    def fit_from_learning_graph(self, learning_graph: LearningGraph, unknown_action: str = "raise") -> None:
+    def fit_from_learning_graph(self, learning_graph: LearningGraph, unknown_action: str = "skip") -> None:
         """Batch-train the bandit policy using recorded trades from a LearningGraph.
 
-        Recorded trades carry a ``side`` label which may fall outside this
-        allocator's action space.  ``unknown_action="raise"`` (default) lets the
-        underlying validation error propagate; ``"skip"`` skips such records.
+        R2 / VA-022: each record's ``strategy`` label (recorded in the decision
+        signal payload by ``LearningGraph.add_trade``) is mapped into this
+        allocator's action space BY NAME -- rewards are attributed to the
+        strategy that actually produced them, never guessed from the outcome
+        sign or the position of a strategy in the action list. Records whose
+        label falls outside the action space follow ``unknown_action``:
+        ``"skip"`` (default, incl. unlabeled legacy records) skips them with
+        a warning; ``"raise"`` propagates the validation error.
         """
         skipped = 0
         for rec in learning_graph.get_trade_records():
-            strat = rec.get("side") or "momentum"  # Fallback strategy label
+            strat = rec.get("strategy")
             pnl = rec.get("actual_pnl", 0.0)
             reward = 1.0 if pnl > 0 else -1.0
-            target = self.strategies[0] if pnl > 0 else self.strategies[-1]
             try:
-                self.update_from_trade(target, reward)
+                self.update_from_trade(strat, reward)
             except ValueError:
                 if unknown_action != "skip":
                     raise

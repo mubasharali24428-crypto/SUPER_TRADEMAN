@@ -13,7 +13,7 @@ from trading.risk.hmm_regime import HMMRegimeClassifier, HMMRegimeResult
 from trading.risk.evt import EVTRiskEngine, EVTRiskResult
 from trading.risk.copula import CopulaDependencyEngine, CopulaDependencyResult
 from trading.risk.survival import SurvivalEngine, SurvivalTier, AccountSurvivalStatus
-from trading.risk.tier_state import STATE_FILE_ENV
+from trading.risk.tier_state import DEFAULT_SCOPE, STATE_FILE_ENV
 from trading.learning.graph import LearningGraph
 from trading.learning.policy import ContextualBanditAllocator
 
@@ -56,6 +56,7 @@ class TradingHeartbeatDaemon:
         interval_seconds: float = 60.0,
         min_candle_buffer: int = MIN_CANDLE_BUFFER,
         tier_state_path: Optional[str] = None,
+        tier_scope: str = DEFAULT_SCOPE,
     ):
         self.symbols = list(symbols)
         self.risk_config = risk_config or RiskConfig()
@@ -63,7 +64,12 @@ class TradingHeartbeatDaemon:
         # Tier persistence is opt-in via tier_state_path or RISK_TIER_STATE_FILE
         # so a defended tier (e.g. COOLDOWN) survives a daemon restart.
         self.tier_state_path = tier_state_path or os.environ.get(STATE_FILE_ENV)
-        self.survival_engine = SurvivalEngine(self.risk_config, state_path=self.tier_state_path)
+        # R2 / VA-016: persistence scope ('global' preserves the legacy single
+        # shared tier; a distinct scope namespaces this daemon's tier state).
+        self.tier_scope = tier_scope or DEFAULT_SCOPE
+        self.survival_engine = SurvivalEngine(
+            self.risk_config, state_path=self.tier_state_path, scope=self.tier_scope
+        )
         try:
             self._last_logged_tier = SurvivalTier(self.survival_engine.tier_state.tier)
         except ValueError:
@@ -169,6 +175,10 @@ class TradingHeartbeatDaemon:
             logger.warning("ENTRY_BLOCKED tier=%s", survival_status.tier.value)
         elif survival_status.allow_new_entries and signal_generator_fn is not None:
             for symbol in self.symbols:
+                # R2 / VA-016: per-symbol persistence scope is available via
+                # TradingHeartbeatDaemon(tier_scope=...); the single-portfolio
+                # tick below keeps the daemon's own scoped engine so legacy
+                # behaviour ('global') is unchanged by default.
                 sym_prices = self.latest_history.get(symbol, prices)
                 current_price = sym_prices[-1] if sym_prices else 100.0
                 signal = signal_generator_fn(symbol, active_strategy, current_price)

@@ -2,8 +2,9 @@ import logging
 from collections.abc import Mapping
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
+from weakref import WeakKeyDictionary
 
-from trading.core.money import quantize_to_step
+from trading.core.money import decimal_from_float, quantize_to_step
 from trading.risk.models import (
     AccountState,
     ApprovedExit,
@@ -28,6 +29,17 @@ class _QuantizedRiskDecision(RiskDecision):
     downstream consumers comparing or printing decisions are unaffected.
     Constructed only when instrument quantization is active; every other
     approval returns the plain legacy ``RiskDecision``.
+
+    R2 / VB-002 RESOLUTION: the carrier is RETIRED from the return path.
+    CPython's builtin ``type()`` reads the internal type field and cannot be
+    overridden from Python (an instance ``__class__`` property changes
+    attribute access only -- and would corrupt pickle, which trusts
+    ``obj.__class__``). Exact-type identity for every approval is therefore
+    restored BY CONSTRUCTION: ``RiskEngine.evaluate`` now returns the plain
+    legacy ``RiskDecision`` on ALL paths, and the Decimal candidate travels
+    OUT-OF-BAND via ``RiskEngine.get_size_candidate(order)`` (the other
+    remediation this finding's fix hint offers). The class remains importable
+    for backward compatibility; nothing constructs it anymore.
     """
 
     __slots__ = ("size_decimal_candidate",)
@@ -63,6 +75,21 @@ class RiskEngine:
         # map, e.g. {"BTC/USDT": "0.001"}. None / empty / asset-miss all mean
         # "quantization inactive" -> behavior identical to pre-wave legacy.
         self.instruments = dict(instruments) if instruments else None
+        # R2 / VB-002: decisions stay plain RiskDecision on every path; the
+        # quantized candidate travels out-of-band, keyed by the ApprovedOrder
+        # identity. WeakKeyDictionary -> entries die with their orders.
+        self._size_candidates: WeakKeyDictionary[ApprovedOrder, Decimal | None] = WeakKeyDictionary()
+
+    def get_size_candidate(self, order: ApprovedOrder) -> Decimal | None:
+        """Out-of-band Decimal size candidate for a quantized approval.
+
+        R2 / VB-002: returns the quantized ``size_decimal_candidate`` recorded
+        when this engine approved ``order``; None for unknown orders and for
+        approvals where no step was configured (quantization inactive). This
+        keeps every decision an exact-type ``RiskDecision`` while preserving
+        the dual-run's Decimal visibility.
+        """
+        return self._size_candidates.get(order)
 
     def evaluate(self, signal: Signal, account: AccountState) -> RiskDecision:
         cfg = self.config
@@ -156,6 +183,7 @@ class RiskEngine:
         # consumed downstream. When an instrument step is configured, a Decimal
         # candidate is computed in parallel purely to make divergence visible.
         size_decimal_candidate = None
+        size_decimal_exact_grid = None  # R2 / VB-035: independently recomputed
         step_str = self.instruments.get(signal.asset) if self.instruments else None
         if step_str:
             try:
@@ -168,9 +196,37 @@ class RiskEngine:
                 )
                 size_decimal_candidate = None
             else:
-                # Invariant: quantized candidate must sit within one step of the
-                # legacy float size (floor convention). Beyond that the two
-                # paths have genuinely diverged -> SIZE_DELTA warning.
+                try:
+                    # R2 / VB-035: the divergence that matters is float vs
+                    # Decimal ARITHMETIC in the sizing formula itself (e.g.
+                    # catastrophic cancellation in entry-stop for tight
+                    # stops), not the trivially bounded float->grid rounding.
+                    # Recompute equity*risk/rpu from pure Decimal inputs and
+                    # grid it with the SAME floor convention.
+                    risk_per_unit_exact = decimal_from_float(signal.entry_price) - decimal_from_float(
+                        signal.suggested_stop
+                    )
+                    if signal.side.value == "short":
+                        risk_per_unit_exact = -risk_per_unit_exact
+                    risk_per_unit_exact = abs(risk_per_unit_exact)
+                    if risk_per_unit_exact.is_finite() and risk_per_unit_exact > 0:
+                        size_exact = (
+                            decimal_from_float(account.equity)
+                            * decimal_from_float(effective_risk_pct)
+                            / risk_per_unit_exact
+                        )
+                        size_decimal_exact_grid = quantize_to_step(size_exact, step_str)
+                except (ValueError, InvalidOperation):
+                    logger.warning(
+                        "SIZE_DELTA_EXACT_UNAVAILABLE: asset=%s -- exact "
+                        "Decimal recompute failed; only the quantization-path "
+                        "check runs this cycle",
+                        signal.asset,
+                    )
+
+                # Invariant A (wave-1): quantized candidate must sit within one
+                # step of the legacy float size (floor convention). Beyond that
+                # the two paths have genuinely diverged -> SIZE_DELTA warning.
                 step_dec = Decimal(str(step_str))
                 tolerance = step_dec  # |candidate - legacy| <= one full step
                 delta = float(size_decimal_candidate) - position_size
@@ -184,6 +240,19 @@ class RiskEngine:
                         delta,
                         tolerance,
                     )
+                # Invariant B (R2 / VB-035): the QUANTIZED order quantity must
+                # equal an INDEPENDENT exact-Decimal recompute of the same
+                # formula gridded onto the same exchange step. Any mismatch is
+                # formula-level float-vs-Decimal divergence.
+                if size_decimal_exact_grid is not None and size_decimal_exact_grid != size_decimal_candidate:
+                    logger.warning(
+                        "SIZE_DELTA_EXACT: asset=%s quantized_qty=%s exact_recomputed_size=%s "
+                        "(both Decimals; legacy float pipeline produced %.12f)",
+                        signal.asset,
+                        size_decimal_candidate,
+                        size_decimal_exact_grid,
+                        position_size,
+                    )
             approved_order = ApprovedOrder(
                 asset=signal.asset,
                 asset_class=signal.asset_class,
@@ -195,13 +264,10 @@ class RiskEngine:
                 risk_pct=effective_risk_pct,
                 issuer=_ISSUER,
             )
-            return _QuantizedRiskDecision(
-                approved=True,
-                reason="approved",
-                signal=signal,
-                approved_order=approved_order,
-                size_decimal_candidate=size_decimal_candidate,
-            )
+            # R2 / VB-002: candidate rides out-of-band; the decision itself is
+            # the plain legacy RiskDecision (exact-type identity preserved).
+            self._size_candidates[approved_order] = size_decimal_candidate
+            return self._approve(signal, approved_order)
 
         approved_order = ApprovedOrder(
             asset=signal.asset,

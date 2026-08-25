@@ -19,10 +19,16 @@ from trading.api.auth import (
     Role,
     SessionManager,
     build_session_claims,
+    hash_password,
+    login_rate_limiter,
     resolve_secret,
 )
 
 SECRET = "unit-test-secret"
+
+# R2/VA-001: there is no default credential anymore, so auth-positive tests
+# pin an explicit pbkdf2 operator password hash.
+DEFAULT_TEST_OPERATOR_PASSWORD = "s3cret-op-pass"
 
 
 @pytest.fixture(autouse=True)
@@ -30,7 +36,11 @@ def _secret_env(monkeypatch):
     """Every test starts from an explicit, controlled secret environment."""
     monkeypatch.setenv("API_SESSION_SECRET", SECRET)
     monkeypatch.delenv("API_INSECURE_DEV", raising=False)
-    monkeypatch.delenv("OPERATOR_PASSWORD_HASH", raising=False)
+    monkeypatch.setenv(
+        "OPERATOR_PASSWORD_HASH", hash_password(DEFAULT_TEST_OPERATOR_PASSWORD)
+    )
+    # R2/VA-002: per-ip attempt buckets are process-global; isolate per test.
+    login_rate_limiter._attempts.clear()
 
 
 @pytest.fixture()
@@ -93,7 +103,7 @@ def test_tampered_session_cookie_is_rejected(client):
 def test_operator_login_roundtrip_sets_session_and_passes(client):
     login = client.post(
         "/api/auth/login",
-        json={"username": "operator", "password": DEMO_OPERATOR_PASSWORD},
+        json={"username": "operator", "password": DEFAULT_TEST_OPERATOR_PASSWORD},
     )
     assert login.status_code == 200
     assert SESSION_COOKIE_NAME in login.cookies
@@ -122,20 +132,106 @@ def test_wrong_password_is_401_without_cookie(client):
 
 
 def test_custom_password_hash_is_honored(client, monkeypatch):
-    import hashlib
-
-    monkeypatch.setenv(
-        "OPERATOR_PASSWORD_HASH",
-        hashlib.sha256(b"s3cret-op-pass").hexdigest(),
-    )
+    monkeypatch.setenv("OPERATOR_PASSWORD_HASH", hash_password("fresh-op-pass"))
     ok = client.post(
-        "/api/auth/login", json={"username": "op", "password": "s3cret-op-pass"}
+        "/api/auth/login", json={"username": "op", "password": "fresh-op-pass"}
     )
     assert ok.status_code == 200
     bad = client.post(
         "/api/auth/login", json={"username": "op", "password": DEMO_OPERATOR_PASSWORD}
     )
     assert bad.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# R2 wave-2 additions: VA-001 fail-closed credential, VA-003 PBKDF2 hashing,
+# VA-002 login rate limiting.
+# ---------------------------------------------------------------------------
+
+
+def test_hash_password_pbkdf2_format_roundtrip():
+    """pbkdf2$iterations$salt$hash format verifies; fresh salt per call."""
+    from trading.api.auth import PBKDF2_ITERATIONS, verify_password
+
+    first = hash_password("round-trip-pass")
+    parts = first.split("$")
+    assert len(parts) == 4
+    assert parts[0] == "pbkdf2"
+    assert int(parts[1]) == PBKDF2_ITERATIONS
+    assert verify_password("round-trip-pass", first) is True
+    assert verify_password("wrong", first) is False
+    # Random per-call salt: same password yields different stored hash.
+    second = hash_password("round-trip-pass")
+    assert second != first
+    assert verify_password("round-trip-pass", second) is True
+
+
+def test_legacy_sha256_hash_accepted_only_as_migration_with_deprecation(
+    client, monkeypatch, caplog
+):
+    """R2/VA-003: legacy plain-sha256 digests still verify BUT log a loud
+    deprecation warning so operators re-hash into pbkdf2 format."""
+    import hashlib as _hashlib
+
+    monkeypatch.setenv(
+        "OPERATOR_PASSWORD_HASH",
+        _hashlib.sha256(b"legacy-op-pass").hexdigest(),
+    )
+    with caplog.at_level(logging.WARNING, logger="trading.api.auth"):
+        ok = client.post(
+            "/api/auth/login", json={"username": "op", "password": "legacy-op-pass"}
+        )
+    assert ok.status_code == 200
+    assert any("DEPRECATION" in r.getMessage() for r in caplog.records)
+
+
+def test_unset_password_hash_fails_closed_503_auth_unconfigured(
+    client, monkeypatch, caplog
+):
+    """R2/VA-001: unset OPERATOR_PASSWORD_HASH must NOT activate any default
+    credential -- the login route refuses with 503 AUTH_UNCONFIGURED."""
+    monkeypatch.delenv("OPERATOR_PASSWORD_HASH", raising=False)
+    with caplog.at_level(logging.ERROR, logger="trading.api.auth"):
+        resp = client.post(
+            "/api/auth/login",
+            json={"username": "operator", "password": DEMO_OPERATOR_PASSWORD},
+        )
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "AUTH_UNCONFIGURED"
+    assert not resp.cookies.get(SESSION_COOKIE_NAME)
+
+
+def test_insecure_dev_flag_permits_demo_password_with_critical_warning(monkeypatch, caplog):
+    """R2/VA-001 escape hatch: API_INSECURE_DEV=1 permits the public demo
+    credential, logging CRITICAL on every accepted use."""
+    monkeypatch.delenv("OPERATOR_PASSWORD_HASH", raising=False)
+    monkeypatch.setenv("API_INSECURE_DEV", "1")
+    from trading.api.app import create_app
+
+    app = create_app()
+    with caplog.at_level(logging.CRITICAL, logger="trading.api.auth"):
+        fresh_client = TestClient(app)
+        resp = fresh_client.post(
+            "/api/auth/login",
+            json={"username": "operator", "password": DEMO_OPERATOR_PASSWORD},
+        )
+    assert resp.status_code == 200
+    criticals = [r for r in caplog.records if r.levelno >= logging.CRITICAL]
+    assert any("demo operator" in r.getMessage() for r in criticals)
+
+
+def test_login_rate_limited_429_after_five_attempts_per_ip(client):
+    """R2/VA-002: more than 5 attempts inside the 60s window => 429."""
+    for _ in range(5):
+        limited = client.post(
+            "/api/auth/login", json={"username": "op", "password": "wrong"}
+        )
+        assert limited.status_code == 401
+    sixth = client.post(
+        "/api/auth/login", json={"username": "op", "password": DEFAULT_TEST_OPERATOR_PASSWORD}
+    )
+    assert sixth.status_code == 429
+    assert not sixth.cookies.get(SESSION_COOKIE_NAME)
 
 
 def test_missing_secret_without_flag_refuses_to_start(monkeypatch, caplog):
