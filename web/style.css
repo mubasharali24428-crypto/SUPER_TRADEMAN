@@ -13,6 +13,17 @@
   --color-red: #ff3366;
   --color-blue: #3b82f6;
 
+  /* == W9 motion tokens (Emil Kowalski / apple-design) ===================== */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur-fast: 150ms;
+  --dur-med: 250ms;
+  /* spacing scale */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 16px; --sp-4: 24px; --sp-5: 32px; --sp-6: 48px;
+  /* radius scale */
+  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;
+
   --text-primary: #f1f5f9;
   --text-secondary: #94a3b8;
   /* AX-1 contrast fix: was #64748b = 4.18:1 on --bg-primary (#07090e) and
@@ -164,7 +175,7 @@ body {
 .brand-logo {
   width: 42px;
   height: 42px;
-  background: linear-gradient(135deg, rgba(0, 240, 255, 0.2), rgba(176, 92, 255, 0.2));
+  background: rgba(0, 240, 255, 0.08);
   border: 1px solid var(--color-cyan);
   border-radius: 12px;
   display: flex;
@@ -185,9 +196,7 @@ body {
   font-size: 20px;
   font-weight: 700;
   letter-spacing: 0.8px;
-  background: linear-gradient(90deg, #ffffff, var(--color-cyan));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: #f1f5f9;
 }
 
 .sub-brand {
@@ -276,18 +285,18 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  transition: all var(--transition-fast);
+  transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) ease, background-color var(--dur-fast) ease, color var(--dur-fast) ease;
   border: 1px solid transparent;
 }
 
 .play-btn {
-  background: linear-gradient(135deg, rgba(0, 255, 136, 0.2), rgba(0, 240, 255, 0.15));
+  background: rgba(0, 255, 136, 0.1);
   color: #ffffff;
   border-color: var(--color-emerald);
   box-shadow: 0 0 14px rgba(0, 255, 136, 0.25);
 }
 .play-btn:hover {
-  background: linear-gradient(135deg, rgba(0, 255, 136, 0.35), rgba(0, 240, 255, 0.3));
+  background: rgba(0, 255, 136, 0.18);
   box-shadow: 0 0 22px rgba(0, 255, 136, 0.45);
 }
 
@@ -479,11 +488,11 @@ body {
   right: 0;
   height: 2px;
 }
-.card-glow-line.cyan { background: linear-gradient(90deg, transparent, var(--color-cyan), transparent); }
-.card-glow-line.blue { background: linear-gradient(90deg, transparent, var(--color-blue), transparent); }
-.card-glow-line.purple { background: linear-gradient(90deg, transparent, var(--color-purple), transparent); }
-.card-glow-line.amber { background: linear-gradient(90deg, transparent, var(--color-amber), transparent); }
-.card-glow-line.emerald { background: linear-gradient(90deg, transparent, var(--color-emerald), transparent); }
+.card-glow-line.cyan { background: var(--color-cyan); opacity: 0.55; }
+.card-glow-line.blue { background: var(--color-blue); opacity: 0.55; }
+.card-glow-line.purple { background: var(--color-purple); opacity: 0.55; }
+.card-glow-line.amber { background: var(--color-amber); opacity: 0.55; }
+.card-glow-line.emerald { background: var(--color-emerald); opacity: 0.55; }
 
 /* Color Utility Classes */
 .text-cyan { color: var(--color-cyan); }
@@ -985,12 +994,12 @@ canvas {
 }
 
 .primary-action {
-  background: linear-gradient(135deg, rgba(0, 240, 255, 0.2), rgba(176, 92, 255, 0.2));
+  background: rgba(0, 240, 255, 0.08);
   color: var(--color-cyan);
   border-color: rgba(0, 240, 255, 0.4);
 }
 .primary-action:hover {
-  background: linear-gradient(135deg, rgba(0, 240, 255, 0.35), rgba(176, 92, 255, 0.35));
+  background: rgba(0, 240, 255, 0.16);
   box-shadow: 0 0 16px rgba(0, 240, 255, 0.3);
 }
 
@@ -1665,5 +1674,62 @@ body.nav-drawer-open .nav-toggle .burger-bar:nth-child(3) { transform: translate
   .tab-btn-group {
     width: 100%;
     overflow-x: auto;
+  }
+}
+
+/* =====================================================================
+   W9 MOTION LAYER — Emil Kowalski / apple-design rules
+   All durations <=300ms; custom curves; transform/opacity only.
+   ===================================================================== */
+
+/* Press feedback on every interactive element */
+button, .tab-btn, .sidebar-item, .primary-action, [role="button"] {
+  transition: transform 160ms var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+}
+button:active, .tab-btn:active, .sidebar-item:active, .primary-action:active,
+[role="button"]:active {
+  transform: scale(0.97);
+}
+
+/* Entrances never from scale(0) */
+@keyframes w9-enter {
+  from { opacity: 0; transform: scale(0.95) translateY(4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.w9-animate-in { animation: w9-enter var(--dur-med) var(--ease-out) both; }
+
+/* Stagger metric cards on first load only (50ms steps, decorative) */
+.metrics-grid > *:nth-child(1) { animation-delay: 0ms; }
+.metrics-grid > *:nth-child(2) { animation-delay: 50ms; }
+.metrics-grid > *:nth-child(3) { animation-delay: 100ms; }
+.metrics-grid > *:nth-child(4) { animation-delay: 150ms; }
+.metrics-grid > * { animation: w9-enter 250ms var(--ease-out) both; }
+
+/* Drawer uses iOS curve */
+.sidebar-drawer {
+  transition: transform var(--dur-med) var(--ease-drawer);
+}
+
+/* Hover gating — touch devices fire false hovers on tap */
+@media (hover: hover) and (pointer: fine) {
+  button:hover:not(:disabled), .tab-btn:hover, .primary-action:hover {
+    filter: brightness(1.12);
+    transition: filter var(--dur-fast) ease;
+  }
+}
+
+/* Focus rings: visible only for keyboard users (never suppress outlines) */
+:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Reduced motion: keep fades, drop movement */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    transform: none !important;
   }
 }
