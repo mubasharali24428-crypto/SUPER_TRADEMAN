@@ -220,6 +220,184 @@ def test_w7_charts_module_has_no_innerhtml_sinks():
     assert "replaceChildren" in _charts_js
 
 
+# ---------------------------------------------------------------------- W8 --
+# Wave-8 additions: trading-terminal layout (Workstream A) + Apple-style
+# scroll animations (Workstream B). Same grep-level static guarantees as the
+# AX-1/W7 blocks so the gate runs without node.
+
+_app_container = re.search(r'\.app-container\s*\{[^}]*\}', _css)
+
+
+def test_w8_terminal_shell_layout_present():
+    # sidebar rail + sticky header classes exist and are wired into a grid shell
+    assert ".terminal-header" in _css and ".terminal-sidebar" in _css
+    assert _app_container, ".app-container grid shell missing"
+    assert "display: grid" in _app_container.group(0)
+    m = re.search(r'\.terminal-header\s*\{[^}]*\}', _css)
+    assert m and "position: sticky" in m.group(0), "header is not sticky"
+    assert "z-index" in m.group(0), "sticky header needs a stacking tier"
+
+
+def test_w8_status_pills_in_header():
+    assert 'class="status-pill pill-mode"' in _html, "mode pill missing"
+    assert 'class="status-pill pill-connection up"' in _html, (
+        "connection pill missing"
+    )
+    for label in ("Engine mode: simulated",
+                  "Connection status: local simulation feed online"):
+        assert label in _html, f"status pill lacks accessible name: {label}"
+
+
+def test_w8_sidebar_nav_structure_and_names():
+    m = re.search(r'<nav[^>]*id="terminalSidebar"[^>]*>', _html)
+    assert m, "#terminalSidebar nav landmark missing"
+    assert 'aria-label=' in m.group(0), "sidebar nav lacks accessible name"
+    items = re.findall(r'<a[^>]*class="side-nav-item[^"]*"[^>]*>', _html)
+    assert len(items) == 5, f"expected 5 section nav items, got {len(items)}"
+    labels = re.findall(r'class="nav-label">([^<]+)<', _html)
+    for expected in ("Dashboard", "Charts", "Trades / Ledger", "Strategy",
+                     "About"):
+        assert expected in labels, f"nav item '{expected}' missing"
+    # icons are decorative; names come from the text labels
+    for icon in re.findall(r'<span class="nav-icon"[^>]*>', _html):
+        assert 'aria-hidden="true"' in icon
+
+
+def test_w8_hamburger_drawer_contract():
+    """Escape closes the drawer + focus returns to the burger (documented in
+    index.html above #btnNavToggle and implemented in app.js setDrawer)."""
+    m = re.search(r'<button[^>]*id="btnNavToggle"[^>]*>', _html)
+    assert m, "hamburger button #btnNavToggle missing"
+    tag = m.group(0)
+    assert 'aria-expanded="false"' in tag, "burger lacks initial aria-expanded"
+    assert 'aria-controls="terminalSidebar"' in tag, "burger lacks aria-controls"
+    assert 'aria-label=' in tag, "icon-only burger needs an aria-label"
+    # behavior contract in app.js
+    assert "classList.toggle('nav-drawer-open', open)" in _js, (
+        "drawer open state not toggled on <body>"
+    )
+    assert "setAttribute('aria-expanded', String(open))" in _js, (
+        "aria-expanded not kept in sync with drawer state"
+    )
+    assert "e.key === 'Escape' && drawerOpen()" in _js, (
+        "Escape does not close the drawer"
+    )
+    assert "DOM.btnNavToggle.focus()" in _js, (
+        "focus does not return to the burger button on close"
+    )
+
+
+def test_w8_workspace_split_chart_wide_ledger_right():
+    m = re.search(r'\.workspace-grid\s*\{[^}]*\}', _css)
+    assert m, ".workspace-grid rule vanished"
+    assert "minmax(320px, 420px)" in m.group(0), (
+        "right ledger column missing from workspace split"
+    )
+    # ledger moved INSIDE <main> so it stacks under the wide column <1200px
+    main_m = re.search(r'<main\b.*?</main>', _html, flags=re.S)
+    assert main_m and 'data-testid="ledger"' in main_m.group(0), (
+        "ledger panel must live inside <main>"
+    )
+
+
+def test_w8_breakpoint_tiers_defined():
+    # tier 1: full 3-zone at >=1200 (default rules); tier 2 collapse; tier 3 drawer
+    assert "@media (max-width: 1199px)" in _css, "768-1199px tier missing"
+    assert _css.count("@media (max-width: 768px)") >= 1
+    assert "@media (max-width: 1200px)" in _css, "stacked-panels tier missing"
+    assert "transform: translateX(-105%)" in _css, (
+        "off-canvas drawer transform missing"
+    )
+    assert "body.nav-drawer-open .terminal-sidebar" in _css, (
+        "drawer open state has no CSS hook"
+    )
+
+
+# --- W8 Workstream B: scroll animations -------------------------------------
+
+_w8b_css_block = _css.split("W8-B: SCROLL REVEAL", 1)[-1]
+_w8b_css_block = _w8b_css_block.split("VC-004", 1)[0]
+
+
+def test_w8_scroll_reveal_css_present():
+    assert "[data-reveal]" in _w8b_css_block, "reveal base styles missing"
+    assert "transform: translateY(12px)" in _w8b_css_block, (
+        "reveal must start offset by exactly 12px"
+    )
+    assert ".is-revealed" in _w8b_css_block, "revealed-state class missing"
+
+
+def test_w8_reveal_animates_opacity_and_transform_only():
+    # No layout-shifting properties may appear in the reveal transitions.
+    # `transition: none` (the reduced-motion kill switch) is explicitly allowed.
+    transitions = re.findall(r"transition:\s*([^;]+);", _w8b_css_block)
+    assert transitions, "no reveal transition declared"
+    for t in transitions:
+        if t.strip().replace("!important", "").strip() == "none":
+            continue  # reduced-motion kill switch, not an animated property
+        props = [p.strip().split()[0] for p in t.split(",")]
+        allowed = {"opacity", "transform"}
+        illegal = [p for p in props if p not in allowed]
+        assert not illegal, f"reveal animates layout properties: {illegal}"
+
+
+def test_w8_reveal_timing_matches_spec():
+    assert "300ms ease-out" in _w8b_css_block, (
+        "reveal transition must be 300ms ease-out"
+    )
+    # staggered metrics cards: 60ms per-card delay from JS
+    assert "--reveal-delay" in _w8b_css_block
+    assert "60" in _js and "--reveal-delay" in _js, (
+        "metrics card stagger (60ms) not driven from app.js"
+    )
+
+
+def test_w8_intersection_observer_feature_guarded_with_fallback():
+    assert "typeof window.IntersectionObserver !== 'function'" in _js, (
+        "IntersectionObserver used without a feature check"
+    )
+    # graceful fallback: without IO everything renders visible immediately
+    guard = _js.split("function setupScrollReveals()", 1)[-1]
+    guard = guard.split("function setupHeroParallax", 1)[0]
+    assert "is-revealed" in guard, "fallback path does not force content visible"
+    assert "new IntersectionObserver(" in _js
+
+
+def test_w8_reduced_motion_disables_all_animation():
+    # CSS: reveals render visible immediately, zero transforms
+    assert "@media (prefers-reduced-motion: reduce)" in _w8b_css_block, (
+        "reduced-motion query missing from the reveal block"
+    )
+    rm_rule = _w8b_css_block.split("@media (prefers-reduced-motion: reduce)", 1)[-1]
+    assert "opacity: 1 !important" in rm_rule
+    assert "transform: none !important" in rm_rule
+    # JS: matchMedia guard skips the observer + parallax entirely
+    assert "(prefers-reduced-motion: reduce)" in _js, (
+        "app.js ignores prefers-reduced-motion"
+    )
+    assert "if (prefersReducedMotion()) return;" in _js, (
+        "parallax/reveal setup lacks a reduced-motion early return"
+    )
+
+
+def test_w8_hero_parallax_is_subtle_and_scoped():
+    para = _js.split("function setupHeroParallax", 1)[-1]
+    para = para.split("function bootW8", 1)[0]
+    assert "0.3" in para, "parallax must run at 0.3x scroll speed"
+    assert "translateY(" in para, "hero parallax must be transform-only"
+    assert "requestAnimationFrame" in para, "scroll handler must be rAF-throttled"
+    # scoped to the hero band only, never the whole document
+    assert ".terminal-header .brand-group" in para
+
+
+def test_w8_no_new_external_dependencies():
+    external_scripts = re.findall(r'<script[^>]*src="(https?:)?//[^"]*"', _html)
+    assert not external_scripts, "W8 introduced CDN scripts"
+    assert "innerHTML" not in _js.split("function w8TerminalShell", 1)[-1], (
+        "W8 shell code must use DOM APIs only"
+    )
+
+
 # --------------------------------------------------------------- style.css --
 
 def test_global_focus_visible_ring_present():

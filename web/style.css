@@ -114,8 +114,11 @@ body {
   max-width: 1720px;
   margin: 0 auto;
   padding: 20px 24px;
-  display: flex;
-  flex-direction: column;
+  /* W8-A terminal shell: row 1 = sticky header (full width), col 1 = sidebar
+     rail, col 2 = content bands (metrics -> stats -> workspace). */
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
   gap: 20px;
 }
 
@@ -496,14 +499,40 @@ body {
    ========================================================================== */
 .workspace-grid {
   display: grid;
-  grid-template-columns: 1fr 380px;
+  /* W8-A terminal split: wide chart/quant column + right ledger panel */
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
   gap: 20px;
-  min-height: 600px;
+  align-items: start;
+}
+
+/* Wide column stacks the chart card above the quant HUD cards */
+.workspace-main-col {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* Right ledger panel scrolls its table independently of page height */
+.ledger-section {
+  position: sticky;
+  top: calc(76px + 20px);
+  max-height: calc(100vh - 96px);
+  display: flex;
+  flex-direction: column;
+}
+.ledger-section .table-responsive {
+  overflow-y: auto;
 }
 
 @media (max-width: 1200px) {
   .workspace-grid {
     grid-template-columns: 1fr;
+    min-height: 0;
+  }
+  .ledger-section {
+    position: static;
+    max-height: none;
   }
 }
 
@@ -1181,6 +1210,150 @@ canvas {
 }
 
 /* ==========================================================================
+   W8-A: TERMINAL SHELL LAYOUT (CoinMarketCap / TradingView-style clone)
+   Placement rules for the grid shell declared on .app-container above:
+     row 1    = sticky header spanning both columns
+     col 1    = sidebar rail (row 2)
+     col 2    = content column, one auto row per existing band:
+                metrics grid -> stats band -> workspace grid
+                (workspace grid itself splits wide-chart | right ledger).
+   ========================================================================== */
+.terminal-header {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.terminal-sidebar {
+  grid-column: 1;
+  grid-row: 2;
+  position: sticky;
+  top: calc(76px + 20px); /* below the sticky header */
+  align-self: start;
+  width: 208px;
+  padding: 12px 10px;
+  border-right: 1px solid var(--glass-border);
+}
+
+.metrics-grid,
+.stats-band,
+.workspace-grid {
+  grid-column: 2;
+}
+
+.side-nav-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+}
+
+.side-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.side-nav-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.side-nav-item.is-active {
+  background: rgba(0, 240, 255, 0.12);
+  color: var(--color-cyan);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+}
+
+.side-nav-item .nav-icon {
+  width: 22px;
+  text-align: center;
+  font-size: 15px;
+}
+
+/* W8-A status pills — mode / simulated / connection cluster in the header */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.05);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.8px;
+  white-space: nowrap;
+}
+
+.status-pill .pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.pill-mode {
+  color: var(--color-purple);
+  border-color: rgba(176, 92, 255, 0.35);
+  background: rgba(176, 92, 255, 0.1);
+}
+.pill-mode .pill-dot { background: var(--color-purple); }
+
+.pill-connection.up {
+  color: var(--color-emerald);
+  border-color: rgba(0, 255, 136, 0.3);
+  background: rgba(0, 255, 136, 0.08);
+}
+.pill-connection.up .pill-dot {
+  background: var(--color-emerald);
+  box-shadow: 0 0 8px var(--color-emerald);
+}
+
+/* W8-A hamburger — hidden on desktop rails, shown <768px */
+.nav-toggle {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 44px;
+  height: 40px;
+  padding: 8px 9px;
+  background: transparent;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.nav-toggle .burger-bar {
+  display: block;
+  width: 100%;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-cyan);
+  transition: transform var(--transition-fast), opacity var(--transition-fast);
+}
+
+body.nav-drawer-open .nav-toggle .burger-bar:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+body.nav-drawer-open .nav-toggle .burger-bar:nth-child(2) { opacity: 0; }
+body.nav-drawer-open .nav-toggle .burger-bar:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+/* ==========================================================================
    VC-002: JS ERROR BANNER
    role="alert" surface rendered by app.js when an uncaught error fires.
    ========================================================================== */
@@ -1229,12 +1402,124 @@ canvas {
 }
 
 /* ==========================================================================
+   W8-B: SCROLL REVEAL (Apple-style, opacity+transform ONLY — no layout
+   shift). Elements start hidden via [data-reveal] and spring to visible when
+   the IntersectionObserver in app.js adds .is-revealed. Staggered children
+   ([data-reveal-group] > *) use a per-card --reveal-delay custom property set
+   from JS. prefers-reduced-motion renders everything visible immediately with
+   zero transforms (JS also feature-guards and skips the observer entirely).
+   ========================================================================== */
+[data-reveal],
+[data-reveal-group] > * {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+[data-reveal].is-revealed,
+[data-reveal-group] > *.is-revealed {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 300ms ease-out,
+    transform 300ms ease-out;
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+/* W8-B: reduced motion — reveals are instant and never move.
+   Mirrors the JS guard: no IntersectionObserver-driven animation at all. */
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal],
+  [data-reveal-group] > * {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  /* Hero parallax offset is applied inline by app.js; kill it here too so the
+     CSS-only path stays safe even if JS ran before the query flipped. */
+  .terminal-header,
+  .brand-group {
+    transform: none !important;
+  }
+}
+
+/* ==========================================================================
    VC-004: RESPONSIVE BREAKPOINT TIERS
-   (1200px tier lives next to .workspace-grid above.)
+   W8-A tiers: >=1200px full 3-zone terminal; 768-1199px collapsed icon-rail
+   sidebar + stacked panels (ledger flows under the wide column); <768px
+   single column with off-canvas drawer nav.
    ========================================================================== */
 
-/* Tablet ≤768px: single-column HUD, nav wraps instead of overflowing */
+/* --- Tier 2: 768-1199px — sidebar collapses to a narrow icon rail ------- */
+@media (max-width: 1199px) {
+  .terminal-sidebar {
+    width: 64px;
+    padding: 12px 8px;
+  }
+  .side-nav-item {
+    justify-content: center;
+    padding: 10px 8px;
+  }
+  .side-nav-item .nav-label {
+    /* icon-only rail: labels stay in the DOM for screen readers */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+/* --- Legacy tablet tier ≤768px ------------------------------------------ */
 @media (max-width: 768px) {
+  /* W8-A Tier 3 (<768px): single column + off-canvas drawer nav.
+     #btnNavToggle appears; .terminal-sidebar becomes a fixed off-canvas
+     drawer that slides in when <body> gains .nav-drawer-open (app.js toggles;
+     Escape closes + focus returns to the burger). */
+  .nav-toggle {
+    display: flex;
+    order: -1;
+  }
+  .app-container {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .terminal-header,
+  .metrics-grid,
+  .stats-band,
+  .workspace-grid,
+  .terminal-sidebar {
+    grid-column: 1;
+  }
+  .terminal-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 400;
+    width: min(78vw, 300px);
+    margin: 0;
+    padding: 76px 14px 20px;
+    background: rgba(10, 14, 24, 0.97);
+    border-right: 1px solid var(--glass-border);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+    overflow-y: auto;
+    transform: translateX(-105%);
+    transition: transform 260ms ease-out;
+  }
+  body.nav-drawer-open .terminal-sidebar {
+    transform: translateX(0);
+  }
+  .side-nav-item .nav-label {
+    /* drawer shows labels again */
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+  }
+
   .glass-nav {
     flex-wrap: wrap;
     gap: 10px;

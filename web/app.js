@@ -185,6 +185,10 @@
     statOpenRiskValue: document.getElementById('statOpenRiskValue'),
     statsLiveSummary: document.getElementById('statsLiveSummary'),
 
+    // W8-A: terminal sidebar + mobile drawer toggle
+    btnNavToggle: document.getElementById('btnNavToggle'),
+    terminalSidebar: document.getElementById('terminalSidebar'),
+
     // Modal
     backtestModal: document.getElementById('backtestModal'),
     // AX-1: polite live region for engine announcements
@@ -1307,4 +1311,190 @@
 
   // Run on page load
   window.addEventListener('DOMContentLoaded', init);
+
+  // =========================================================================
+  // W8 — TERMINAL LAYOUT BEHAVIORS (Workstream A) + APPLE-STYLE SCROLL
+  // ANIMATIONS (Workstream B). Kept as a self-contained IIFE appended after
+  // the cockpit IIFE so the existing engine logic stays byte-identical.
+  // =========================================================================
+  (function w8TerminalShell() {
+    'use strict';
+
+    var mqReducedMotion = typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-reduced-motion: reduce)')
+      : null;
+    function prefersReducedMotion() {
+      return !!(mqReducedMotion && mqReducedMotion.matches);
+    }
+
+    // ------------------------------------------------------------------
+    // W8-A: collapsible sidebar + off-canvas mobile drawer (<768px).
+    // Contract (mirrored by static checks in tests/a11y/test_static_a11y.py):
+    //   * click on #btnNavToggle toggles .nav-drawer-open on <body> and
+    //     keeps aria-expanded in sync;
+    //   * opening moves focus to the first sidebar item;
+    //   * Escape closes the drawer and returns focus to the burger button.
+    // ------------------------------------------------------------------
+    function drawerOpen() {
+      return document.body.classList.contains('nav-drawer-open');
+    }
+    function setDrawer(open) {
+      document.body.classList.toggle('nav-drawer-open', open);
+      if (DOM.btnNavToggle) {
+        DOM.btnNavToggle.setAttribute('aria-expanded', String(open));
+      }
+      if (open) {
+        var first = DOM.terminalSidebar &&
+          DOM.terminalSidebar.querySelector('.side-nav-item');
+        if (first) first.focus();
+      } else if (DOM.btnNavToggle && document.activeElement &&
+                 DOM.terminalSidebar &&
+                 DOM.terminalSidebar.contains(document.activeElement)) {
+        DOM.btnNavToggle.focus(); // focus returns to the burger on close
+      }
+    }
+
+    function setupDrawer() {
+      if (!DOM.btnNavToggle || !DOM.terminalSidebar) return;
+      DOM.btnNavToggle.addEventListener('click', () => setDrawer(!drawerOpen()));
+
+      // Escape closes the drawer from anywhere and restores burger focus.
+      document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && drawerOpen()) {
+          setDrawer(false);
+          announce('Section navigation closed.');
+        }
+      });
+
+      // Navigating to a section closes the drawer so content is visible.
+      DOM.terminalSidebar.addEventListener('click', e => {
+        var item = e.target.closest ? e.target.closest('.side-nav-item') : null;
+        if (item && drawerOpen()) setDrawer(false);
+      });
+
+      // Reset drawer state when crossing back to the desktop tier.
+      var mqDesktop = window.matchMedia('(min-width: 768px)');
+      var onTierChange = () => { if (mqDesktop.matches) setDrawer(false); };
+      if (typeof mqDesktop.addEventListener === 'function') {
+        mqDesktop.addEventListener('change', onTierChange);
+      } else if (typeof mqDesktop.addListener === 'function') {
+        mqDesktop.addListener(onTierChange); // legacy Safari
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // W8-A: sidebar nav active state — items are plain anchors that
+    // scroll-to / tab-switch EXISTING panels; this only tracks which one
+    // is current (aria-current) as you use them.
+    // ------------------------------------------------------------------
+    function setupSidebarNav() {
+      var items = Array.prototype.slice.call(
+        document.querySelectorAll('.side-nav-item'));
+      items.forEach(item => {
+        item.addEventListener('click', () => {
+          items.forEach(i => {
+            i.classList.toggle('is-active', i === item);
+            if (i === item) {
+              i.setAttribute('aria-current', 'true');
+            } else {
+              i.removeAttribute('aria-current');
+            }
+          });
+          var label = item.querySelector('.nav-label');
+          announce(`Navigated to ${label ? label.textContent : 'section'}.`);
+        });
+      });
+    }
+
+    // ------------------------------------------------------------------
+    // W8-B: IntersectionObserver reveal-on-scroll.
+    // fade + translateY(12px), 300ms ease-out; children of a
+    // [data-reveal-group] stagger 60ms apart via --reveal-delay.
+    // Feature-guarded: without IntersectionObserver everything renders
+    // visible immediately (graceful fallback). prefers-reduced-motion:
+    // zero animation, elements visible instantly, no observer installed.
+    // Only opacity + transform animate — never layout properties.
+    // ------------------------------------------------------------------
+    function setupScrollReveals() {
+      var targets = Array.prototype.slice.call(
+        document.querySelectorAll('[data-reveal], [data-reveal-group] > *'));
+
+      if (prefersReducedMotion() ||
+          typeof window.IntersectionObserver !== 'function') {
+        targets.forEach(el => el.classList.add('is-revealed'));
+        return;
+      }
+
+      var observer = new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add('is-revealed');
+          observer.unobserve(entry.target);
+        });
+      }, { rootMargin: '0px 0px -10% 0px', threshold: 0.05 });
+
+      // Stagger: each metrics card gets index*60ms delay (CSS custom prop).
+      document.querySelectorAll('[data-reveal-group]').forEach(group => {
+        Array.prototype.forEach.call(group.children, (child, idx) => {
+          child.style.setProperty('--reveal-delay', `${idx * 60}ms`);
+        });
+      });
+
+      targets.forEach(el => observer.observe(el));
+    }
+
+    // ------------------------------------------------------------------
+    // W8-B: subtle hero parallax — header brand band drifts at 0.3x scroll
+    // speed (translateY only). Disabled entirely under reduced motion.
+    // rAF-throttled; transform-only so it never triggers layout.
+    // ------------------------------------------------------------------
+    function setupHeroParallax() {
+      if (prefersReducedMotion()) return;
+      var hero = document.querySelector('.terminal-header .brand-group');
+      if (!hero) return;
+
+      var ticking = false;
+      var applyParallax = () => {
+        ticking = false;
+        var offset = Math.min(window.scrollY || 0, 400) * 0.3;
+        hero.style.transform = `translateY(${offset.toFixed(1)}px)`;
+      };
+      window.addEventListener('scroll', () => {
+        if (!ticking) {
+          ticking = true;
+          window.requestAnimationFrame(applyParallax);
+        }
+      }, { passive: true });
+
+      // Respect live flips of the OS reduce-motion setting.
+      if (mqReducedMotion && typeof mqReducedMotion.addEventListener === 'function') {
+        mqReducedMotion.addEventListener('change', ev => {
+          if (ev.matches) hero.style.transform = '';
+        });
+      }
+    }
+
+    function bootW8() {
+      try {
+        setupDrawer();
+        setupSidebarNav();
+        setupScrollReveals();
+        setupHeroParallax();
+      } catch (err) {
+        // Never let layout polish break the trading engine below it.
+        if (window.console && console.warn) {
+          console.warn('W8 shell behaviors failed:', err);
+        }
+        // Safety net for the reveal system: make sure nothing stays hidden.
+        document.querySelectorAll('[data-reveal], [data-reveal-group] > *')
+          .forEach(el => el.classList.add('is-revealed'));
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      window.addEventListener('DOMContentLoaded', bootW8);
+    } else {
+      bootW8();
+    }
+  })();
 })();
