@@ -33,27 +33,8 @@
   <div class="glow-orb orb-3"></div>
 
   <div class="app-container">
-    <!-- W8-A TERMINAL HEADER — sticky command bar.
-         Row 1: burger (<768px) | brand | status pills (mode / simulated /
-         connection) | system status badges (tier + heartbeat — this terminal
-         has no auth system, so the "login/user right" slot holds the honest
-         system-status cluster instead of a fake login button).
-         Row 2: trading engine controls (asset / timeframe / stream). -->
-    <header class="glass-nav terminal-header" data-testid="header" aria-label="Trading terminal controls and system status">
-      <!-- W8-A mobile drawer toggle (<768px). Behavior contract (tested via
-           static checks in tests/a11y/test_static_a11y.py):
-           click toggles .nav-drawer-open on <body> + aria-expanded;
-           Escape closes the drawer and returns focus to THIS button;
-           opening moves focus to the first sidebar item. -->
-      <button id="btnNavToggle" class="nav-toggle" type="button"
-              aria-expanded="false" aria-controls="terminalSidebar"
-              aria-label="Toggle section navigation menu"
-              data-testid="nav-toggle">
-        <span class="burger-bar" aria-hidden="true"></span>
-        <span class="burger-bar" aria-hidden="true"></span>
-        <span class="burger-bar" aria-hidden="true"></span>
-      </button>
-
+    <!-- TOP NAVIGATION BAR — AX-1: banner landmark + accessible name -->
+    <header class="glass-nav" data-testid="header" aria-label="Trading terminal controls and system status">
       <div class="brand-group">
         <div class="brand-logo">
           <span class="logo-icon">❖</span>
@@ -99,21 +80,8 @@
         </div>
       </nav>
 
-      <!-- Right System Status Badges (W8-A: the "login/user" slot — this
-           terminal has no accounts, so the honest system status cluster
-           (survival tier + heartbeat) occupies it, matching CMC/TV where the
-           right edge carries live state, not a sign-in form. -->
+      <!-- Right System Status Badges -->
       <div class="nav-status-group">
-        <div class="status-pill pill-mode" role="status"
-             aria-label="Engine mode: simulated">
-          <span class="pill-dot" aria-hidden="true"></span>
-          <span class="pill-text">SIM MODE</span>
-        </div>
-        <div class="status-pill pill-connection up" id="connPill" role="status"
-             aria-label="Connection status: local simulation feed online">
-          <span class="pill-dot" aria-hidden="true"></span>
-          <span class="pill-text">FEED ONLINE</span>
-        </div>
         <div class="survival-badge tier-normal" id="survivalBadge" role="status" data-testid="survival-tier" aria-label="Survival engine operating tier">
           <span class="badge-dot"></span>
           <span class="badge-label">TIER:</span>
@@ -126,57 +94,8 @@
       </div>
     </header>
 
-    <!-- W8-A LEFT SIDEBAR NAV — icon+label section navigation over the
-         EXISTING panels (no new business logic). Items scroll-to or
-         tab-switch existing content only.
-         >=1200px: fixed rail; 768-1199px: collapsed to icons; <768px:
-         off-canvas drawer toggled by #btnNavToggle (Escape closes and focus
-         returns to the burger button; opening focuses the first item).
-         aria-current marks the active section for screen readers. -->
-    <nav class="terminal-sidebar" id="terminalSidebar" data-testid="terminal-sidebar"
-         aria-label="Terminal sections">
-      <ul class="side-nav-list">
-        <li>
-          <a class="side-nav-item is-active" href="#main-content"
-             data-nav-target="dashboard" aria-current="true">
-            <span class="nav-icon" aria-hidden="true">▦</span>
-            <span class="nav-label">Dashboard</span>
-          </a>
-        </li>
-        <li>
-          <a class="side-nav-item" href="#liveTradingChart"
-             data-nav-target="charts">
-            <span class="nav-icon" aria-hidden="true">📈</span>
-            <span class="nav-label">Charts</span>
-          </a>
-        </li>
-        <li>
-          <a class="side-nav-item" href="#ledgerSection"
-             data-nav-target="trades">
-            <span class="nav-icon" aria-hidden="true">📋</span>
-            <span class="nav-label">Trades / Ledger</span>
-          </a>
-        </li>
-        <li>
-          <a class="side-nav-item" href="#sidebar"
-             data-nav-target="strategy">
-            <span class="nav-icon" aria-hidden="true">🎯</span>
-            <span class="nav-label">Strategy</span>
-          </a>
-        </li>
-        <li>
-          <a class="side-nav-item" href="#siteFooter"
-             data-nav-target="about">
-            <span class="nav-icon" aria-hidden="true">❖</span>
-            <span class="nav-label">About</span>
-          </a>
-        </li>
-      </ul>
-    </nav>
-
-    <!-- W8-A METRICS GLASSHUD — reveal-on-scroll stagger group -->
-    <section class="metrics-grid" aria-label="Key portfolio metrics"
-             data-testid="metrics" data-reveal-group>
+    <!-- METRICS GLASSHUD -->
+    <section class="metrics-grid" aria-label="Key portfolio metrics" data-testid="metrics">
       <!-- Card 1: Equity & Return -->
       <div class="glass-card metric-card">
         <div class="metric-header">
@@ -268,56 +187,8 @@
       </div>
     </section>
 
-    <!-- ============================================================
-         W7 WORKSTREAM B — KPI STATS CARDS BAND
-         Sits above the workspace grid. Values update on the same engine
-         tick as the charts (see app.js getChartData / updateStatsBand).
-         aria-live=polite: updates are spoken; the spoken summary inside
-         (#statsLiveSummary, visually hidden) is throttled in app.js so a
-         fast heartbeat doesn't machine-gun the screen reader. Cards are
-         displays, not controls — no tabindex, not focusable.
-         ============================================================ -->
-    <section class="stats-band" id="statsBand" aria-live="polite"
-             aria-label="Key performance indicators" data-testid="stats-band"
-             data-reveal>
-      <div class="stat-card glass-card" id="statCardEquity">
-        <span class="stat-label">EQUITY</span>
-        <div class="stat-row">
-          <span class="stat-value tabular-nums" id="statEquityValue">$10,000.00</span>
-          <span class="stat-delta delta-up" id="statEquityDelta">▲ +0.0% vs open</span>
-        </div>
-      </div>
-      <div class="stat-card glass-card" id="statCardPnl">
-        <span class="stat-label">TODAY'S PNL</span>
-        <div class="stat-row">
-          <span class="stat-value tabular-nums" id="statPnlValue">+$0.00</span>
-          <span class="stat-delta delta-up" id="statPnlDelta">▲ +0.0% vs open</span>
-        </div>
-      </div>
-      <div class="stat-card glass-card" id="statCardWinRate">
-        <span class="stat-label">WIN RATE</span>
-        <div class="stat-row">
-          <span class="stat-value tabular-nums" id="statWinRateValue">66.7%</span>
-        </div>
-      </div>
-      <div class="stat-card glass-card" id="statCardOpenRisk">
-        <span class="stat-label">OPEN RISK</span>
-        <div class="stat-row">
-          <span class="stat-value tabular-nums" id="statOpenRiskValue">$0.00</span>
-        </div>
-      </div>
-      <!-- Throttled spoken summary of the four KPIs (see app.js) -->
-      <div id="statsLiveSummary" class="visually-hidden"></div>
-    </section>
-
-    <!-- MAIN WORKSPACE: W8-A terminal two-zone grid.
-         Left/wide: chart panel. Right: ledger panel (was full-width below).
-         The quant sidebar cards stay stacked in the wide column under the
-         chart so every existing testid/landmark survives untouched.
-         >=1200px: 2 columns; <1200px: single stacked column. -->
+    <!-- MAIN WORKSPACE: CHARTS + QUANT HUD -->
     <main class="workspace-grid" id="main-content" tabindex="-1" data-testid="main">
-      <!-- WIDE COLUMN: charts + quant HUD -->
-      <div class="workspace-main-col" data-reveal>
       <!-- LEFT / CENTER: PRIMARY CHARTING AREA -->
       <div class="chart-container-card glass-card">
         <!-- Chart Tab Navigation -->
@@ -342,23 +213,11 @@
           </div>
         </div>
 
-        <!-- TAB 1: Live Candlestick / Price Chart
-             W7-A: lightweight-charts canvas replaces the hand-drawn
-             #tradingCanvas (volume histogram overlaid on the bottom fifth).
-             The host wrapper keeps role="img" + aria-label; the SAME data is
-             mirrored into the hidden table below for screen readers. -->
+        <!-- TAB 1: Live Candlestick / Price Chart -->
         <div class="tab-content active" id="liveTradingChart" role="tabpanel" aria-labelledby="tab-liveTradingChart" tabindex="0" data-testid="panel-trading-chart">
           <div class="canvas-wrapper">
-            <div class="chart-host" id="priceChartHost"
-                 role="img"
-                 aria-label="Live simulated candlestick price chart with volume histogram and trade entry markers. Zoom with mouse wheel or pinch, pan by dragging; a hidden data table mirrors this data for screen readers."></div>
+            <canvas id="tradingCanvas" role="img" aria-label="Live simulated candlestick price chart with trade entry markers" data-testid="canvas-trading"></canvas>
             <div id="chartTooltip" class="chart-tooltip glass-tooltip hidden"></div>
-            <!-- AX-1 WCAG mirror of the price chart data -->
-            <table class="visually-hidden" id="priceDataTable">
-              <caption>Live simulated price candles (latest 10)</caption>
-              <thead><tr id="priceTableHead"><th scope="col">Time</th></tr></thead>
-              <tbody id="priceTableBody"></tbody>
-            </table>
           </div>
         </div>
 
@@ -382,20 +241,10 @@
           </div>
         </div>
 
-        <!-- TAB 3: Equity Curve & Drawdown
-             W7-A: lightweight-charts AreaSeries replaces the hand-drawn
-             #equityCanvas; hidden data table mirrors the same series. -->
+        <!-- TAB 3: Equity Curve & Drawdown -->
         <div class="tab-content" id="equityCurveTab" role="tabpanel" aria-labelledby="tab-equityCurveTab" tabindex="0" data-testid="panel-equity-curve">
           <div class="canvas-wrapper">
-            <div class="chart-host" id="equityChartHost"
-                 role="img"
-                 aria-label="Equity curve showing account balance across closed simulated trades. Zoom with mouse wheel or pinch, pan by dragging; a hidden data table mirrors this data for screen readers."></div>
-            <!-- AX-1 WCAG mirror of the equity curve data -->
-            <table class="visually-hidden" id="equityDataTable">
-              <caption>Account balance after each closed simulated trade (latest 10)</caption>
-              <thead><tr id="equityTableHead"><th scope="col">Trade</th></tr></thead>
-              <tbody id="equityTableBody"></tbody>
-            </table>
+            <canvas id="equityCanvas" role="img" aria-label="Equity curve showing account balance across closed simulated trades" data-testid="canvas-equity"></canvas>
           </div>
         </div>
       </div>
@@ -562,37 +411,30 @@
           </div>
         </div>
       </aside>
-      </div><!-- /.workspace-main-col -->
+    </main>
 
-      <!-- RIGHT PANEL (W8-A): LIVE TRADE LEDGER — moved from full-width
-           bottom band into the terminal's right column; stacks under the
-           wide column below 1200px. -->
-      <section class="ledger-section glass-card" id="ledgerSection" data-reveal
-               aria-label="Live trade ledger and audit log" data-testid="ledger">
-        <div class="ledger-header">
-          <div class="ledger-title-group">
-            <h2>📋 LIVE TRADE LEDGER &amp; SOVEREIGN RISK AUDIT</h2>
-            <span class="badge-count" id="ledgerCountBadge">0 TRADES</span>
-          </div>
-          <div class="ledger-actions">
-            <button id="btnExportSqlite" class="action-btn">
-              💾 Export SQLite Index
-            </button>
-            <button id="btnDownloadJsonl" class="action-btn">
-              📄 Download JSONL Graph
-            </button>
-            <button id="btnRunBacktestModal" class="action-btn primary-action">
-              ⚡ Run 10k Backtest Lab
-            </button>
-          </div>
+    <!-- BOTTOM PANEL: REAL-TIME AUDIT LOG & TRADE LEDGER -->
+    <section class="ledger-section glass-card" aria-label="Live trade ledger and audit log" data-testid="ledger">
+      <div class="ledger-header">
+        <div class="ledger-title-group">
+          <h2>📋 LIVE TRADE LEDGER & SOVEREIGN RISK AUDIT</h2>
+          <span class="badge-count" id="ledgerCountBadge">0 TRADES</span>
         </div>
+        <div class="ledger-actions">
+          <button id="btnExportSqlite" class="action-btn">
+            💾 Export SQLite Index
+          </button>
+          <button id="btnDownloadJsonl" class="action-btn">
+            📄 Download JSONL Graph
+          </button>
+          <button id="btnRunBacktestModal" class="action-btn primary-action">
+            ⚡ Run 10k Backtest Lab
+          </button>
+        </div>
+      </div>
 
-        <!-- AX-1/W8-A: the right-panel ledger scrolls independently
-             (sticky panel), so the scroll container must be keyboard
-             reachable + named (axe: scrollable-region-focusable). -->
-        <div class="table-responsive ledger-table-responsive" tabindex="0"
-             role="region" aria-label="Closed simulated trades table, scrollable">
-          <table class="ledger-table" id="ledgerTable" aria-label="Closed simulated trades">
+      <div class="table-responsive">
+        <table class="ledger-table" id="ledgerTable" aria-label="Closed simulated trades">
           <thead>
             <tr>
               <th>Trade ID</th>
@@ -613,14 +455,13 @@
             <!-- Dynamic rows rendered by app.js -->
           </tbody>
         </table>
-        </div><!-- /.table-responsive -->
-      </section>
-    </main>
+      </div>
+    </section>
   </div>
 
   <!-- AX-1: honest provenance labeling — the cockpit fetches nothing;
        every number below is produced client-side from Math.random(). -->
-  <footer class="site-footer" id="siteFooter" data-testid="footer">
+  <footer class="site-footer" data-testid="footer">
     <p>
       SIMULATED DATA — every price, trade, and metric on this dashboard is
       generated locally in your browser for demonstration only. No market data
@@ -697,9 +538,6 @@
     </div>
   </div>
 
-  <script src="vendor/lightweight-charts.standalone.js"></script>
-  <!-- W7-A: charts module must load before app.js (app.js calls W7Charts.init) -->
-  <script src="charts.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

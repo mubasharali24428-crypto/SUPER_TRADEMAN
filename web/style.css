@@ -13,17 +13,6 @@
   --color-red: #ff3366;
   --color-blue: #3b82f6;
 
-  /* == W9 motion tokens (Emil Kowalski / apple-design) ===================== */
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
-  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
-  --dur-fast: 150ms;
-  --dur-med: 250ms;
-  /* spacing scale */
-  --sp-1: 4px; --sp-2: 8px; --sp-3: 16px; --sp-4: 24px; --sp-5: 32px; --sp-6: 48px;
-  /* radius scale */
-  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;
-
   --text-primary: #f1f5f9;
   --text-secondary: #94a3b8;
   /* AX-1 contrast fix: was #64748b = 4.18:1 on --bg-primary (#07090e) and
@@ -125,11 +114,8 @@ body {
   max-width: 1720px;
   margin: 0 auto;
   padding: 20px 24px;
-  /* W8-A terminal shell: row 1 = sticky header (full width), col 1 = sidebar
-     rail, col 2 = content bands (metrics -> stats -> workspace). */
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
+  display: flex;
+  flex-direction: column;
   gap: 20px;
 }
 
@@ -175,7 +161,7 @@ body {
 .brand-logo {
   width: 42px;
   height: 42px;
-  background: rgba(0, 240, 255, 0.08);
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.2), rgba(176, 92, 255, 0.2));
   border: 1px solid var(--color-cyan);
   border-radius: 12px;
   display: flex;
@@ -196,7 +182,9 @@ body {
   font-size: 20px;
   font-weight: 700;
   letter-spacing: 0.8px;
-  color: #f1f5f9;
+  background: linear-gradient(90deg, #ffffff, var(--color-cyan));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .sub-brand {
@@ -285,18 +273,18 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) ease, background-color var(--dur-fast) ease, color var(--dur-fast) ease;
+  transition: all var(--transition-fast);
   border: 1px solid transparent;
 }
 
 .play-btn {
-  background: rgba(0, 255, 136, 0.1);
+  background: linear-gradient(135deg, rgba(0, 255, 136, 0.2), rgba(0, 240, 255, 0.15));
   color: #ffffff;
   border-color: var(--color-emerald);
   box-shadow: 0 0 14px rgba(0, 255, 136, 0.25);
 }
 .play-btn:hover {
-  background: rgba(0, 255, 136, 0.18);
+  background: linear-gradient(135deg, rgba(0, 255, 136, 0.35), rgba(0, 240, 255, 0.3));
   box-shadow: 0 0 22px rgba(0, 255, 136, 0.45);
 }
 
@@ -488,11 +476,11 @@ body {
   right: 0;
   height: 2px;
 }
-.card-glow-line.cyan { background: var(--color-cyan); opacity: 0.55; }
-.card-glow-line.blue { background: var(--color-blue); opacity: 0.55; }
-.card-glow-line.purple { background: var(--color-purple); opacity: 0.55; }
-.card-glow-line.amber { background: var(--color-amber); opacity: 0.55; }
-.card-glow-line.emerald { background: var(--color-emerald); opacity: 0.55; }
+.card-glow-line.cyan { background: linear-gradient(90deg, transparent, var(--color-cyan), transparent); }
+.card-glow-line.blue { background: linear-gradient(90deg, transparent, var(--color-blue), transparent); }
+.card-glow-line.purple { background: linear-gradient(90deg, transparent, var(--color-purple), transparent); }
+.card-glow-line.amber { background: linear-gradient(90deg, transparent, var(--color-amber), transparent); }
+.card-glow-line.emerald { background: linear-gradient(90deg, transparent, var(--color-emerald), transparent); }
 
 /* Color Utility Classes */
 .text-cyan { color: var(--color-cyan); }
@@ -508,40 +496,14 @@ body {
    ========================================================================== */
 .workspace-grid {
   display: grid;
-  /* W8-A terminal split: wide chart/quant column + right ledger panel */
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  grid-template-columns: 1fr 380px;
   gap: 20px;
-  align-items: start;
-}
-
-/* Wide column stacks the chart card above the quant HUD cards */
-.workspace-main-col {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  min-width: 0;
-}
-
-/* Right ledger panel scrolls its table independently of page height */
-.ledger-section {
-  position: sticky;
-  top: calc(76px + 20px);
-  max-height: calc(100vh - 96px);
-  display: flex;
-  flex-direction: column;
-}
-.ledger-section .table-responsive {
-  overflow-y: auto;
+  min-height: 600px;
 }
 
 @media (max-width: 1200px) {
   .workspace-grid {
     grid-template-columns: 1fr;
-    min-height: 0;
-  }
-  .ledger-section {
-    position: static;
-    max-height: none;
   }
 }
 
@@ -994,12 +956,12 @@ canvas {
 }
 
 .primary-action {
-  background: rgba(0, 240, 255, 0.08);
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.2), rgba(176, 92, 255, 0.2));
   color: var(--color-cyan);
   border-color: rgba(0, 240, 255, 0.4);
 }
 .primary-action:hover {
-  background: rgba(0, 240, 255, 0.16);
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.35), rgba(176, 92, 255, 0.35));
   box-shadow: 0 0 16px rgba(0, 240, 255, 0.3);
 }
 
@@ -1216,520 +1178,4 @@ canvas {
   font-family: var(--font-sans);
   font-size: 12.5px;
   letter-spacing: 0.02em;
-}
-
-/* ==========================================================================
-   W8-A: TERMINAL SHELL LAYOUT (CoinMarketCap / TradingView-style clone)
-   Placement rules for the grid shell declared on .app-container above:
-     row 1    = sticky header spanning both columns
-     col 1    = sidebar rail (row 2)
-     col 2    = content column, one auto row per existing band:
-                metrics grid -> stats band -> workspace grid
-                (workspace grid itself splits wide-chart | right ledger).
-   ========================================================================== */
-.terminal-header {
-  grid-column: 1 / -1;
-  grid-row: 1;
-  position: sticky;
-  top: 0;
-  z-index: 200;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.terminal-sidebar {
-  grid-column: 1;
-  grid-row: 2;
-  position: sticky;
-  top: calc(76px + 20px); /* below the sticky header */
-  align-self: start;
-  width: 208px;
-  padding: 12px 10px;
-  border-right: 1px solid var(--glass-border);
-}
-
-.metrics-grid,
-.stats-band,
-.workspace-grid {
-  grid-column: 2;
-}
-
-.side-nav-list {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-}
-
-.side-nav-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  color: var(--text-secondary);
-  text-decoration: none;
-  font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.side-nav-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary);
-}
-
-.side-nav-item.is-active {
-  background: rgba(0, 240, 255, 0.12);
-  color: var(--color-cyan);
-  border: 1px solid rgba(0, 240, 255, 0.3);
-}
-
-.side-nav-item .nav-icon {
-  width: 22px;
-  text-align: center;
-  font-size: 15px;
-}
-
-/* W8-A status pills — mode / simulated / connection cluster in the header */
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 11px;
-  border-radius: 999px;
-  border: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.05);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.8px;
-  white-space: nowrap;
-}
-
-.status-pill .pill-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-muted);
-}
-
-.pill-mode {
-  color: var(--color-purple);
-  border-color: rgba(176, 92, 255, 0.35);
-  background: rgba(176, 92, 255, 0.1);
-}
-.pill-mode .pill-dot { background: var(--color-purple); }
-
-.pill-connection.up {
-  color: var(--color-emerald);
-  border-color: rgba(0, 255, 136, 0.3);
-  background: rgba(0, 255, 136, 0.08);
-}
-.pill-connection.up .pill-dot {
-  background: var(--color-emerald);
-  box-shadow: 0 0 8px var(--color-emerald);
-}
-
-/* W8-A hamburger — hidden on desktop rails, shown <768px */
-.nav-toggle {
-  display: none;
-  flex-direction: column;
-  justify-content: center;
-  gap: 5px;
-  width: 44px;
-  height: 40px;
-  padding: 8px 9px;
-  background: transparent;
-  border: 1px solid var(--glass-border);
-  border-radius: 10px;
-  cursor: pointer;
-}
-
-.nav-toggle .burger-bar {
-  display: block;
-  width: 100%;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--color-cyan);
-  transition: transform var(--transition-fast), opacity var(--transition-fast);
-}
-
-body.nav-drawer-open .nav-toggle .burger-bar:nth-child(1) { transform: translateY(7px) rotate(45deg); }
-body.nav-drawer-open .nav-toggle .burger-bar:nth-child(2) { opacity: 0; }
-body.nav-drawer-open .nav-toggle .burger-bar:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
-
-/* ==========================================================================
-   VC-002: JS ERROR BANNER
-   role="alert" surface rendered by app.js when an uncaught error fires.
-   ========================================================================== */
-.error-banner {
-  position: fixed;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 1000;
-  max-width: min(720px, calc(100vw - 32px));
-  padding: 10px 16px;
-  border: 1px solid rgba(255, 51, 102, 0.55);
-  border-radius: 8px;
-  background: rgba(40, 10, 20, 0.95);
-  color: #ffd9e0;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
-}
-
-.error-banner.dismissed {
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.4s ease;
-}
-
-/* ==========================================================================
-   VC-003: prefers-reduced-motion
-   Vestibular-safety switch: kill decorative animation/transition movement.
-   Layout-affecting opacity/color transitions are kept so state changes stay
-   perceivable.
-   ========================================================================== */
-@media (prefers-reduced-motion: reduce) {
-  .glow-orb,
-  .logo-pulse {
-    animation: none !important;
-  }
-  *,
-  *::before,
-  *::after {
-    transition-duration: 0.01ms !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    scroll-behavior: auto !important;
-  }
-}
-
-/* ==========================================================================
-   W8-B: SCROLL REVEAL (Apple-style, opacity+transform ONLY — no layout
-   shift). Elements start hidden via [data-reveal] and spring to visible when
-   the IntersectionObserver in app.js adds .is-revealed. Staggered children
-   ([data-reveal-group] > *) use a per-card --reveal-delay custom property set
-   from JS. prefers-reduced-motion renders everything visible immediately with
-   zero transforms (JS also feature-guards and skips the observer entirely).
-   ========================================================================== */
-[data-reveal],
-[data-reveal-group] > * {
-  opacity: 0;
-  transform: translateY(12px);
-}
-
-[data-reveal].is-revealed,
-[data-reveal-group] > *.is-revealed {
-  opacity: 1;
-  transform: translateY(0);
-  transition:
-    opacity 300ms ease-out,
-    transform 300ms ease-out;
-  transition-delay: var(--reveal-delay, 0ms);
-}
-
-/* W8-B: reduced motion — reveals are instant and never move.
-   Mirrors the JS guard: no IntersectionObserver-driven animation at all. */
-@media (prefers-reduced-motion: reduce) {
-  [data-reveal],
-  [data-reveal-group] > * {
-    opacity: 1 !important;
-    transform: none !important;
-    transition: none !important;
-  }
-  /* Hero parallax offset is applied inline by app.js; kill it here too so the
-     CSS-only path stays safe even if JS ran before the query flipped. */
-  .terminal-header,
-  .brand-group {
-    transform: none !important;
-  }
-}
-
-/* ==========================================================================
-   VC-004: RESPONSIVE BREAKPOINT TIERS
-   W8-A tiers: >=1200px full 3-zone terminal; 768-1199px collapsed icon-rail
-   sidebar + stacked panels (ledger flows under the wide column); <768px
-   single column with off-canvas drawer nav.
-   ========================================================================== */
-
-/* --- Tier 2: 768-1199px — sidebar collapses to a narrow icon rail ------- */
-@media (max-width: 1199px) {
-  .terminal-sidebar {
-    width: 64px;
-    padding: 12px 8px;
-  }
-  .side-nav-item {
-    justify-content: center;
-    padding: 10px 8px;
-  }
-  .side-nav-item .nav-label {
-    /* icon-only rail: labels stay in the DOM for screen readers */
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-  }
-}
-
-/* --- Legacy tablet tier ≤768px ------------------------------------------ */
-@media (max-width: 768px) {
-  /* W8-A Tier 3 (<768px): single column + off-canvas drawer nav.
-     #btnNavToggle appears; .terminal-sidebar becomes a fixed off-canvas
-     drawer that slides in when <body> gains .nav-drawer-open (app.js toggles;
-     Escape closes + focus returns to the burger). */
-  .nav-toggle {
-    display: flex;
-    order: -1;
-  }
-  .app-container {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .terminal-header,
-  .metrics-grid,
-  .stats-band,
-  .workspace-grid,
-  .terminal-sidebar {
-    grid-column: 1;
-  }
-  .terminal-sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    z-index: 400;
-    width: min(78vw, 300px);
-    margin: 0;
-    padding: 76px 14px 20px;
-    background: rgba(10, 14, 24, 0.97);
-    border-right: 1px solid var(--glass-border);
-    box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
-    overflow-y: auto;
-    transform: translateX(-105%);
-    transition: transform 260ms ease-out;
-  }
-  body.nav-drawer-open .terminal-sidebar {
-    transform: translateX(0);
-  }
-  .side-nav-item .nav-label {
-    /* drawer shows labels again */
-    position: static;
-    width: auto;
-    height: auto;
-    margin: 0;
-    overflow: visible;
-    clip: auto;
-  }
-
-  .glass-nav {
-    flex-wrap: wrap;
-    gap: 10px;
-    padding: 12px 14px;
-  }
-  .nav-center-controls {
-    order: 3;
-    width: 100%;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  .metrics-grid {
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 12px;
-  }
-  /* W7-B: stats band follows the same tablet rhythm */
-  .stats-band {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-  }
-  .workspace-grid,
-  .sidebar-grid {
-    grid-template-columns: 1fr;
-    min-height: 0;
-  }
-  .card-nav-tabs {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-}
-
-/* ==========================================================================
-   W7-B: KPI STATS CARDS BAND
-   Four display-only KPI cards above the workspace grid. Values use
-   font-variant-numeric: tabular-nums so digits don't jitter as they tick.
-   Deltas pair an arrow glyph with a word ("vs open") so direction is never
-   color-only (AX-1). Cards are displays, not controls: no focus outline is
-   removed anywhere (the global :focus-visible rule stays untouched).
-   Contrast: labels #708198 = 5.01:1 on #07090e; values #f1f5f9 > 15:1;
-   delta colors on their translucent chips >= 4.5:1 (AA normal text).
-   ========================================================================== */
-.stats-band {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.stat-card {
-  padding: 14px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.stat-label {
-  font-size: 10px;
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-  letter-spacing: 1px;
-}
-
-.stat-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.stat-value {
-  font-size: 26px;
-  font-weight: 700;
-  font-family: var(--font-display);
-  color: var(--text-primary);
-  line-height: 1.1;
-}
-
-.tabular-nums,
-.stat-value {
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum";
-}
-
-.stat-delta {
-  font-size: 11px;
-  font-family: var(--font-mono);
-  font-weight: 600;
-  padding: 2px 7px;
-  border-radius: 6px;
-  white-space: nowrap;
-}
-
-.delta-up {
-  background: rgba(0, 255, 136, 0.12);
-  color: var(--color-emerald);
-}
-
-.delta-down {
-  background: rgba(255, 51, 102, 0.14);
-  color: var(--color-red);
-}
-
-/* ==========================================================================
-   W7-A: LIGHTWEIGHT-CHARTS HOSTS
-   The vendored chart library sizes itself from its host container; hosts
-   fill .canvas-wrapper and resize via ResizeObserver (see charts.js).
-   role="img" hosts are decorative surfaces; the hidden data tables inside
-   .canvas-wrapper stay visually-hidden but available to screen readers.
-   ========================================================================== */
-.chart-host {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  touch-action: pan-y;
-}
-
-/* ==========================================================================
-   Phone ≤480px: stacked cards, full-width controls
-   ========================================================================== */
-@media (max-width: 480px) {
-  .metrics-grid {
-    grid-template-columns: 1fr;
-  }
-  /* W7-B/A: single-column KPI cards, slimmer charts */
-  .stats-band {
-    grid-template-columns: 1fr;
-  }
-  .stat-value {
-    font-size: 22px;
-  }
-  .canvas-wrapper {
-    min-height: 380px;
-  }
-  .timeframe-pills {
-    flex-wrap: wrap;
-  }
-  .glow-btn,
-  .action-btn {
-    width: 100%;
-    justify-content: center;
-  }
-  .tab-btn-group {
-    width: 100%;
-    overflow-x: auto;
-  }
-}
-
-/* =====================================================================
-   W9 MOTION LAYER — Emil Kowalski / apple-design rules
-   All durations <=300ms; custom curves; transform/opacity only.
-   ===================================================================== */
-
-/* Press feedback on every interactive element */
-button, .tab-btn, .sidebar-item, .primary-action, [role="button"] {
-  transition: transform 160ms var(--ease-out), opacity var(--dur-fast) var(--ease-out);
-}
-button:active, .tab-btn:active, .sidebar-item:active, .primary-action:active,
-[role="button"]:active {
-  transform: scale(0.97);
-}
-
-/* Entrances never from scale(0) */
-@keyframes w9-enter {
-  from { opacity: 0; transform: scale(0.95) translateY(4px); }
-  to   { opacity: 1; transform: scale(1) translateY(0); }
-}
-.w9-animate-in { animation: w9-enter var(--dur-med) var(--ease-out) both; }
-
-/* Stagger metric cards on first load only (50ms steps, decorative) */
-.metrics-grid > *:nth-child(1) { animation-delay: 0ms; }
-.metrics-grid > *:nth-child(2) { animation-delay: 50ms; }
-.metrics-grid > *:nth-child(3) { animation-delay: 100ms; }
-.metrics-grid > *:nth-child(4) { animation-delay: 150ms; }
-.metrics-grid > * { animation: w9-enter 250ms var(--ease-out) both; }
-
-/* Drawer uses iOS curve */
-.sidebar-drawer {
-  transition: transform var(--dur-med) var(--ease-drawer);
-}
-
-/* Hover gating — touch devices fire false hovers on tap */
-@media (hover: hover) and (pointer: fine) {
-  button:hover:not(:disabled), .tab-btn:hover, .primary-action:hover {
-    filter: brightness(1.12);
-    transition: filter var(--dur-fast) ease;
-  }
-}
-
-/* Focus rings: visible only for keyboard users (never suppress outlines) */
-:focus-visible {
-  outline: 2px solid var(--color-cyan);
-  outline-offset: 2px;
-  border-radius: var(--radius-sm);
-}
-
-/* Reduced motion: keep fades, drop movement */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
-    transform: none !important;
-  }
 }
