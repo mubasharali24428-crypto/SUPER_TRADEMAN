@@ -235,6 +235,11 @@ def create_app() -> FastAPI:
         _config_state.clear()
         return {"status": "reset"}
 
+    # --- walk-forward routes (Phase-3) -----------------------------------------
+    from trading.api import walkforward_routes  # noqa: E402 — local import avoids cycles
+
+    app.include_router(walkforward_routes.router)
+
     # --- static dashboard ------------------------------------------------------
     # Mounted last so /api/* routes win.
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")

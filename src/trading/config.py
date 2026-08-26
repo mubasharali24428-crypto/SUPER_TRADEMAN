@@ -33,6 +33,17 @@ class Settings(BaseSettings):
 
     execution_mode: ExecutionMode = ExecutionMode.BACKTEST
 
+    # --- Live venue connectivity (P3-ALPHA) ---------------------------------
+    # Secrets arrive ONLY via environment / env-file — no credential defaults
+    # are ever embedded here (same policy as postgres_url/redis_url above).
+    venue_api_key: str | None = None
+    venue_api_secret: str | None = None
+    venue_password: str | None = None
+    exchange_id: str = "binanceus"
+    # Safe-by-default: True means CcxtLiveAdapter logs would-be submissions
+    # without ever contacting the venue, regardless of execution_mode.
+    dry_run: bool = True
+
     @field_validator("postgres_url")
     @classmethod
     def _reject_embedded_default_credential(cls, v: str) -> str:
