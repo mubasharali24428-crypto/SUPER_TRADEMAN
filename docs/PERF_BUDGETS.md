@@ -104,10 +104,45 @@ for review even though the hard gate stays at 60%.
 
 ---
 
+## 4. Chart refresh cost per engine tick (W7)
+
+Method: headless Chromium (Playwright), dashboard served over loopback,
+`performance.now()` around 20 consecutive `window.W7Charts.update()` calls
+(the exact work one heartbeat spends on charts: `getChartData()` mapping +
+`setData()` on candlestick/histogram/area + both hidden WCAG table rebuilds),
+after 3 warm-up calls. Date: 2026-08-25, same machine as §1–§3.
+
+| Metric | Measured |
+|---|---|
+| Mean per full update | **0.16 ms** |
+| p95 / max per full update | 0.30 ms / 0.30 ms |
+| Heartbeat interval | 1,200 ms |
+| Worst-case share of tick budget | **0.025%** |
+
+Notes:
+
+- Vendored lightweight-charts v4.2.0 standalone adds **163,551 B raw /
+  ~51 KB gzipped** to first load; it replaces two full-canvas repaints
+  (`renderTradingChart` + `renderEquityChart`) that previously ran every tick,
+  so steady-state cost went from O(candles) canvas drawing to sub-millisecond
+  data diffing.
+- Viewport fitting runs once after init and on dataset replacement only
+  (`W7Charts.refit()`); per-tick updates never reset operator zoom/pan.
+- Hidden screen-reader tables mirror the latest 10 rows per chart (bounded
+  DOM churn per tick).
+
+**Budget ruling:** chart updates are negligible against the 1.2 s heartbeat;
+the binding constraint stays first-load transfer (~51 KB gzip for the vendored
+library), which ships same-origin under CSP `default-src 'self'`.
+
+---
+
 ### Maintenance contract
 
 Re-run these three measurements (span micro-bench, RESP PING percentiles,
 timed `upgrade head` on a scratch cluster) whenever: the OTel SDK major
 version changes, Redis client/version changes, or a new Alembic revision
 lands. Paste updated numbers in place; do not let this file become another
-estimate sheet.
+estimate sheet. Additionally re-run the §4 chart probe (`perf_probe.mjs`
+pattern: timed `window.W7Charts.update()` loop in headless Chromium) whenever
+web/charts.js or the vendored library version changes.

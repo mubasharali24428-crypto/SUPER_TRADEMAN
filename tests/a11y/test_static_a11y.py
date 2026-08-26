@@ -40,8 +40,12 @@ def test_aria_live_polite_status_region_exists():
 
 
 def test_every_canvas_has_text_alternative():
+    # W7: only the force-directed learning-graph canvas remains hand-drawn.
+    # The two time-series canvases (#tradingCanvas / #equityCanvas) were
+    # replaced by vendored lightweight-charts hosts exposing role="img" +
+    # aria-label instead (see test_chart_hosts_expose_role_img_and_label).
     canvases = re.findall(r"<canvas\b[^>]*>", _html)
-    assert len(canvases) >= 3, "expected the three chart canvases"
+    assert len(canvases) == 1, "expected exactly the learning-graph canvas"
     for tag in canvases:
         assert "aria-label=" in tag, f"canvas without text alternative: {tag}"
 
@@ -122,6 +126,98 @@ def test_custom_controls_have_keyboard_handlers():
 
 def test_js_updates_the_status_region():
     assert "engineStatusRegion" in _js, "live region never updated by app.js"
+
+
+# ---------------------------------------------------------------------- W7 --
+# Wave-7 additions: interactive lightweight-charts (Workstream A) and the KPI
+# stats-card band (Workstream B). Static grep-level guarantees mirroring the
+# AX-1 approach so the gate runs without node.
+
+_charts_js = (WEB / "charts.js").read_text(encoding="utf-8")
+_vendor = WEB / "vendor" / "lightweight-charts.standalone.js"
+
+
+def test_w7_lightweight_charts_is_vendored_not_cdn():
+    assert _vendor.exists(), "web/vendor/lightweight-charts.standalone.js missing"
+    vendor_text = _vendor.read_text(encoding="utf-8", errors="replace")
+    assert "TradingView Lightweight Charts" in vendor_text, (
+        "vendored file does not look like the genuine library"
+    )
+    # index.html loads it same-origin only
+    assert 'src="vendor/lightweight-charts.standalone.js"' in _html
+    # no external script URLs anywhere (CSP default-src 'self')
+    external_scripts = re.findall(r'<script[^>]*src="(https?:)?//[^"]*"', _html)
+    assert not external_scripts, f"CDN script tags present: {external_scripts}"
+
+
+def test_w7_chart_hosts_expose_role_img_and_label():
+    for host_id in ("priceChartHost", "equityChartHost"):
+        m = re.search(rf'<div[^>]*id="{host_id}"[^>]*>', _html)
+        assert m, f"#{host_id} missing from index.html"
+        tag = m.group(0)
+        assert 'role="img"' in tag, f"#{host_id} lost role=img"
+        assert "aria-label=" in tag, f"#{host_id} lost its text alternative"
+
+
+def test_w7_hidden_data_tables_present_for_screen_readers():
+    for tbl_id, body_id in (("priceDataTable", "priceTableBody"),
+                            ("equityDataTable", "equityTableBody")):
+        assert f'id="{tbl_id}"' in _html, f"hidden table #{tbl_id} missing"
+        assert f'id="{body_id}"' in _html, f"hidden table body #{body_id} missing"
+    # tables are visually hidden but machine-present (WCAG mirror of chart data)
+    assert re.search(r'<table[^>]*class="visually-hidden"[^>]*id="priceDataTable"',
+                     _html), "price data table not visually-hidden"
+    # rows are populated by charts.js via DOM APIs
+    assert "priceTableBody" in _charts_js and "equityTableBody" in _charts_js
+
+
+def test_w7_stats_band_exists_with_aria_live():
+    m = re.search(r'<section[^>]*id="statsBand"[^>]*>', _html)
+    assert m, "#statsBand section missing"
+    tag = m.group(0)
+    assert 'aria-live="polite"' in tag, "stats band lacks aria-live=polite"
+    assert "aria-label=" in tag, "stats band lacks accessible name"
+    assert _html.count('class="stat-card') == 4, "expected exactly 4 stat cards"
+    for val_id in ("statEquityValue", "statPnlValue", "statWinRateValue",
+                   "statOpenRiskValue"):
+        assert f'id="{val_id}"' in _html, f"KPI value #{val_id} missing"
+    # throttled spoken summary inside the live region
+    assert 'id="statsLiveSummary"' in _html
+    assert "statsLiveSummary" in _js, "app.js never updates the stats live region"
+
+
+def test_w7_stat_values_use_tabular_numerals():
+    assert "font-variant-numeric: tabular-nums" in _css, (
+        "stat values lack tabular-nums (digits jitter as they tick)"
+    )
+
+
+def test_w7_delta_arrows_carry_glyph_and_words():
+    up = "\u25b2" in _js or r"\u25B2" in _js
+    down = "\u25bc" in _js or r"\u25BC" in _js
+    assert up and down, "W7 delta arrows missing glyph coverage"
+    assert "vs open" in _js, "delta text lacks non-color direction words"
+
+
+def test_w7_chart_data_isolated_behind_getchartdata():
+    assert "function getChartData()" in _js, "getChartData() provider missing"
+    assert "init({ getChartData })" in _js, "provider not injected into W7Charts"
+    # charts.js must be fully decoupled: no direct reach into STATE/generator
+    assert "STATE" not in _charts_js, "charts.js reaches into app state directly"
+    assert "Math.random" not in _charts_js, "charts.js generates its own data"
+
+
+def test_w7_charts_respect_reduced_motion():
+    assert "prefers-reduced-motion" in _charts_js, (
+        "charts.js ignores prefers-reduced-motion"
+    )
+
+
+def test_w7_charts_module_has_no_innerhtml_sinks():
+    sinks = re.findall(r"\.innerHTML\s*=", _charts_js)
+    assert not sinks, f"innerHTML sinks in charts.js: {len(sinks)}"
+    assert "createElement" in _charts_js and "textContent" in _charts_js
+    assert "replaceChildren" in _charts_js
 
 
 # --------------------------------------------------------------- style.css --

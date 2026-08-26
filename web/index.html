@@ -187,6 +187,47 @@
       </div>
     </section>
 
+    <!-- ============================================================
+         W7 WORKSTREAM B — KPI STATS CARDS BAND
+         Sits above the workspace grid. Values update on the same engine
+         tick as the charts (see app.js getChartData / updateStatsBand).
+         aria-live=polite: updates are spoken; the spoken summary inside
+         (#statsLiveSummary, visually hidden) is throttled in app.js so a
+         fast heartbeat doesn't machine-gun the screen reader. Cards are
+         displays, not controls — no tabindex, not focusable.
+         ============================================================ -->
+    <section class="stats-band" id="statsBand" aria-live="polite"
+             aria-label="Key performance indicators" data-testid="stats-band">
+      <div class="stat-card glass-card" id="statCardEquity">
+        <span class="stat-label">EQUITY</span>
+        <div class="stat-row">
+          <span class="stat-value tabular-nums" id="statEquityValue">$10,000.00</span>
+          <span class="stat-delta delta-up" id="statEquityDelta">▲ +0.0% vs open</span>
+        </div>
+      </div>
+      <div class="stat-card glass-card" id="statCardPnl">
+        <span class="stat-label">TODAY'S PNL</span>
+        <div class="stat-row">
+          <span class="stat-value tabular-nums" id="statPnlValue">+$0.00</span>
+          <span class="stat-delta delta-up" id="statPnlDelta">▲ +0.0% vs open</span>
+        </div>
+      </div>
+      <div class="stat-card glass-card" id="statCardWinRate">
+        <span class="stat-label">WIN RATE</span>
+        <div class="stat-row">
+          <span class="stat-value tabular-nums" id="statWinRateValue">66.7%</span>
+        </div>
+      </div>
+      <div class="stat-card glass-card" id="statCardOpenRisk">
+        <span class="stat-label">OPEN RISK</span>
+        <div class="stat-row">
+          <span class="stat-value tabular-nums" id="statOpenRiskValue">$0.00</span>
+        </div>
+      </div>
+      <!-- Throttled spoken summary of the four KPIs (see app.js) -->
+      <div id="statsLiveSummary" class="visually-hidden"></div>
+    </section>
+
     <!-- MAIN WORKSPACE: CHARTS + QUANT HUD -->
     <main class="workspace-grid" id="main-content" tabindex="-1" data-testid="main">
       <!-- LEFT / CENTER: PRIMARY CHARTING AREA -->
@@ -213,11 +254,23 @@
           </div>
         </div>
 
-        <!-- TAB 1: Live Candlestick / Price Chart -->
+        <!-- TAB 1: Live Candlestick / Price Chart
+             W7-A: lightweight-charts canvas replaces the hand-drawn
+             #tradingCanvas (volume histogram overlaid on the bottom fifth).
+             The host wrapper keeps role="img" + aria-label; the SAME data is
+             mirrored into the hidden table below for screen readers. -->
         <div class="tab-content active" id="liveTradingChart" role="tabpanel" aria-labelledby="tab-liveTradingChart" tabindex="0" data-testid="panel-trading-chart">
           <div class="canvas-wrapper">
-            <canvas id="tradingCanvas" role="img" aria-label="Live simulated candlestick price chart with trade entry markers" data-testid="canvas-trading"></canvas>
+            <div class="chart-host" id="priceChartHost"
+                 role="img"
+                 aria-label="Live simulated candlestick price chart with volume histogram and trade entry markers. Zoom with mouse wheel or pinch, pan by dragging; a hidden data table mirrors this data for screen readers."></div>
             <div id="chartTooltip" class="chart-tooltip glass-tooltip hidden"></div>
+            <!-- AX-1 WCAG mirror of the price chart data -->
+            <table class="visually-hidden" id="priceDataTable">
+              <caption>Live simulated price candles (latest 10)</caption>
+              <thead><tr id="priceTableHead"><th scope="col">Time</th></tr></thead>
+              <tbody id="priceTableBody"></tbody>
+            </table>
           </div>
         </div>
 
@@ -241,10 +294,20 @@
           </div>
         </div>
 
-        <!-- TAB 3: Equity Curve & Drawdown -->
+        <!-- TAB 3: Equity Curve & Drawdown
+             W7-A: lightweight-charts AreaSeries replaces the hand-drawn
+             #equityCanvas; hidden data table mirrors the same series. -->
         <div class="tab-content" id="equityCurveTab" role="tabpanel" aria-labelledby="tab-equityCurveTab" tabindex="0" data-testid="panel-equity-curve">
           <div class="canvas-wrapper">
-            <canvas id="equityCanvas" role="img" aria-label="Equity curve showing account balance across closed simulated trades" data-testid="canvas-equity"></canvas>
+            <div class="chart-host" id="equityChartHost"
+                 role="img"
+                 aria-label="Equity curve showing account balance across closed simulated trades. Zoom with mouse wheel or pinch, pan by dragging; a hidden data table mirrors this data for screen readers."></div>
+            <!-- AX-1 WCAG mirror of the equity curve data -->
+            <table class="visually-hidden" id="equityDataTable">
+              <caption>Account balance after each closed simulated trade (latest 10)</caption>
+              <thead><tr id="equityTableHead"><th scope="col">Trade</th></tr></thead>
+              <tbody id="equityTableBody"></tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -538,6 +601,9 @@
     </div>
   </div>
 
+  <script src="vendor/lightweight-charts.standalone.js"></script>
+  <!-- W7-A: charts module must load before app.js (app.js calls W7Charts.init) -->
+  <script src="charts.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

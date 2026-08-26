@@ -1250,6 +1250,11 @@ canvas {
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 12px;
   }
+  /* W7-B: stats band follows the same tablet rhythm */
+  .stats-band {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
   .workspace-grid,
   .sidebar-grid {
     grid-template-columns: 1fr;
@@ -1261,10 +1266,108 @@ canvas {
   }
 }
 
-/* Phone ≤480px: stacked cards, full-width controls */
+/* ==========================================================================
+   W7-B: KPI STATS CARDS BAND
+   Four display-only KPI cards above the workspace grid. Values use
+   font-variant-numeric: tabular-nums so digits don't jitter as they tick.
+   Deltas pair an arrow glyph with a word ("vs open") so direction is never
+   color-only (AX-1). Cards are displays, not controls: no focus outline is
+   removed anywhere (the global :focus-visible rule stays untouched).
+   Contrast: labels #708198 = 5.01:1 on #07090e; values #f1f5f9 > 15:1;
+   delta colors on their translucent chips >= 4.5:1 (AA normal text).
+   ========================================================================== */
+.stats-band {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.stat-card {
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stat-label {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  letter-spacing: 1px;
+}
+
+.stat-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  font-family: var(--font-display);
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.tabular-nums,
+.stat-value {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.stat-delta {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.delta-up {
+  background: rgba(0, 255, 136, 0.12);
+  color: var(--color-emerald);
+}
+
+.delta-down {
+  background: rgba(255, 51, 102, 0.14);
+  color: var(--color-red);
+}
+
+/* ==========================================================================
+   W7-A: LIGHTWEIGHT-CHARTS HOSTS
+   The vendored chart library sizes itself from its host container; hosts
+   fill .canvas-wrapper and resize via ResizeObserver (see charts.js).
+   role="img" hosts are decorative surfaces; the hidden data tables inside
+   .canvas-wrapper stay visually-hidden but available to screen readers.
+   ========================================================================== */
+.chart-host {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: pan-y;
+}
+
+/* ==========================================================================
+   Phone ≤480px: stacked cards, full-width controls
+   ========================================================================== */
 @media (max-width: 480px) {
   .metrics-grid {
     grid-template-columns: 1fr;
+  }
+  /* W7-B/A: single-column KPI cards, slimmer charts */
+  .stats-band {
+    grid-template-columns: 1fr;
+  }
+  .stat-value {
+    font-size: 22px;
+  }
+  .canvas-wrapper {
+    min-height: 380px;
   }
   .timeframe-pills {
     flex-wrap: wrap;

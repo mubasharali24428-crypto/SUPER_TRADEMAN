@@ -166,11 +166,24 @@
     btnDownloadJsonl: document.getElementById('btnDownloadJsonl'),
     btnRunBacktestModal: document.getElementById('btnRunBacktestModal'),
 
-    // Canvases
-    tradingCanvas: document.getElementById('tradingCanvas'),
+    // Canvases (learning graph only as of W7 — see charts.js note)
     learningGraphCanvas: document.getElementById('learningGraphCanvas'),
-    equityCanvas: document.getElementById('equityCanvas'),
-    chartTooltip: document.getElementById('chartTooltip'),
+
+    // W7 fix (pre-existing defect): the learning-graph toolbar buttons got
+    // behavior in VC-005 but their DOM references were never added to this
+    // map — init() crashed on the undefined refs before the heartbeat timer,
+    // leaving the whole cockpit inert. Surfaced by the W7 browser smoke test.
+    btnCenterGraph: document.getElementById('btnCenterGraph'),
+    btnClearGraph: document.getElementById('btnClearGraph'),
+
+    // W7-B: KPI stats band
+    statEquityValue: document.getElementById('statEquityValue'),
+    statEquityDelta: document.getElementById('statEquityDelta'),
+    statPnlValue: document.getElementById('statPnlValue'),
+    statPnlDelta: document.getElementById('statPnlDelta'),
+    statWinRateValue: document.getElementById('statWinRateValue'),
+    statOpenRiskValue: document.getElementById('statOpenRiskValue'),
+    statsLiveSummary: document.getElementById('statsLiveSummary'),
 
     // Modal
     backtestModal: document.getElementById('backtestModal'),
@@ -226,11 +239,11 @@
     // Event Listeners
     setupEventListeners();
 
-    // VC-001 / VC-005: restore saved view config; wire the chart tooltip.
+    // VC-001 / VC-005: restore saved view config before first paint so the
+    // restored asset/tab is what the charts initialize with.
     restoreUiState();
-    wireChartTooltip();
 
-    // Resize Canvases
+    // Resize Canvases (learning graph only since W7)
     resizeCanvases();
     window.addEventListener('resize', resizeCanvases);
 
@@ -239,9 +252,21 @@
 
     // Initial UI Render
     updateUI();
-    renderTradingChart();
+
+    // W7-A: hand-drawn candlestick/equity canvas renderers are replaced by
+    // vendored lightweight-charts instances driven through the single
+    // getChartData() provider below. Swapping the simulated feed for
+    // /api/market-data later means changing ONLY getChartData().
+    if (window.W7Charts && window.W7Charts.init({ getChartData })) {
+      window.W7Charts.update();
+    } else {
+      announce('Interactive charts failed to initialize.');
+    }
+
+    // W7-B: first paint of the KPI band (also covers charts-unavailable path)
+    updateStatsBand();
+
     renderLearningGraph();
-    renderEquityChart();
   }
 
   function seedInitialTrades() {
@@ -369,9 +394,14 @@
 
     // 5. Update UI & Render Views
     updateUI();
-    renderTradingChart();
+
+    // W7-A/B: charts and stats band refresh on the same tick.
+    if (window.W7Charts && window.W7Charts.isLive()) {
+      window.W7Charts.update();
+      updateStatsBand();
+    }
+
     renderLearningGraph();
-    renderEquityChart();
   }
 
   function updateStatisticalModels() {
@@ -594,6 +624,145 @@
   }
 
   // -------------------------------------------------------------------------
+  // 4b. W7 — CHART DATA PROVIDER & KPI STATS BAND
+  // -------------------------------------------------------------------------
+  // Single data seam (W7-A req 4): charts.js receives EVERYTHING through this
+  // function only. Swapping the simulated generator for GET /api/market-data
+  // later means changing this one function — nothing in charts.js moves.
+  function getChartData() {
+    const candles = STATE.candles[STATE.selectedAsset] || [];
+
+    // lightweight-charts needs UTCTimestamp seconds, strictly ascending.
+    const candlePoints = candles.map(c => ({
+      time: Math.floor(c.ts / 1000),
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volume,
+    }));
+
+    // Equity curve replayed from closed trades (oldest -> newest), anchored to
+    // candle timestamps so both charts share one time axis for crosshair sync.
+    const equityPoints = [];
+    if (candlePoints.length > 0) {
+      let eq = 10000.0;
+      equityPoints.push({ time: candlePoints[0].time, value: eq });
+      [...STATE.closedTrades].reverse().forEach((t, i) => {
+        eq += t.netPnl;
+        const idx = Number.isInteger(t.candleIdx)
+          ? Math.min(Math.max(t.candleIdx, 0), candlePoints.length - 1)
+          : candlePoints.length - 1;
+        // Nudge duplicate timestamps forward so every point is unique+ascending.
+        let time = candlePoints[idx].time + i;
+        if (time <= equityPoints[equityPoints.length - 1].time) {
+          time = equityPoints[equityPoints.length - 1].time + 1;
+        }
+        equityPoints.push({ time, value: eq });
+      });
+    }
+
+    return {
+      asset: STATE.selectedAsset,
+      timeframe: STATE.timeframe,
+      candles: candlePoints,
+      equity: equityPoints,
+    };
+  }
+
+  // Session-open baseline (W7-B "vs previous close"): the simulation is
+  // continuous with no daily rollover in STATE, so deltas are measured against
+  // the balance at page load / RESET, including seeded trades. Re-baselined on
+  // RESET via resetStatsBaseline().
+  let sessionOpenEquity = null;
+
+  function resetStatsBaseline() {
+    sessionOpenEquity = null;
+    updateStatsBand();
+  }
+
+  /** Risk capital locked in the active position (base 0.5%/trade × tier mult). */
+  function computeOpenRisk() {
+    if (!STATE.activeTrade) return 0.0;
+    return STATE.equity * 0.005 * STATE.survival.effectiveRiskMult;
+  }
+
+  /** Arrow glyph + word — direction never encoded by color alone (AX-1). */
+  function statDeltaText(pct) {
+    const up = pct >= 0;
+    return `${up ? '▲' : '▼'} ${up ? '+' : ''}${pct.toFixed(2)}% vs open`;
+  }
+
+  function setStatDelta(elm, pct) {
+    elm.textContent = statDeltaText(pct);
+    elm.className = `stat-delta ${pct >= 0 ? 'delta-up' : 'delta-down'}`;
+    elm.setAttribute('aria-hidden', 'true'); // spoken via #statsLiveSummary instead
+  }
+
+  /**
+   * Refresh the four KPI cards. Runs on the same heartbeat tick as the
+   * charts. Visible values update every tick; the aria-live SPOKEN summary is
+   * throttled to one update per 10s so screen readers are not machine-gunned.
+   */
+  let lastStatsSpeakAt = 0;
+  let statsSpeakTimer = null;
+
+  function updateStatsBand() {
+    if (!DOM.statEquityValue || !DOM.statsLiveSummary) return;
+
+    if (sessionOpenEquity === null) sessionOpenEquity = STATE.equity;
+    const openEq = sessionOpenEquity || STATE.equity;
+
+    const pnlAbs = STATE.equity - openEq;
+    const pctVsOpen = openEq !== 0 ? (pnlAbs / openEq) * 100 : 0;
+
+    const wins = STATE.closedTrades.filter(t => t.netPnl > 0).length;
+    const wrPct = STATE.closedTrades.length > 0
+      ? (wins / STATE.closedTrades.length) * 100
+      : 0.0;
+    const openRisk = computeOpenRisk();
+
+    DOM.statEquityValue.textContent =
+      `$${STATE.equity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    setStatDelta(DOM.statEquityDelta, pctVsOpen);
+
+    DOM.statPnlValue.textContent =
+      `${pnlAbs >= 0 ? '+' : '-'}$${Math.abs(pnlAbs).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    setStatDelta(DOM.statPnlDelta, pnlAbs);
+
+    DOM.statWinRateValue.textContent = `${wrPct.toFixed(1)}%`;
+
+    DOM.statOpenRiskValue.textContent =
+      `$${openRisk.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    scheduleStatsSummary(openEq, pnlAbs, pctVsOpen, wrPct, openRisk);
+  }
+
+  /** Throttled polite announcement of the KPI band (W7-B req 3). */
+  function scheduleStatsSummary(openEq, pnlAbs, pctVsOpen, wrPct, openRisk) {
+    if (!DOM.statsLiveSummary) return;
+    const speak = () => {
+      lastStatsSpeakAt = Date.now();
+      DOM.statsLiveSummary.textContent =
+        `Key indicators: Equity $${STATE.equity.toFixed(2)}, ` +
+        `${pnlAbs >= 0 ? 'up' : 'down'} ${Math.abs(pctVsOpen).toFixed(2)}% versus open, ` +
+        `today's P and L ${pnlAbs >= 0 ? 'positive' : 'negative'} at ` +
+        `$${Math.abs(pnlAbs).toFixed(2)}, win rate ${wrPct.toFixed(1)}%, ` +
+        `open risk $${openRisk.toFixed(2)}.`;
+    };
+    const sinceLast = Date.now() - lastStatsSpeakAt;
+    if (sinceLast >= 10000) {
+      clearTimeout(statsSpeakTimer);
+      speak();
+    } else if (!statsSpeakTimer) {
+      statsSpeakTimer = setTimeout(() => {
+        statsSpeakTimer = null;
+        speak();
+      }, 10000 - sinceLast);
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // 5. UI UPDATE & RENDERING
   // -------------------------------------------------------------------------
   function updateUI() {
@@ -739,120 +908,11 @@
   // 6. CANVAS CHARTS (CANDLESTICK, LEARNING GRAPH, EQUITY CURVE)
   // -------------------------------------------------------------------------
   function resizeCanvases() {
-    [DOM.tradingCanvas, DOM.learningGraphCanvas, DOM.equityCanvas].forEach(c => {
+    [DOM.learningGraphCanvas].forEach(c => {
       if (!c) return;
       const rect = c.parentElement.getBoundingClientRect();
       c.width = rect.width * window.devicePixelRatio;
       c.height = (rect.height || 520) * window.devicePixelRatio;
-    });
-  }
-
-  // Live Trading Candlestick Renderer
-  function renderTradingChart() {
-    const canvas = DOM.tradingCanvas;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
-    ctx.clearRect(0, 0, width, height);
-
-    const candles = STATE.candles[STATE.selectedAsset];
-    if (!candles || candles.length === 0) return;
-
-    // Find Price Min & Max
-    let minP = Infinity, maxP = -Infinity;
-    candles.forEach(c => {
-      if (c.low < minP) minP = c.low;
-      if (c.high > maxP) maxP = c.high;
-    });
-    const pad = (maxP - minP) * 0.12 || 1;
-    minP -= pad;
-    maxP += pad;
-
-    const candleWidth = width / (candles.length + 4);
-    const getY = p => height - ((p - minP) / (maxP - minP)) * (height - 60) - 30;
-
-    // Grid lines
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
-    ctx.lineWidth = 1;
-    for (let i = 0; i < 6; i++) {
-      const y = 30 + (i * (height - 60)) / 5;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-      ctx.stroke();
-
-      const priceVal = maxP - (i * (maxP - minP)) / 5;
-      ctx.fillStyle = '#64748b';
-      ctx.font = `${10 * window.devicePixelRatio}px JetBrains Mono`;
-      ctx.fillText(`$${priceVal.toFixed(2)}`, width - 80 * window.devicePixelRatio, y - 4);
-    }
-
-    // Render Candlesticks
-    candles.forEach((c, i) => {
-      const x = (i + 2) * candleWidth;
-      const isGreen = c.close >= c.open;
-      const openY = getY(c.open);
-      const closeY = getY(c.close);
-      const highY = getY(c.high);
-      const lowY = getY(c.low);
-
-      // Wick
-      ctx.strokeStyle = isGreen ? '#00ff88' : '#ff3366';
-      ctx.lineWidth = 1.5 * window.devicePixelRatio;
-      ctx.beginPath();
-      ctx.moveTo(x, highY);
-      ctx.lineTo(x, lowY);
-      ctx.stroke();
-
-      // Body
-      ctx.fillStyle = isGreen ? '#00ff88' : '#ff3366';
-      const bodyH = Math.max(Math.abs(closeY - openY), 2);
-      ctx.fillRect(x - candleWidth * 0.35, Math.min(openY, closeY), candleWidth * 0.7, bodyH);
-    });
-
-    // Render Active Trade Entry / Target / Stop Lines
-    if (STATE.activeTrade) {
-      const t = STATE.activeTrade;
-      const entryY = getY(t.entryPrice);
-      const stopY = getY(t.stopPrice);
-      const targetY = getY(t.targetPrice);
-
-      // Entry line
-      ctx.strokeStyle = '#00f0ff';
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(0, entryY);
-      ctx.lineTo(width, entryY);
-      ctx.stroke();
-
-      // Stop Loss
-      ctx.strokeStyle = '#ff3366';
-      ctx.beginPath();
-      ctx.moveTo(0, stopY);
-      ctx.lineTo(width, stopY);
-      ctx.stroke();
-
-      // Target
-      ctx.strokeStyle = '#b05cff';
-      ctx.beginPath();
-      ctx.moveTo(0, targetY);
-      ctx.lineTo(width, targetY);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
-    // Render Past Trade Markers (Triangles on candle entries)
-    STATE.closedTrades.forEach(t => {
-      if (t.candleIdx !== undefined && t.candleIdx < candles.length) {
-        const x = (t.candleIdx + 2) * candleWidth;
-        const y = getY(t.entryPrice);
-
-        ctx.fillStyle = t.verdict === 'WIN' ? '#00ff88' : '#ff3366';
-        ctx.beginPath();
-        ctx.arc(x, y, 4 * window.devicePixelRatio, 0, Math.PI * 2);
-        ctx.fill();
-      }
     });
   }
 
@@ -915,60 +975,6 @@
     });
   }
 
-  // Equity Curve Renderer
-  function renderEquityChart() {
-    const canvas = DOM.equityCanvas;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
-    ctx.clearRect(0, 0, width, height);
-
-    // Build equity history array
-    let eq = 10000.0;
-    const points = [eq];
-    [...STATE.closedTrades].reverse().forEach(t => {
-      eq += t.netPnl;
-      points.push(eq);
-    });
-
-    if (points.length < 2) return;
-
-    let minE = Math.min(...points) * 0.98;
-    let maxE = Math.max(...points) * 1.02;
-    const getY = v => height - ((v - minE) / (maxE - minE)) * (height - 60) - 30;
-
-    // Fill gradient under curve
-    const grad = ctx.createLinearGradient(0, 0, 0, height);
-    grad.addColorStop(0, 'rgba(0, 240, 255, 0.25)');
-    grad.addColorStop(1, 'rgba(0, 240, 255, 0.0)');
-
-    ctx.beginPath();
-    points.forEach((p, i) => {
-      const x = (i / (points.length - 1)) * width;
-      const y = getY(p);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.lineTo(width, height);
-    ctx.lineTo(0, height);
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    // Line
-    ctx.strokeStyle = '#00f0ff';
-    ctx.lineWidth = 2.5 * window.devicePixelRatio;
-    ctx.beginPath();
-    points.forEach((p, i) => {
-      const x = (i / (points.length - 1)) * width;
-      const y = getY(p);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-  }
-
-  // -------------------------------------------------------------------------
   // 6b. ERROR BOUNDARY & UI PERSISTENCE (VC-001 / VC-002)
   // -------------------------------------------------------------------------
   // VC-002: a mid-render throw must never blank the dashboard silently.
@@ -1069,32 +1075,6 @@
     }
   }
 
-  // VC-005: #chartTooltip existed in markup/CSS with zero behavior.
-  function wireChartTooltip() {
-    const wrap = DOM.tradingCanvas.parentElement;
-    const hideTooltip = () => {
-      DOM.chartTooltip.classList.add('hidden');
-    };
-    wrap.addEventListener('mousemove', e => {
-      const candles = STATE.candles[STATE.selectedAsset];
-      if (!candles || candles.length === 0) return;
-      const rect = DOM.tradingCanvas.getBoundingClientRect();
-      const relX = (e.clientX - rect.left) / rect.width;
-      const idx = Math.floor(relX * candles.length) - 2;
-      if (idx < 0 || idx >= candles.length) {
-        hideTooltip();
-        return;
-      }
-      const c = candles[idx];
-      DOM.chartTooltip.textContent =
-        `${new Date(c.ts).toISOString().slice(11, 19)}  ` +
-        `O ${c.open.toFixed(2)}  H ${c.high.toFixed(2)}  ` +
-        `L ${c.low.toFixed(2)}  C ${c.close.toFixed(2)}`;
-      DOM.chartTooltip.classList.remove('hidden');
-    });
-    wrap.addEventListener('mouseleave', hideTooltip);
-  }
-
   // -------------------------------------------------------------------------
   // 7. EVENT LISTENERS & MODAL HANDLERS
   // -------------------------------------------------------------------------
@@ -1103,7 +1083,11 @@
     DOM.assetSelect.addEventListener('change', e => {
       STATE.selectedAsset = e.target.value;
       updateUI();
-      renderTradingChart();
+      if (window.W7Charts && window.W7Charts.isLive()) {
+        window.W7Charts.refit(); // new dataset: fit viewport
+        window.W7Charts.update();
+      }
+      updateStatsBand();
       saveUiState(); // VC-001: persist view config across refreshes
     });
 
@@ -1139,6 +1123,7 @@
       STATE.learningGraph.edges = [];
       seedInitialTrades();
       updateUI();
+      resetStatsBaseline(); // W7-B: "vs open" anchor re-captured post-reset
       announce('Simulation state reset.');
     });
 
@@ -1159,10 +1144,15 @@
         c.classList.toggle('active', c.id === tabId));
       if (focus) btn.focus();
 
-      resizeCanvases();
-      if (tabId === 'liveTradingChart') renderTradingChart();
-      else if (tabId === 'learningGraphTab') renderLearningGraph();
-      else if (tabId === 'equityCurveTab') renderEquityChart();
+      resizeCanvases(); // learning-graph canvas only since W7
+      if (tabId === 'learningGraphTab') {
+        renderLearningGraph();
+      } else if (window.W7Charts && window.W7Charts.isLive()) {
+        // W7-A: entering a chart tab refits + refreshes the hidden panels
+        window.W7Charts.refit();
+        window.W7Charts.update();
+        updateStatsBand();
+      }
       saveUiState(); // VC-001: remember last chart panel across refreshes
     };
 
