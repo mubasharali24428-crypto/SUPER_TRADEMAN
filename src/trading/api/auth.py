@@ -78,6 +78,17 @@ def resolve_secret() -> str:
     """
     secret = os.environ.get(SECRET_ENV_VAR, "").strip()
     if secret:
+        if len(secret.encode("utf-8")) < 16:
+            logger.error(
+                "API_SESSION_SECRET is too short (%d bytes, require >=16). "
+                "Run: openssl rand -hex 32",
+                len(secret.encode("utf-8")),
+            )
+            raise RuntimeError(
+                f"API_SESSION_SECRET is too short ({len(secret.encode('utf-8'))} bytes). "
+                "128-bit minimum required for HMAC signing strength. "
+                f"Generate with: openssl rand -hex 32"
+            )
         return secret
 
     if os.environ.get(INSECURE_DEV_ENV_VAR) == "1":
@@ -155,6 +166,16 @@ class SessionManager:
 
     def __init__(self, secret: str):
         self._signer = TimestampSigner(secret)
+        # VA-004: in-memory token revocation denylist (SHA256 hashes).
+        # Lost on restart, but prevents replay within same process lifetime.
+        self._revoked_hashes: set = set()
+
+    def revoke(self, token: str) -> None:
+        """Add token hash to the VA-004 revocation denylist."""
+        self._revoked_hashes.add(hashlib.sha256(token.encode()).hexdigest())
+
+    def _is_revoked(self, token: str) -> bool:
+        return hashlib.sha256(token.encode()).hexdigest() in self._revoked_hashes
 
     def sign(self, claims: SessionClaims) -> str:
         # TimestampSigner signs raw bytes (sign_object lives on Serializer
@@ -164,7 +185,10 @@ class SessionManager:
         return self._signer.sign(blob).decode("ascii")
 
     def unsign(self, token: str) -> Optional[SessionClaims]:
-        """Return claims for a fresh, valid signature; None otherwise."""
+        """Return claims; checks VA-004 revocation denylist."""
+        if self._is_revoked(token):
+            logger.info("Session token revoked (denylist hit)")
+            return None
         try:
             blob = self._signer.unsign(
                 token.encode("ascii"), max_age=SESSION_MAX_AGE_SECONDS

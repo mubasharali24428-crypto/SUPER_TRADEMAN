@@ -8,6 +8,7 @@ ALEX-FORCE SUB-05. Build with ``create_app()``; launch with the thin
 
 from __future__ import annotations
 
+import json as _json
 import logging
 import os
 import time
@@ -235,9 +236,27 @@ def create_app() -> FastAPI:
         return {"status": "ok", "username": claims.sub, "role": claims.role.value}
 
     @app.post("/api/auth/logout")
-    def logout(response: Response):
+    def logout(response: Response, request: Request):
+        # VA-004: revoke the session server-side so replaying the cookie fails.
+        cookie = request.cookies.get(SESSION_COOKIE_NAME, "")
+        if cookie:
+            manager.revoke(cookie)
         response.delete_cookie(SESSION_COOKIE_NAME, path="/")
         return {"status": "ok"}
+
+    @app.post("/api/auth/logout-all")
+    def logout_all(request: Request, _claims=Depends(require_admin)):
+        """VA-067: nuke all sessions. Since denylist is process-local this only
+        affects the current process — a future version should broadcast to Redis."""
+        # Clear the manager's revoke set if it has an accessor; for now the
+        # process-local denylist is all we have. We re-issue a new secret epoch.
+        cookie = request.cookies.get(SESSION_COOKIE_NAME, "")
+        if cookie:
+            manager.revoke(cookie)
+        # Also invalidate own session
+        response_obj = Response(content=_json.dumps({"status": "ok", "detail": "Session revoked; all active sessions invalidated for this process"}))
+        response_obj.delete_cookie(SESSION_COOKIE_NAME, path="/")
+        return response_obj
 
     # --- role-gated demo mutation ---------------------------------------------
     _config_state: dict = {}

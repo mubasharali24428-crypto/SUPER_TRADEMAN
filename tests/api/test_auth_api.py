@@ -24,7 +24,7 @@ from trading.api.auth import (
     resolve_secret,
 )
 
-SECRET = "unit-test-secret"
+SECRET = "unit-test-secret-unit-test"  # 21 bytes >= 16 min (VA-056)
 
 # R2/VA-001: there is no default credential anymore, so auth-positive tests
 # pin an explicit pbkdf2 operator password hash.
