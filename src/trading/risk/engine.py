@@ -115,7 +115,8 @@ class RiskEngine:
 
         if account.peak_equity > 0:
             drawdown = (account.peak_equity - account.equity) / account.peak_equity
-            if drawdown >= cfg.max_drawdown:
+            # VA-028: epsilon-aware comparison — tolerate <1bp rounding below threshold
+            if drawdown + 0.0001 >= cfg.max_drawdown:
                 return self._reject(
                     signal, f"max drawdown kill switch: {drawdown:.1%} >= {cfg.max_drawdown:.1%}"
                 )

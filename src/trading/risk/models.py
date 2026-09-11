@@ -135,6 +135,17 @@ class RiskDecision:
     # VA-018: HA lock fencing token consumed by resource guard.
     fencing_token: int | None = None
 
+    def __eq__(self, other):
+        """VA-025: compare parent fields only — ignore out-of-band metadata."""
+        if not isinstance(other, RiskDecision):
+            return NotImplemented
+        return (
+            self.approved == other.approved
+            and self.reason == other.reason
+            and self.signal == other.signal
+            and self.approved_order == other.approved_order
+        )
+
 
 @dataclass(frozen=True)
 class ExitSignal:

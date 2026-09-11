@@ -55,6 +55,9 @@ class StateRecoveryEngine:
         # Position quantity mismatch check
         v_pos_dict = {p.get("symbol"): p.get("amount", 0.0) for p in venue_positions}
         l_pos_dict = {p.get("asset"): p.get("position_size", 0.0) for p in l_pos}
+        # VA-037: carry asset_class from venue/local positions for emergency exits
+        v_ac = {p.get("symbol"): p.get("asset_class", "crypto") for p in venue_positions if p.get("symbol")}
+        l_ac = {p.get("asset"): p.get("asset_class", "crypto") for p in l_pos if p.get("asset")}
 
         mismatched_assets = []
         max_qty_delta = 0.0
@@ -83,7 +86,8 @@ class StateRecoveryEngine:
             exits_dispatched = [
                 ApprovedExit(
                     asset=asset,
-                    asset_class="crypto",
+                    # VA-037: carry from venue/local data with crypto fallback
+                    asset_class=v_ac.get(asset) or l_ac.get(asset) or "crypto",
                     reason="state_recovery_severe_mismatch_flatten",
                     issuer=_ISSUER,
                 )

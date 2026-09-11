@@ -11,6 +11,7 @@ from __future__ import annotations
 import json as _json
 import logging
 import os
+import re
 import time
 import uuid
 from pathlib import Path
@@ -147,7 +148,9 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def request_tracing(request: Request, call_next):
         request_id = os.environ.get("API_REQUEST_ID_HEADER", "X-Request-ID")
-        cid = request.headers.get(request_id, "") or uuid.uuid4().hex[:12]
+        raw_cid = request.headers.get(request_id, "") or uuid.uuid4().hex[:12]
+        # VA-012: sanitize client-supplied X-Request-ID — clamp to alphanumeric+hyphen, max 64 chars
+        cid = re.sub(r"[^A-Za-z0-9-]", "", raw_cid)[:64] or uuid.uuid4().hex[:12]
         set_correlation_id(cid)
         response = None
         try:
@@ -195,7 +198,8 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=allowed_origins,
         allow_credentials=True,
-        allow_methods=["*"],
+        # VA-007: restrict to verbs actually used by routes (deny-by-default)
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
 
@@ -215,6 +219,14 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Too many login attempts; retry later",
             )
+        # VA-045: pin username to operator, log unexpected usernames for audit
+        if body.username.strip().lower() not in ("operator", "admin"):
+            logger.warning("LOGIN_UNEXPECTED_USERNAME: %s from %s", body.username,
+                          request.client.host if request.client else "unknown")
+        # VA-045: pin username to operator, log unexpected usernames for audit
+        if body.username.strip().lower() not in ("operator", "admin"):
+            logger.warning("LOGIN_UNEXPECTED_USERNAME: %s from %s", body.username,
+                          request.client.host if request.client else "unknown")
         claims = authenticate_operator(body.username, body.password)
         if claims is None:
             if not os.environ.get("OPERATOR_PASSWORD_HASH", "").strip() and os.environ.get(

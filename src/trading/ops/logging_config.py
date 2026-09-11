@@ -64,7 +64,7 @@ def set_correlation_id(correlation_id: str) -> None:
 
 # postgres://user:pass@host:5432/db?sslmode=... -> postgres://***:***@***:5432/db?***
 _DSN_RE = re.compile(
-    r"(?P<scheme>postg(?:res|resql)://)"
+    r"(?P<scheme>(?:postg(?:res|resql)|redis(?:\+sentinel)?|rediss)://)"
     r"(?:(?P<user>[^:@/\s]+)(?::(?P<password>[^@\s]*))?@)?"
     r"(?P<hostport>[^/?\s]+)"
     r"(?P<path>/[^\s]*)?"
@@ -73,10 +73,17 @@ _DSN_RE = re.compile(
 
 REDACTED_PLACEHOLDER = "[REDACTED]"
 
+# VA-039: also redact webhook/bearer URLs (slack, pagerduty, generic)
+_WEBHOOK_RE = re.compile(
+    r"(?P<scheme>https?)://"
+    r"(?:hooks.slack.com|api.pagerduty|discord.com/api/webhooks)"
+    r"(?:/[A-Za-z0-9_-]+)+"
+)
+
 
 def _redact_text(text: str) -> str:
     """Strip credentials/querystrings from any postgres:// DSN occurrences."""
-    if "postgres" not in text:
+    if "postgres" not in text and "redis" not in text and "hooks" not in text and "api." not in text:
         return text
 
     def _sub(match: "re.Match[str]") -> str:
@@ -91,7 +98,8 @@ def _redact_text(text: str) -> str:
         query = "?***" if match.group("query") else ""
         return f"{match.group('scheme')}{user}:***@{hostport}{path}{query}"
 
-    return _DSN_RE.sub(_sub, text)
+    text = _DSN_RE.sub(_sub, text)
+    return _WEBHOOK_RE.sub("[REDACTED_WEBHOOK] ", text)
 
 
 class RedactionFilter(logging.Filter):

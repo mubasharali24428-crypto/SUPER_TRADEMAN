@@ -24,7 +24,8 @@ from pydantic import BaseModel
 logger = logging.getLogger("trading.api.auth")
 
 SESSION_COOKIE_NAME = "std_session"
-SESSION_MAX_AGE_SECONDS = 12 * 60 * 60  # 12h
+SESSION_MAX_AGE_SECONDS = 12 * 60 * 60  # 12h  (cookie TTL, VA-047)
+SIGNER_MAX_AGE_SECONDS = 12 * 60 * 60  # 12h  (signer max_age independent of cookie TTL)
 
 SECRET_ENV_VAR = "API_SESSION_SECRET"
 INSECURE_DEV_ENV_VAR = "API_INSECURE_DEV"
@@ -165,7 +166,8 @@ class SessionManager:
     """Signs/unsigns session payloads with an itsdangerous TimestampSigner."""
 
     def __init__(self, secret: str):
-        self._signer = TimestampSigner(secret)
+        # VA-057: SHA-256 digest (not SHA-1 default) + per-env salt for signature separation.
+        self._signer = TimestampSigner(secret, salt="trading-api", digest_method=hashlib.sha256)
         # VA-004: in-memory token revocation denylist (SHA256 hashes).
         # Lost on restart, but prevents replay within same process lifetime.
         self._revoked_hashes: set = set()
@@ -191,7 +193,7 @@ class SessionManager:
             return None
         try:
             blob = self._signer.unsign(
-                token.encode("ascii"), max_age=SESSION_MAX_AGE_SECONDS
+                token.encode("ascii"), max_age=SIGNER_MAX_AGE_SECONDS
             )
             payload = json.loads(blob.decode())
         except (BadSignature, SignatureExpired):
@@ -281,7 +283,9 @@ def authenticate_operator(username: str, password: str) -> Optional[SessionClaim
 
 
 def cookie_options(secure: bool = False) -> Dict[str, Any]:
-    """Recommended Set-Cookie attributes for the session cookie."""
+    """Recommended Set-Cookie attributes for the session cookie.
+    VA-006: set API_COOKIE_INSECURE=1 to force non-secure in dev;
+    otherwise Secure is unconditional in production (loopback or not)."""
     return {
         "key": SESSION_COOKIE_NAME,
         "max_age": SESSION_MAX_AGE_SECONDS,
