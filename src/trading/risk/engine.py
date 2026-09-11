@@ -88,6 +88,13 @@ class RiskEngine:
         # so downstream can distinguish None-by-design from None-by-failure.
         self._quantize_errors: int = 0
         self._quantize_inactive: int = 0
+        # VA-018: HA lock fencing token consumed on every approve/reject.
+        self._fencing_token_val: int | None = None
+
+    def set_fencing_token(self, token: int | None) -> None:
+        """VA-018: caller (ActivePassiveManager) injects the current fencing
+        token before each evaluate() call so decisions carry it."""
+        self._fencing_token_val = token
 
     def get_size_candidate(self, order: ApprovedOrder) -> Decimal | None:
         """Out-of-band Decimal size candidate for a quantized approval.
@@ -310,11 +317,13 @@ class RiskEngine:
 
     def _reject_exit(self, signal: ExitSignal, reason: str) -> ExitDecision:
         logger.warning("exit_decision rejected: %s | signal=%r", reason, signal)
-        return ExitDecision(approved=False, reason=reason, signal=signal, approved_exit=None)
+        return ExitDecision(approved=False, reason=reason, signal=signal,
+                            approved_exit=None, fencing_token=self._fencing_token_val)
 
     def _approve_exit(self, signal: ExitSignal, approved_exit: ApprovedExit) -> ExitDecision:
         logger.info("exit_decision approved | signal=%r | exit=%r", signal, approved_exit)
-        return ExitDecision(approved=True, reason="approved", signal=signal, approved_exit=approved_exit)
+        return ExitDecision(approved=True, reason="approved", signal=signal,
+                            approved_exit=approved_exit, fencing_token=self._fencing_token_val)
 
     def _build_order(
         self, signal: Signal, position_size: float, effective_risk_pct: float
@@ -344,8 +353,11 @@ class RiskEngine:
 
     def _reject(self, signal: Signal, reason: str) -> RiskDecision:
         logger.warning("risk_decision rejected: %s | signal=%r", reason, signal)
-        return RiskDecision(approved=False, reason=reason, signal=signal, approved_order=None)
+        return RiskDecision(approved=False, reason=reason, signal=signal,
+                            approved_order=None, fencing_token=self._fencing_token_val)
 
     def _approve(self, signal: Signal, approved_order: ApprovedOrder) -> RiskDecision:
         logger.info("risk_decision approved | signal=%r | order=%r", signal, approved_order)
-        return RiskDecision(approved=True, reason="approved", signal=signal, approved_order=approved_order)
+        return RiskDecision(approved=True, reason="approved",
+                            signal=signal, approved_order=approved_order,
+                            fencing_token=self._fencing_token_val)

@@ -30,10 +30,15 @@ class AuditRecord:
 
 
 class AuditLedger:
-    """Append-only SHA-256 cryptographically chained audit log store."""
+    """Append-only SHA-256 cryptographically chained audit log store.
 
-    def __init__(self):
+    VA-034: optional DB persistence via audit_events table.
+    db_execute is an optional callable(raw_sql, params) for INSERT.
+    """
+
+    def __init__(self, db_execute=None):
         self.chain: List[AuditRecord] = []
+        self._db_execute = db_execute
 
     def _compute_hash(self, prev_hash: str, timestamp_utc: str, event_type: str, payload_json: str) -> str:
         data_str = f"{prev_hash}|{timestamp_utc}|{event_type}|{payload_json}"
@@ -56,6 +61,16 @@ class AuditLedger:
         )
 
         self.chain.append(record)
+        if self._db_execute is not None:
+            try:
+                self._db_execute(
+                    "INSERT INTO audit_events (record_id, timestamp_utc, event_type, "
+                    "payload_json, prev_hash, hash) VALUES (%s, %s, %s, %s, %s, %s)",
+                    (record.record_id, timestamp_utc, event_type, payload_json,
+                     prev_hash, rec_hash),
+                )
+            except Exception as exc:
+                logger.warning("[AUDIT_DB_WRITE_FAILED] event=%s err=%s", event_type, exc)
         logger.info(f"[AUDIT_EVENT_APPENDED] Type={event_type}, Hash={rec_hash[:12]}...")
         return record
 

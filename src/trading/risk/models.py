@@ -132,6 +132,8 @@ class RiskDecision:
     reason: str
     signal: Signal
     approved_order: ApprovedOrder | None = None
+    # VA-018: HA lock fencing token consumed by resource guard.
+    fencing_token: int | None = None
 
 
 @dataclass(frozen=True)
@@ -168,6 +170,8 @@ class ExitDecision:
     reason: str
     signal: ExitSignal
     approved_exit: ApprovedExit | None = None
+    # VA-018: HA lock fencing token consumed by resource guard.
+    fencing_token: int | None = None
 
 
 def check_liquidation(

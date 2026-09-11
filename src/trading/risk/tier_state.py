@@ -177,12 +177,22 @@ class RedisTierState:
         self.base_key = base
         self.key = base if self.scope == DEFAULT_SCOPE else f"{base}:{self.scope}"
 
+    def refresh_ttl(self) -> bool:
+        """VA-072: touch the key to prevent silent expiry of active defense.
+        Returns True on success, False if the key doesn't exist or Redis fails."""
+        try:
+            return bool(self.client.expire(self.key, self.ttl_sec))
+        except Exception as exc:  # noqa: BLE001 — best-effort; defense unchanged
+            logger.warning("Could not refresh TTL for key %s (%s)", self.key, exc)
+            return False
+
     def save(self, state: TierState) -> bool:
         # R2 / VA-062 write-behind step 1: cache synchronously BEFORE any I/O,
         # so an outage mid-persist cannot lose the transition.
         _cache_put(self.key, state)
         try:
             self.client.setex(self.key, self.ttl_sec, json.dumps(asdict(state)))
+            self.refresh_ttl()  # VA-072: ensure heartbeat keeps defense alive
             return True
         except Exception as exc:  # noqa: BLE001 — cached above; persist best-effort
             logger.warning(
