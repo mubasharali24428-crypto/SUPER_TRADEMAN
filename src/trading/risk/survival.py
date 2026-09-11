@@ -228,15 +228,14 @@ class SurvivalEngine:
     ) -> AccountSurvivalStatus:
         cfg = self.config
 
-        # SQUAD DM-1 wave-1 (F-0342): observation-only Decimal dual-run. Logged
-        # before any gate fires so the divergence record exists even when the
-        # float path rejects; never influences tier selection.
-        _log_epsilon_flips(
-            _epsilon_flips(
-                account, cfg.max_drawdown, cfg.daily_loss_limit, fallback_anchor=fallback_anchor
-            ),
-            seen_set=getattr(self, "_seen_epsilon_flips", set()),
+        # VA-027: epsilon flips now gate tier selection — any detected flip caps
+        # the outcome at CAUTION (never NORMAL) because the float path disagrees
+        # with the Decimal truth on a boundary-threshold comparison.
+        epsilon_flips = _epsilon_flips(
+            account, cfg.max_drawdown, cfg.daily_loss_limit, fallback_anchor=fallback_anchor
         )
+        _log_epsilon_flips(epsilon_flips, seen_set=getattr(self, "_seen_epsilon_flips", set()))
+        epsilon_flip_detected = len(epsilon_flips) > 0
 
         if account.kill_switch:
             return AccountSurvivalStatus(
@@ -305,14 +304,34 @@ class SurvivalEngine:
                 survival_rationale=f"Caution mode: {', '.join(reasons)}",
             )
 
-        # 4. NORMAL Operating Tier -- multiplier hard-capped at 1.0 (never amplified).
+        # 4. NORMAL or CAUTION (when epsilon flip detected) Operating Tier
+        # VA-027: epsilon flips cap tier at CAUTION (never NORMAL) because the
+        # float path disagrees with Decimal truth on a boundary threshold.
+        if epsilon_flip_detected:
+            base_multiplier = 0.50
+            if garch_res:
+                base_multiplier *= garch_res.volatility_scale_factor
+            if evt_res:
+                base_multiplier *= evt_res.recommended_risk_scale
+            base_multiplier = float(min(base_multiplier, 0.50))
+            return AccountSurvivalStatus(
+                tier=SurvivalTier.CAUTION,
+            effective_risk_multiplier=base_multiplier,
+            allow_new_entries=True,
+            min_confidence_floor=0.55,
+            active_regime=hmm_res.current_regime if hmm_res else "trending_bull",
+            garch_vol_forecast=garch_res.conditional_volatility if garch_res else 0.02,
+            evt_tail_var_99=evt_res.cvar_99 if evt_res else 0.04,
+            survival_rationale=f"Epsilon flip detected: float path disagrees with Decimal on threshold boundary",
+        )
+
+        # No epsilon flip — normal operating conditions.
         base_multiplier = 1.0
         if garch_res:
             base_multiplier *= garch_res.volatility_scale_factor
         if evt_res:
             base_multiplier *= evt_res.recommended_risk_scale
         base_multiplier = float(min(base_multiplier, 1.0))
-
         return AccountSurvivalStatus(
             tier=SurvivalTier.NORMAL,
             effective_risk_multiplier=base_multiplier,
