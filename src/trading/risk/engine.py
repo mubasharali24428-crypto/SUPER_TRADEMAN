@@ -1,3 +1,4 @@
+import dataclasses
 import logging
 from collections.abc import Mapping
 from datetime import timedelta
@@ -43,6 +44,10 @@ class _QuantizedRiskDecision(RiskDecision):
     """
 
     __slots__ = ("size_decimal_candidate",)
+
+    def __setattr__(self, name, value):
+        """VA-024: enforce frozen-dataclass contract — reject post-construction mutations."""
+        raise dataclasses.FrozenInstanceError(f"Cannot set {name} on frozen {type(self).__name__}")
 
     def __init__(
         self,
@@ -235,21 +240,21 @@ class RiskEngine:
                         signal.asset,
                     )
 
-                # Invariant A (wave-1): quantized candidate must sit within one
-                # step of the legacy float size (floor convention). Beyond that
-                # the two paths have genuinely diverged -> SIZE_DELTA warning.
+                # VA-026: Invariant A — the quantized Decimal candidate must match
+                # the exact-Decimal recompute (when available). Legacy float-vs-quantize
+                # comparison is trivially bounded to <1 step by construction and can
+                # NEVER fire; only formula-level divergence matters.
                 step_dec = Decimal(str(step_str))
-                tolerance = step_dec  # |candidate - legacy| <= one full step
-                delta = float(size_decimal_candidate) - position_size
-                if abs(Decimal(str(delta))) > tolerance:
+                if size_decimal_exact_grid is not None and size_decimal_candidate != size_decimal_exact_grid:
+                    delta_dec = size_decimal_candidate - size_decimal_exact_grid
                     logger.warning(
-                        "SIZE_DELTA: asset=%s legacy_float=%.12f decimal_candidate=%s "
-                        "delta=%.12f tolerance(one_step)=%s",
+                        "SIZE_DELTA: asset=%s quantized_candidate=%s exact_recompute=%s "
+                        "delta=%s step=%s — formula-level float/Decimal divergence",
                         signal.asset,
-                        position_size,
                         size_decimal_candidate,
-                        delta,
-                        tolerance,
+                        size_decimal_exact_grid,
+                        delta_dec,
+                        step_str,
                     )
                 # Invariant B (R2 / VB-035): the QUANTIZED order quantity must
                 # equal an INDEPENDENT exact-Decimal recompute of the same

@@ -259,7 +259,17 @@ def create_app() -> FastAPI:
         return response_obj
 
     # --- role-gated demo mutation ---------------------------------------------
-    _config_state: dict = {}
+    # VA-046: persist _config_state to a JSON file so PUT/DELETE survive restart.
+    # Uses a path under REPO_ROOT that is .gitignore-friendly.
+    _config_file = REPO_ROOT / "data" / "api_config.json"
+    _config_file.parent.mkdir(parents=True, exist_ok=True)
+    if _config_file.exists():
+        try:
+            _config_state: dict = _json.loads(_config_file.read_text())
+        except (_json.JSONDecodeError, OSError):
+            _config_state: dict = {}
+    else:
+        _config_state: dict = {}
 
     @app.put("/api/config")
     def put_config(
@@ -267,6 +277,7 @@ def create_app() -> FastAPI:
         claims=Depends(require_operator),
     ):
         _config_state.update(body.model_dump(exclude_none=True))
+        _config_file.write_text(_json.dumps(_config_state, indent=2))
         return {
             "status": "updated",
             "applied_by": {"sub": claims.sub, "role": claims.role.value},
@@ -281,6 +292,7 @@ def create_app() -> FastAPI:
     @app.delete("/api/config")
     def reset_config(_claims=Depends(require_admin)):
         _config_state.clear()
+        _config_file.write_text("{}")
         return {"status": "reset"}
 
     # --- walk-forward routes (Phase-3) -----------------------------------------

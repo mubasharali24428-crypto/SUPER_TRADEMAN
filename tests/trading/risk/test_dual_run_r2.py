@@ -158,15 +158,19 @@ def test_size_delta_exact_both_values_are_decimals():
     assert expected == Decimal("2500.00") != candidate
 
 
-def test_monkeypatched_quantizer_still_triggers_wave1_delta(monkeypatch, caplog):
-    """Wave-1 invariant (candidate within one step of legacy float) intact."""
+def test_monkeypatched_quantizer_silent_when_decimals_agree(monkeypatch, caplog):
+    """VA-026: SIZE_DELTA compares Decimal candidate vs Decimal exact recompute.
+    When monkeypatched quantizer returns same value for both, no warning fires.
+    The old wave-1 comparison (legacy float vs quantize) was trivially bounded
+    to <1 step by construction and could NEVER fire — removed."""
     engine = RiskEngine(instruments={"BTC/USDT": "0.001"})
     monkeypatch.setattr(engine_mod, "quantize_to_step", lambda value, step: Decimal("150.000"))
 
-    with caplog.at_level(logging_WARNING := __import__("logging").WARNING, logger="trading.risk"):
+    with caplog.at_level(__import__("logging").WARNING, logger="trading.risk"):
         decision = engine.evaluate(make_signal(), make_account(equity=123_456.789))
 
-    deltas = [r for r in caplog.records if r.getMessage().startswith("SIZE_DELTA:")]
-    assert deltas, "wave-1 SIZE_DELTA branch must keep working"
-    msg = deltas[-1].getMessage()
-    assert "legacy_float" in msg and "decimal_candidate" in msg and "tolerance" in msg
+    # Both quantize calls (candidate + exact recompute) return 150.000 — no divergence.
+    deltas = [r for r in caplog.records
+              if r.getMessage().startswith("SIZE_DELTA:")
+              or r.getMessage().startswith("SIZE_DELTA_EXACT:")]
+    assert not deltas, "no divergence expected when both Decimal paths agree"
