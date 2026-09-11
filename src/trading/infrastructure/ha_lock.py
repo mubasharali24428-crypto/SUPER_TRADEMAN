@@ -194,7 +194,11 @@ class RedisLockBackend(LockBackend):
         """now is accepted for API symmetry; expiry is enforced by Redis PX TTL."""
         del now
         token = uuid.uuid4().hex
-        acquired = bool(self.client.set(self.lock_name, token, nx=True, px=self._ttl_ms))
+        try:
+            acquired = bool(self.client.set(self.lock_name, token, nx=True, px=self._ttl_ms))
+        except Exception as exc:  # noqa: BLE001 — VA-017: transport failure treated as not-held
+            logger.warning("RedisLockBackend.acquire set() failed: %s", exc)
+            return False
         if acquired:
             self.token = token
             self.is_active = True

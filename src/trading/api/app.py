@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 import uuid
 from pathlib import Path
 
@@ -30,6 +31,10 @@ from trading.api.auth import (
 from trading.api.deps import require_admin, require_operator, require_viewer
 
 logger = logging.getLogger("trading.api.app")
+
+# VA-009: in-memory health endpoint cache (prevents DoS thread-pool exhaustion)
+_health_cache: dict = {"payload": None, "cached_at": 0.0}
+HEALTH_CACHE_TTL_SEC = 5.0
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WEB_DIR = REPO_ROOT / "web"
@@ -54,11 +59,16 @@ class ConfigUpdate(BaseModel):
 
 
 def _load_health_payload() -> dict:
-    """Component statuses from ops.health_service when importable.
+    """VA-009: cached component statuses with DoS protection (5s TTL).
 
     Falls back to an explicit DEGRADED payload (never a fake HEALTHY) so the
     endpoint stays truthful even without the full trading stack.
     """
+    now = time.monotonic()
+    cached = _health_cache["payload"]
+    cached_at = _health_cache["cached_at"]
+    if cached is not None and now - cached_at < HEALTH_CACHE_TTL_SEC:
+        return cached
     try:
         from trading.ops.health_service import HealthService
         from trading.config import ExecutionMode
@@ -75,18 +85,23 @@ def _load_health_payload() -> dict:
             venue_adapter=MockVenueAdapter(), execution_mode=sim
         ).evaluate_system_health()
         response["source"] = "trading.ops.health_service"
+        _health_cache["payload"] = response
+        _health_cache["cached_at"] = time.monotonic()
         return response
     except Exception as exc:  # pragma: no cover - depends on optional stack
         logger.warning("ops.health_service unavailable (%s); reporting DEGRADED", exc)
-        return {
+        payload = {
             "status": "DEGRADED",
             "timestamp_utc": None,
             "components": [
                 {"name": "health_service", "status": "DEGRADED", "latency_ms": 0.0,
-                 "details": f"unavailable: {exc}"},
+                 "details": "service unavailable"},
             ],
             "source": "fallback",
         }
+        _health_cache["payload"] = payload
+        _health_cache["cached_at"] = time.monotonic()
+        return payload
 
 
 def create_app() -> FastAPI:
@@ -133,16 +148,30 @@ def create_app() -> FastAPI:
         request_id = os.environ.get("API_REQUEST_ID_HEADER", "X-Request-ID")
         cid = request.headers.get(request_id, "") or uuid.uuid4().hex[:12]
         set_correlation_id(cid)
-        with _request_tracer.start_as_current_span(
-            f"{request.method} {request.url.path}",
-            attributes={
-                "http.request.method": request.method,
-                "url.path": request.url.path,
-                "request.correlation_id": cid,
-            },
-        ):
-            response = await call_next(request)
-        response.headers.setdefault("X-Request-ID", cid)
+        response = None
+        try:
+            with _request_tracer.start_as_current_span(
+                f"{request.method} {request.url.path}",
+                attributes={
+                    "http.request.method": request.method,
+                    "url.path": request.url.path,
+                    "request.correlation_id": cid,
+                },
+            ):
+                response = await call_next(request)
+        finally:
+            # VA-011: stamp correlation header even when call_next raises, so
+            # error responses carry the traceable id operators need for triage.
+            if response is None:
+                from starlette.responses import JSONResponse
+
+                response = JSONResponse(
+                    status_code=500,
+                    content={"detail": "Internal server error", "request_id": cid},
+                    headers={"X-Request-ID": cid},
+                )
+            else:
+                response.headers.setdefault("X-Request-ID", cid)
         return response
 
     # --- security headers on every response ---------------------------------

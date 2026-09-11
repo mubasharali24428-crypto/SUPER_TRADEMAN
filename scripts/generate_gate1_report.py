@@ -43,6 +43,8 @@ def _load_persisted_records(store: DeploymentMetricsStore) -> list:
 def generate_gate1_markdown_report(
     days: int = 30,
     store: "DeploymentMetricsStore | None" = None,
+    backtest_expected_pnl_pct: float | None = None,
+    backtest_std_dev: float | None = None,
 ) -> str:
     """Render the Gate 1 promotion report strictly from persisted records.
 
@@ -66,7 +68,11 @@ def generate_gate1_markdown_report(
         # Re-evaluate without re-persisting: build an evaluator-side view.
         campaign.daily_records.append(rec)
 
-    summary = campaign.evaluate_campaign_status(backtest_expected_pnl_pct=0.06, backtest_std_dev=0.02)
+    # VA-063: load expected pnl/stddev from args when provided, not magic numbers.
+    summary = campaign.evaluate_campaign_status(
+        backtest_expected_pnl_pct=backtest_expected_pnl_pct if backtest_expected_pnl_pct is not None else 0.06,
+        backtest_std_dev=backtest_std_dev if backtest_std_dev is not None else 0.02,
+    )
 
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     raw_sig_data = f"{summary.campaign_status}|{summary.days_evaluated}|{summary.shadow_pnl_pct}|{now_str}"
@@ -115,10 +121,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate SUPER_TRADEMAN Gate 1 Markdown Report")
     parser.add_argument("--days", type=int, default=30, help="Campaign evaluation days")
     parser.add_argument("--output", type=str, default="", help="Optional output file path")
+    parser.add_argument("--expected-pnl-pct", type=float, default=None,
+                        help="Backtest expected PnL %% for Gate-1 tracking-error z-score")
+    parser.add_argument("--expected-std-dev", type=float, default=None,
+                        help="Backtest std dev for Gate-1 tracking-error z-score")
     args = parser.parse_args()
 
     try:
-        report_md = generate_gate1_markdown_report(days=args.days)
+        report_md = generate_gate1_markdown_report(
+            days=args.days,
+            backtest_expected_pnl_pct=args.expected_pnl_pct,
+            backtest_std_dev=args.expected_std_dev,
+        )
     except InsufficientDataError as e:
         print(f"GATE1_REPORT_STATUS: NOT_RENDERED\nReason: {e}")
         sys.exit(EXIT_INSUFFICIENT_DATA)

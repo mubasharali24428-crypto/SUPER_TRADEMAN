@@ -57,18 +57,24 @@ class StateRecoveryEngine:
         l_pos_dict = {p.get("asset"): p.get("position_size", 0.0) for p in l_pos}
 
         mismatched_assets = []
+        max_qty_delta = 0.0
         all_assets = set(v_pos_dict.keys()).union(set(l_pos_dict.keys()))
         for asset in all_assets:
             if asset:
                 v_qty = v_pos_dict.get(asset, 0.0)
                 l_qty = l_pos_dict.get(asset, 0.0)
-                if abs(v_qty - l_qty) > 1e-6:
+                delta = abs(v_qty - l_qty)
+                max_qty_delta = max(max_qty_delta, delta)
+                if delta > 1e-6:
                     mismatched_assets.append(asset)
                 else:
                     pos_reconciled += 1
 
-        # If severe mismatch occurs across multiple assets, trigger Tier 3 Flatten via _ISSUER
-        if len(mismatched_assets) >= 2:
+        # VA-036: escalate on max relative qty delta (>=50%), not asset count.
+        # A 100% position discrepancy on THE one held asset triggers flatten just
+        # as reliably as a multi-asset mismatch — arbitrary cardinality gate removed.
+        max_venue = max(set(abs(v) for v in v_pos_dict.values()) | {1.0})
+        if mismatched_assets and max_qty_delta > 0.5 * max_venue:
             logger.error(
                 f"[SEVERE_MISMATCH_DETECTED] Assets {mismatched_assets} mismatch venue reality! "
                 f"Triggering emergency Tier 3 Flatten via sovereign _ISSUER token."
