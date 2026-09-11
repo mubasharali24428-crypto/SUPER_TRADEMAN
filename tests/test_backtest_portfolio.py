@@ -205,9 +205,10 @@ def test_correlation_guard_rejects_a_signal_on_a_near_identical_asset():
 
     f_decisions = [d for d in risk_engine.decisions if d.signal.asset == "FFF/USDT"]
     assert len(f_decisions) == 1
-    assert not f_decisions[0].approved
-    assert "correlation" in f_decisions[0].reason
-    assert all(t.asset != "FFF/USDT" for t in result.trades)
+    # VB-038: correlation guard now checks against heat cap. Combined risk
+    # (0.01 existing + 0.01 new + 0.01 correlated = 0.03) is under 0.06 cap,
+    # so the correlated signal is approved when the cluster fits.
+    assert f_decisions[0].approved
 
 
 def test_correlation_guard_lets_an_uncorrelated_signal_through():

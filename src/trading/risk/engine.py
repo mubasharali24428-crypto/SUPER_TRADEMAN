@@ -79,6 +79,10 @@ class RiskEngine:
         # quantized candidate travels out-of-band, keyed by the ApprovedOrder
         # identity. WeakKeyDictionary -> entries die with their orders.
         self._size_candidates: WeakKeyDictionary[ApprovedOrder, Decimal | None] = WeakKeyDictionary()
+        # VB-031: counters to distinguish "quantization inactive" from "quantization error"
+        # so downstream can distinguish None-by-design from None-by-failure.
+        self._quantize_errors: int = 0
+        self._quantize_inactive: int = 0
 
     def get_size_candidate(self, order: ApprovedOrder) -> Decimal | None:
         """Out-of-band Decimal size candidate for a quantized approval.
@@ -142,18 +146,6 @@ class RiskEngine:
                 f"{signal.asset_class} at max concurrent positions ({cfg.max_positions_per_asset_class})",
             )
 
-        correlated_risk = sum(
-            p.risk_pct
-            for p in account.open_positions
-            if account.correlations.get(frozenset({p.asset, signal.asset}), 0.0) > cfg.correlation_threshold
-        )
-        if correlated_risk > 0:
-            return self._reject(
-                signal,
-                f"correlation guard: existing correlated position(s) already use {correlated_risk:.1%} "
-                f"risk; combined cluster would exceed the per-trade risk cap",
-            )
-
         effective_risk_pct = cfg.risk_pct
         if account.weekly_pnl_pct <= -cfg.weekly_loss_limit:
             effective_risk_pct *= cfg.weekly_loss_reduction
@@ -167,6 +159,9 @@ class RiskEngine:
 
         if signal.garch_vol_scale is not None:
             effective_risk_pct *= signal.garch_vol_scale
+            # VB-005: re-clamp to config hard cap after GARCH amplification so the
+            # __post_init__ invariant (0 < risk_pct <= 0.02) holds at order construction.
+            effective_risk_pct = min(effective_risk_pct, cfg.risk_pct)
 
         heat_cap = cfg.max_heat_high_vol if account.high_volatility else cfg.max_heat
         current_heat = sum(p.risk_pct for p in account.open_positions)
@@ -174,6 +169,21 @@ class RiskEngine:
             return self._reject(
                 signal,
                 f"portfolio heat {current_heat + effective_risk_pct:.1%} would exceed cap {heat_cap:.1%}",
+            )
+
+        # VB-038: correlation guard compares combined cluster risk against heat cap
+        # rather than rejecting on ANY correlated risk (old binary veto).
+        correlated_risk = sum(
+            p.risk_pct
+            for p in account.open_positions
+            if account.correlations.get(frozenset({p.asset, signal.asset}), 0.0) > cfg.correlation_threshold
+        )
+        if correlated_risk > 0 and current_heat + effective_risk_pct + correlated_risk > heat_cap:
+            return self._reject(
+                signal,
+                f"correlation guard: cluster {correlated_risk:.1%} + heat {current_heat:.1%} "
+                f"+ new {effective_risk_pct:.1%} = "
+                f"{current_heat + effective_risk_pct + correlated_risk:.1%} > cap {heat_cap:.1%}",
             )
 
         position_size = (account.equity * effective_risk_pct) / risk_per_unit
@@ -194,6 +204,7 @@ class RiskEngine:
                     "returning legacy unquantized decision",
                     signal.asset, position_size, step_str, exc,
                 )
+                self._quantize_errors += 1  # VB-031: track quantization failures
                 size_decimal_candidate = None
             else:
                 try:
@@ -253,34 +264,15 @@ class RiskEngine:
                         size_decimal_exact_grid,
                         position_size,
                     )
-            approved_order = ApprovedOrder(
-                asset=signal.asset,
-                asset_class=signal.asset_class,
-                side=signal.side,
-                entry_price=signal.entry_price,
-                stop_price=signal.suggested_stop,
-                target_price=signal.suggested_target,
-                position_size=position_size,
-                risk_pct=effective_risk_pct,
-                issuer=_ISSUER,
+            # VB-056/VB-031: route through shared _approve_quantized so all
+            # post-approval hooks (audit, outbox, counters) have a single sink.
+            return self._approve_quantized(
+                signal, position_size, effective_risk_pct, size_decimal_candidate
             )
-            # R2 / VB-002: candidate rides out-of-band; the decision itself is
-            # the plain legacy RiskDecision (exact-type identity preserved).
-            self._size_candidates[approved_order] = size_decimal_candidate
-            return self._approve(signal, approved_order)
 
-        approved_order = ApprovedOrder(
-            asset=signal.asset,
-            asset_class=signal.asset_class,
-            side=signal.side,
-            entry_price=signal.entry_price,
-            stop_price=signal.suggested_stop,
-            target_price=signal.suggested_target,
-            position_size=position_size,
-            risk_pct=effective_risk_pct,
-            issuer=_ISSUER,
+        return self._approve_quantized(
+            signal, position_size, effective_risk_pct, None
         )
-        return self._approve(signal, approved_order)
 
     def evaluate_exit_signal(self, signal: ExitSignal, account: AccountState) -> ExitDecision:
         """Gate for proposals to close an existing position early (e.g. from an
@@ -318,6 +310,32 @@ class RiskEngine:
     def _approve_exit(self, signal: ExitSignal, approved_exit: ApprovedExit) -> ExitDecision:
         logger.info("exit_decision approved | signal=%r | exit=%r", signal, approved_exit)
         return ExitDecision(approved=True, reason="approved", signal=signal, approved_exit=approved_exit)
+
+    def _build_order(
+        self, signal: Signal, position_size: float, effective_risk_pct: float
+    ) -> ApprovedOrder:
+        """Shared ApprovedOrder constructor"""
+        return ApprovedOrder(
+            asset=signal.asset,
+            asset_class=signal.asset_class,
+            side=signal.side,
+            entry_price=signal.entry_price,
+            stop_price=signal.suggested_stop,
+            target_price=signal.suggested_target,
+            position_size=position_size,
+            risk_pct=effective_risk_pct,
+            issuer=_ISSUER,
+        )
+
+    def _approve_quantized(self, signal, position_size, effective_risk_pct, size_decimal_candidate):
+        if size_decimal_candidate is None:
+            self._quantize_inactive += 1
+        approved_order = self._build_order(signal, position_size, effective_risk_pct)
+        self._size_candidates[approved_order] = size_decimal_candidate
+        return self._approve(signal, approved_order)
+
+    def get_quantization_stats(self):
+        return {"quantize_errors": self._quantize_errors, "quantize_inactive": self._quantize_inactive}
 
     def _reject(self, signal: Signal, reason: str) -> RiskDecision:
         logger.warning("risk_decision rejected: %s | signal=%r", reason, signal)

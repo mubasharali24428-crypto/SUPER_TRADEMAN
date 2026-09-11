@@ -3,10 +3,14 @@ from datetime import datetime, timezone
 
 import ccxt
 
+import numpy as np
+
 from trading.backtest.engine import bootstrap_trade_returns, run_backtest, split_train_test
 from trading.data.crypto import fetch_ohlcv_range
 from trading.risk.engine import RiskEngine
 from trading.risk.models import AccountState
+from trading.stats.pbo import compute_pbo_cscv
+from trading.stats.sharpe_variants import deflated_sharpe_ratio, probabilistic_sharpe_ratio
 from trading.strategy.crypto import generate_signal
 
 
@@ -42,6 +46,28 @@ async def main():
             f"  bootstrap return   p5={boot['p5']:.2%}  p50={boot['p50']:.2%}  p95={boot['p95']:.2%}"
             "  (2000 resamples of realized trades, order/selection-independent)"
         )
+
+        # VB-061: Deflated Sharpe Ratio (DSR) — probability of skill after
+        # correcting for selection bias across multiple strategy trials.
+        if r.num_trades >= 5:
+            trades_arr = np.array(result.trades)
+            returns = np.diff(trades_arr) / trades_arr[:-1] if len(trades_arr) > 1 else np.array([0.0])
+            n_obs = max(1, len(returns))
+            skew = float(np.mean((returns - np.mean(returns))**3) / (np.std(returns)**3 + 1e-12)) if n_obs > 2 else 0.0
+            kurt = float(np.mean((returns - np.mean(returns))**4) / (np.std(returns)**4 + 1e-12)) + 3.0 if n_obs > 2 else 3.0
+            n_trials = 10  # assume ~10 strategies considered; conservative floor
+            dsr = deflated_sharpe_ratio(
+                sharpe_observed=r.sharpe_ratio, n_trials=n_trials,
+                n_observations=n_obs, skew=skew, kurtosis=kurt,
+            )
+            print(f"  dsr (deflated sharpe) {dsr:.3f}  (n_trials={n_trials}, n_obs={n_obs})")
+
+            # Probabilistic Sharpe Ratio (PSR) against zero benchmark
+            psr = probabilistic_sharpe_ratio(
+                benchmark_sharpe=0.0, sharpe_observed=r.sharpe_ratio,
+                n_observations=n_obs, skew=skew, kurtosis=kurt,
+            )
+            print(f"  psr (vs 0)           {psr:.3f}")
 
 
 if __name__ == "__main__":

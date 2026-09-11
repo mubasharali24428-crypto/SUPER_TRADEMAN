@@ -164,8 +164,14 @@ class TradingHeartbeatDaemon:
         )
 
         # 3. Strategy Selection (Think)
-        # Feed HMM regime probabilities directly into the Contextual Bandit
-        active_strategy = self.bandit_allocator.select_strategy(context=hmm_res.state_probabilities)
+        # VB-054: only feed genuine model output to the bandit;
+        # fallback/stale/heuristic HMM states do not represent current regime.
+        if hmm_res.provenance == "model":
+            bandit_context = hmm_res.state_probabilities
+        else:
+            bandit_context = None
+            logger.info("HMM provenance=%s: bandit context set to None (degraded mode)", hmm_res.provenance)
+        active_strategy = self.bandit_allocator.select_strategy(context=bandit_context)
 
         approved_orders: List[ApprovedOrder] = []
         proposed_signals_count = 0

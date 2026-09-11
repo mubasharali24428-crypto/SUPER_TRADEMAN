@@ -108,10 +108,9 @@ def _epsilon_flips(
         )
         return flips
 
-    # Float side is the STORED fraction -- exactly what the SURVIVAL gate
-    # below compares. Decimal side is the exact recompute against the day
-    # anchor (recorded or carried).
-    pnl_float = account.daily_pnl_pct
+    # VB-046/VB-071: BOTH float and Decimal sides from (equity, denom) at same instant.
+    # Eliminates vintage-mismatch false positives in F-0342 evidence base.
+    pnl_float = (account.equity - denom) / denom
     pnl_exact = (
         decimal_from_float(account.equity) - decimal_from_float(denom)
     ) / decimal_from_float(denom)
@@ -130,7 +129,7 @@ def _epsilon_flips(
     return flips
 
 
-def _log_epsilon_flips(flips: list[dict]) -> None:
+def _log_epsilon_flips(flips: list[dict], seen_set: set | None = None) -> None:
     for flip in flips:
         logger.warning(
             "DRAWDOWN_EPSILON_FLIP [%s]: exact-decimal=%s crosses limit %.16f "
@@ -189,6 +188,8 @@ class SurvivalEngine:
         # per-symbol loops pass their own scope so tiers stop cross-coupling).
         self.scope = scope or DEFAULT_SCOPE
         self.cycle_count = 0
+        # VB-029: dedup epsilon flip warnings per boundary key.
+        self._seen_epsilon_flips: set = set()
         if state_path:
             self.tier_state = load_state(state_path, scope=self.scope)
             try:
@@ -233,21 +234,13 @@ class SurvivalEngine:
         _log_epsilon_flips(
             _epsilon_flips(
                 account, cfg.max_drawdown, cfg.daily_loss_limit, fallback_anchor=fallback_anchor
-            )
+            ),
+            seen_set=getattr(self, "_seen_epsilon_flips", set()),
         )
 
-        # 1. Check Hard Kill Switch or Max Drawdown -> COOLDOWN
         if account.kill_switch:
             return AccountSurvivalStatus(
-                tier=SurvivalTier.COOLDOWN,
-                effective_risk_multiplier=0.0,
-                allow_new_entries=False,
-                min_confidence_floor=1.0,
-                active_regime=hmm_res.current_regime if hmm_res else "unknown",
-                garch_vol_forecast=garch_res.conditional_volatility if garch_res else 0.02,
-                evt_tail_var_99=evt_res.cvar_99 if evt_res else 0.05,
-                survival_rationale="Manual or emergency kill switch is engaged",
-            )
+                tier=SurvivalTier.COOLDOWN,                effective_risk_multiplier=0.0,                allow_new_entries=False,                min_confidence_floor=1.0,                active_regime=hmm_res.current_regime if hmm_res else "unknown",                garch_vol_forecast=garch_res.conditional_volatility if garch_res else 0.02,                evt_tail_var_99=evt_res.cvar_99 if evt_res else 0.05,                survival_rationale="Manual or emergency kill switch is engaged",            )
 
         drawdown = 0.0
         if account.peak_equity > 0:

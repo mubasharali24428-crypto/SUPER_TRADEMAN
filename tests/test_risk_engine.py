@@ -91,12 +91,22 @@ def test_reduces_heat_cap_during_high_volatility():
 
 
 def test_correlation_guard_rejects_combined_cluster():
-    open_positions = [Position("ETH/USDT", "crypto", Side.LONG, 100, 95, risk_pct=0.01)]
+    # ETH at 4% risk + new BTC at 1% + 4% correlated cluster = 9% > 6% cap
+    open_positions = [Position("ETH/USDT", "crypto", Side.LONG, 100, 95, risk_pct=0.04)]
     correlations = {frozenset({"ETH/USDT", "BTC/USDT"}): 0.85}
     account = make_account(open_positions=open_positions, correlations=correlations)
     decision = RiskEngine().evaluate(make_signal(asset="BTC/USDT"), account)
     assert not decision.approved
     assert "correlation" in decision.reason
+
+def test_correlation_guard_passes_when_cluster_under_cap():
+    # ETH at 0.5% risk + new BTC at 1% + 0.5% correlated = 2% ≤ 6% cap → passes
+    open_positions = [Position("ETH/USDT", "crypto", Side.LONG, 100, 95, risk_pct=0.005)]
+    correlations = {frozenset({"ETH/USDT", "BTC/USDT"}): 0.85}
+    account = make_account(open_positions=open_positions, correlations=correlations)
+    decision = RiskEngine().evaluate(make_signal(asset="BTC/USDT"), account)
+    assert decision.approved
+    assert "correlation" not in decision.reason
 
 
 def test_rejects_when_asset_class_at_max_positions():
@@ -153,6 +163,29 @@ def test_manual_kill_switch_blocks_everything():
     decision = RiskEngine().evaluate(make_signal(), make_account(kill_switch=True))
     assert not decision.approved
     assert "kill switch" in decision.reason
+
+
+def test_quantization_counters_basic():
+    """VB-031: get_quantization_stats tracks quantize_inactive when no step configured."""
+    engine = RiskEngine()
+    account = make_account()
+    from trading.risk.models import Signal
+    decision = engine.evaluate(make_signal(), account)
+    assert decision.approved
+    stats = engine.get_quantization_stats()
+    # No step configured -> quantize_inactive should increment, errors stay 0
+    assert stats["quantize_inactive"] >= 1
+    assert stats["quantize_errors"] == 0
+
+
+def test_quantization_counters_track_errors():
+    """VB-031: get_quantization_stats increments quantize_errors on bad step."""
+    engine = RiskEngine(instruments={"BTC/USDT": "-0.01"})  # invalid negative step
+    account = make_account()
+    decision = engine.evaluate(make_signal(), account)
+    assert decision.approved  # still approved; errors tracked separately
+    stats = engine.get_quantization_stats()
+    assert stats["quantize_errors"] >= 1
 
 
 def test_approved_order_cannot_be_constructed_outside_risk_engine():
