@@ -19,7 +19,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from trading.api.auth import (
     SESSION_COOKIE_NAME,
@@ -57,10 +57,17 @@ class LoginRequest(BaseModel):
 
 
 class ConfigUpdate(BaseModel):
-    """Placeholder mutation payload demonstrating role-gated writes."""
+    """Placeholder mutation payload demonstrating role-gated writes.
 
-    max_position_pct: float | None = None
-    risk_multiplier: float | None = None
+    VA-005: bounds enforced at the schema layer so unbounded/negative
+    values (e.g. max_position_pct=-50.0, risk_multiplier=1e18) are
+    rejected with 422 instead of being stored verbatim. Ranges mirror
+    RiskConfig's own caps: position pct in (0, 1] (fraction), risk
+    multiplier in (0, 10].
+    """
+
+    max_position_pct: float | None = Field(default=None, gt=0.0, le=1.0)
+    risk_multiplier: float | None = Field(default=None, gt=0.0, le=10.0)
 
 
 def _load_health_payload() -> dict:

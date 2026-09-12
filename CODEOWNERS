@@ -1,6 +1,7 @@
 # Default reviewer for all paths.
-# PLACEHOLDER (VC-022): `<OWNER>` must be replaced with the maintainer's real
-# GitHub handle before the repository has external contributors. The token is
-# kept deliberately invalid so an unassigned ownership review fails loudly
-# instead of silently passing.
-* <OWNER>
+# VC-022 resolved: placeholder replaced with the repository owner's handle
+# (github.com/mubasharali24428-crypto/SUPER_TRADEMAN). Update if ownership
+# transfers. Currently a single-maintainer repo — no review requirement is
+# enforced until branch protection is enabled with this file as the reviewer
+# source.
+* @mubasharali24428-crypto

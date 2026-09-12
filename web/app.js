@@ -192,6 +192,48 @@
   // -------------------------------------------------------------------------
   // 3. INITIALIZATION & SYNTHETIC DATA SEEDING
   // -------------------------------------------------------------------------
+  // VC-001: cockpit session persistence. A refresh previously lost the whole
+  // simulation session. Compact snapshot saved (throttled to every heartbeat)
+  // and restored on load; versioned so incompatible old snapshots are dropped
+  // instead of half-restoring into a broken state.
+  var PERSIST_KEY = 'stm_cockpit_session_v1';
+  var PERSIST_FIELDS = [
+    'selectedAsset', 'timeframe', 'isPlaying', 'speed', 'heartbeatCount',
+    'equity', 'peakEquity', 'consecutiveLosses', 'dailyPnlPct', 'weeklyPnlPct',
+    'closedTrades', 'openPositions',
+  ];
+
+  function saveSession() {
+    try {
+      var snap = { v: 1, at: Date.now() };
+      PERSIST_FIELDS.forEach(function (k) {
+        if (STATE[k] !== undefined) snap[k] = STATE[k];
+      });
+      localStorage.setItem(PERSIST_KEY, JSON.stringify(snap));
+    } catch (persistErr) {
+      /* storage full/blocked: persistence is best-effort, never fatal */
+    }
+  }
+
+  function restoreSession() {
+    try {
+      var raw = localStorage.getItem(PERSIST_KEY);
+      if (!raw) return false;
+      var snap = JSON.parse(raw);
+      if (!snap || snap.v !== 1) {
+        localStorage.removeItem(PERSIST_KEY);
+        return false;
+      }
+      PERSIST_FIELDS.forEach(function (k) {
+        if (snap[k] !== undefined) STATE[k] = snap[k];
+      });
+      return true;
+    } catch (parseErr) {
+      try { localStorage.removeItem(PERSIST_KEY); } catch (e2) { /* ignore */ }
+      return false;
+    }
+  }
+
   function init() {
     // Generate initial history for all assets (80 candles each)
     for (const [symbol, cfg] of Object.entries(ASSET_CONFIGS)) {
@@ -219,6 +261,14 @@
 
     // Seed some initial trade history into LearningGraph
     seedInitialTrades();
+
+    // VC-001: restore prior session BEFORE event listeners/UI render so the
+    // user's selected asset, timeframe, equity and trade history survive a
+    // refresh. Fresh seeds above stay as the base when no snapshot exists.
+    var restored = restoreSession();
+    if (restored) {
+      STATE.candles[STATE.selectedAsset] = STATE.candles[STATE.selectedAsset] || [];
+    }
 
     // Event Listeners
     setupEventListeners();
@@ -365,6 +415,9 @@
     renderTradingChart();
     renderLearningGraph();
     renderEquityChart();
+
+    // 6. VC-001: persist session snapshot every tick (best-effort)
+    saveSession();
   }
 
   function updateStatisticalModels() {
@@ -1145,5 +1198,40 @@
   }
 
   // Run on page load
-  window.addEventListener('DOMContentLoaded', init);
+  // VC-002: JS error boundary — a mid-render throw must never blank the
+  // dashboard. Global handlers catch the failure, log it, and surface a
+  // visible banner instead of leaving a dead white page.
+  function showErrorBanner(message) {
+    let banner = document.getElementById('js-error-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'js-error-banner';
+      banner.setAttribute('role', 'alert');
+      banner.textContent = '';
+      banner.style.cssText =
+        'position:fixed;top:0;left:0;right:0;z-index:9999;' +
+        'background:#7f1d1d;color:#fecaca;padding:10px 16px;' +
+        'font:13px/1.4 system-ui,sans-serif;border-bottom:1px solid #b91c1c;';
+      document.body.appendChild(banner);
+    }
+    banner.textContent = 'UI error: ' + message +
+      ' — simulation halted. Refresh to restart.';
+  }
+
+  window.addEventListener('error', function (e) {
+    showErrorBanner(e.message || 'unexpected error');
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var msg = e.reason && (e.reason.message || String(e.reason));
+    showErrorBanner(msg || 'unhandled promise rejection');
+  });
+
+  window.addEventListener('DOMContentLoaded', function () {
+    try {
+      init();
+    } catch (err) {
+      showErrorBanner((err && err.message) || String(err));
+      throw err; // still surfaces in console + global handler
+    }
+  });
 })();

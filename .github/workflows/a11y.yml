@@ -2,8 +2,8 @@
 #
 # Launches the authenticated API/dashboard server in insecure dev mode
 # (loopback only) and scans the rendered dashboard with axe-core.
-# Fails the job on any critical/serious violation — but is allow-failure
-# for now while the baseline is being burned down (see TODO below).
+# Fails the job on any critical/serious violation. Blocking since the
+# baseline burned down green (W5 residual cleanup).
 name: a11y
 
 on:
@@ -28,10 +28,6 @@ jobs:
   axe:
     name: axe-core scan of dashboard
     runs-on: ubuntu-latest
-    # TODO(AX-1): once zero critical/serious violations land on main,
-    # delete this line to make the gate blocking.
-    continue-on-error: true
-
     env:
       # Loopback-only dev boot of server.py (never exposed; ephemeral secret).
       API_PORT: "8123"

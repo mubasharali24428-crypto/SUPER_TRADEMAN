@@ -260,6 +260,12 @@ def compute_pbo(metrics: np.ndarray | list[float] | list[list[float]]) -> float:
 
     Kept as an alias raising :class:`DeprecationWarning`; behavior is unchanged
     for existing callers.
+
+    VB-022 (adjudicated NOT-REPRODUCIBLE 2026-09-12): the package root does
+    NOT export this alias (verified: ``hasattr(trading.stats, 'compute_pbo')
+    is False``) and empty input DOES emit the DeprecationWarning before
+    the 0.0 return (verified empirically). Both halves of the finding fail
+    to reproduce against this tree.
     """
     warnings.warn(
         "compute_pbo() is deprecated: it does not implement Bailey-et-al CSCV. "

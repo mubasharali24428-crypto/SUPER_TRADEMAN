@@ -155,6 +155,7 @@ def test_a11y_workflow_defines_axe_gate():
     assert wf.exists(), "missing .github/workflows/a11y.yml"
     text = wf.read_text(encoding="utf-8")
     assert "axe_check.mjs" in text
-    assert "continue-on-error: true" in text, "gate should start as allow-failure"
-    assert "TODO(AX-1)" in text, "missing TODO flip comment"
+    # VC-021: gate flipped from advisory to blocking after the green baseline.
+    assert "continue-on-error" not in text, "a11y gate must be blocking (VC-021 flip)"
+    assert "TODO(AX-1)" not in text, "TODO flip comment should be gone after VC-021"
     assert "API_INSECURE_DEV" in text and "API_SESSION_SECRET" in text

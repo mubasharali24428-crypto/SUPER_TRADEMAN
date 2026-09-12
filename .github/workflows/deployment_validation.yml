@@ -76,26 +76,22 @@ jobs:
         with:
           python-version: '3.12'
 
-      # TODO(security-triage): flip continue-on-error to false for ALL three gates
-      # below once the initial findings have been triaged (~1 week of runs), per
-      # upgrade-strategy risk #4. Gates start advisory so a red dependency audit
-      # cannot block the deployment pipeline on day one.
+      # Security gates are now BLOCKING (advisory triage period complete:
+      # multiple green runs since Phase 0; findings triaged). Per upgrade-
+      # strategy risk #4, suppressions require inline justification comments.
 
       - name: Dependency Vulnerability Audit (pip-audit)
-        continue-on-error: true
         run: |
           python -m pip install --upgrade pip pip-audit
           pip-audit --strict --progress-spinner off
 
       - name: Secret Scan (gitleaks)
-        continue-on-error: true
         # SHA-pinned to gitleaks/gitleaks-action v2.3.8 (F-0112)
         uses: gitleaks/gitleaks-action@f586c14365d4643c6aa59d472ae6e984bf47bb34
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Filesystem Vulnerability Scan (trivy)
-        continue-on-error: true
         # SHA-pinned to aquasecurity/trivy-action v0.36.0 (F-0112)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:

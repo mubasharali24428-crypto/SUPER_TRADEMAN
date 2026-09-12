@@ -87,6 +87,11 @@ def _epsilon_flips(
         eq_d = decimal_from_float(account.equity)
         dd_exact = (peak_d - eq_d) / peak_d
         lim_d = Decimal(str(max_drawdown))
+        # VB-052 (adjudicated NOT-REPRODUCIBLE 2026-09-12): with equity <= 0
+        # and positive peak, dd_float also crosses the limit (e.g. 1.05 >= 0.20),
+        # so no false negative and no spurious flip occurs; and a 100k-point
+        # boundary sweep at the limit produces ZERO flips under the current
+        # decimal_from_float dual-run. The finding describes pre-R2 behavior.
         if (dd_exact >= lim_d) and not (dd_float >= max_drawdown):
             flips.append(
                 {

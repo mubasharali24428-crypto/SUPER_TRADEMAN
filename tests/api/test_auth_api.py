@@ -122,6 +122,32 @@ def test_operator_login_roundtrip_sets_session_and_passes(client):
     assert client.get("/api/config").status_code == 401
 
 
+def test_config_update_rejects_out_of_bounds_values_va005(client):
+    """VA-005: unbounded/negative config values must 422, not store verbatim."""
+    login = client.post(
+        "/api/auth/login",
+        json={"username": "operator", "password": DEFAULT_TEST_OPERATOR_PASSWORD},
+    )
+    assert login.status_code == 200
+
+    for bad in [
+        {"max_position_pct": -50.0},   # negative
+        {"max_position_pct": 0.0},      # zero
+        {"max_position_pct": 75.0},    # > 1.0 fraction cap
+        {"risk_multiplier": 1e18},     # unbounded
+        {"risk_multiplier": 0.0},      # zero
+        {"risk_multiplier": -1.5},     # negative
+    ]:
+        resp = client.put("/api/config", json=bad)
+        assert resp.status_code == 422, f"{bad} should 422, got {resp.status_code}"
+
+    # In-bounds values still accepted
+    ok = client.put("/api/config", json={"risk_multiplier": 1.25})
+    assert ok.status_code == 200
+    readback = client.get("/api/config")
+    assert readback.json()["config"].get("risk_multiplier") == 1.25
+
+
 def test_wrong_password_is_401_without_cookie(client):
     resp = client.post(
         "/api/auth/login",

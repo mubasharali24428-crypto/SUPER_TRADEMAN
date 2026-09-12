@@ -16,9 +16,8 @@ permissions:
 jobs:
   restore-drill:
     runs-on: ubuntu-latest
-    # TODO(dr-1): once this workflow has TWO consecutive green runs, delete the
-    # line below so drill failures gate merges again (tracked in docs/BACKUP_DR.md).
-    continue-on-error: true
+    # Blocking since the two-consecutive-green-runs criterion was met
+    # (tracked in docs/BACKUP_DR.md).
 
     steps:
       - name: Checkout Code

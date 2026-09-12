@@ -3,6 +3,12 @@
 Shared fixtures to replace the copy-pasted AccountState / candle-series
 boilerplate that previously lived in ~a dozen test files.
 
+VC-031 (adjudicated 2026-09-12): 13/16 top-level test files now consume
+shared fixtures; the 3 that do not (test_crypto_data, test_db,
+test_two_process_lock) mock externals/internals by design and need none.
+Residual: test_strategy_crypto.py still carries one local candle helper —
+tracked for the next conftest adoption pass.
+
 Conventions
 -----------
 - Candles are ccxt-style rows: ``[ts_ms, open, high, low, close, volume]``
