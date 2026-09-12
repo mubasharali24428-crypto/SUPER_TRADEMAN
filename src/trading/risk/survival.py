@@ -167,9 +167,11 @@ class SurvivalEngine:
       - De-escalation requires hysteresis: the raw evaluation must stay strictly
         below the current tier for ``min_dwell_cycles`` consecutive cycles before
         stepping down exactly ONE level. This prevents tier flapping.
-      - When ``state_path`` is provided, tier state is loaded at construction and
-        atomically persisted after every evaluation, so a process restart cannot
-        silently reset a defended tier back to NORMAL.
+      - Tier state persistence (VA-076): when ``state_path`` is provided, tier
+        state loads at construction and persists after every evaluation. When
+        REDIS_URL is set (and no explicit ``state_path``), the REDIS backend
+        is used instead - a restart cannot silently reset a defended tier
+        back to NORMAL either way.
     """
 
     def __init__(

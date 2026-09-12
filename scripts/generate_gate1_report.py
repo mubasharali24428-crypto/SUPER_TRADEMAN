@@ -76,7 +76,8 @@ def generate_gate1_markdown_report(
 
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     raw_sig_data = f"{summary.campaign_status}|{summary.days_evaluated}|{summary.shadow_pnl_pct}|{now_str}"
-    digital_signature = hashlib.sha256(raw_sig_data.encode("utf-8")).hexdigest()
+    # VA-033: self-reported digest, prefix to make provenance explicit
+    digital_signature = "sha256-self:" + hashlib.sha256(raw_sig_data.encode("utf-8")).hexdigest()
 
     md = f"""# Gate 1 Validation & Mode Promotion Report — SUPER_TRADEMAN
 

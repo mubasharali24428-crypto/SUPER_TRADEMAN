@@ -12,11 +12,23 @@ os.environ.setdefault("API_SESSION_SECRET", "test-secret-0123456789")  # 21 byte
 os.environ.setdefault("OPERATOR_PASSWORD_HASH",
                       hashlib.sha256(b"operator-pass").hexdigest())
 
+import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from trading.api.app import create_app  # noqa: E402
+from trading.api.auth import login_rate_limiter  # noqa: E402
 
 client = TestClient(create_app())
+
+
+@pytest.fixture(autouse=True)
+def _reset_login_limiter():
+    """R2/VA-002: per-IP attempt buckets are process-global and earlier test
+    modules (tests/api) can leave them exhausted, 429-blocking this module's
+    logins. Reset before EVERY test, not once at import."""
+    login_rate_limiter._attempts.clear()
+    yield
+    login_rate_limiter._attempts.clear()
 
 
 def _login(password: str):

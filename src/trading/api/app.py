@@ -45,6 +45,9 @@ SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
+    # VA-053: hardening headers
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 }
 
 
@@ -145,7 +148,7 @@ def create_app() -> FastAPI:
     _otel.setup_tracing("super_trademan-api")  # active only w/ OTLP endpoint env
     _request_tracer = _otel.get_request_tracer()
 
-    @app.middleware("http")
+    @app.middleware("http")  # VA-061: single middleware for correlation + tracing
     async def request_tracing(request: Request, call_next):
         request_id = os.environ.get("API_REQUEST_ID_HEADER", "X-Request-ID")
         raw_cid = request.headers.get(request_id, "") or uuid.uuid4().hex[:12]
@@ -176,6 +179,11 @@ def create_app() -> FastAPI:
                 )
             else:
                 response.headers.setdefault("X-Request-ID", cid)
+            # VA-069: CSP with explicit connect-src
+            response.headers.setdefault(
+                "Content-Security-Policy",
+                "default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:",
+            )
         return response
 
     # --- security headers on every response ---------------------------------
@@ -223,10 +231,6 @@ def create_app() -> FastAPI:
         if body.username.strip().lower() not in ("operator", "admin"):
             logger.warning("LOGIN_UNEXPECTED_USERNAME: %s from %s", body.username,
                           request.client.host if request.client else "unknown")
-        # VA-045: pin username to operator, log unexpected usernames for audit
-        if body.username.strip().lower() not in ("operator", "admin"):
-            logger.warning("LOGIN_UNEXPECTED_USERNAME: %s from %s", body.username,
-                          request.client.host if request.client else "unknown")
         claims = authenticate_operator(body.username, body.password)
         if claims is None:
             if not os.environ.get("OPERATOR_PASSWORD_HASH", "").strip() and os.environ.get(
@@ -248,7 +252,8 @@ def create_app() -> FastAPI:
         return {"status": "ok", "username": claims.sub, "role": claims.role.value}
 
     @app.post("/api/auth/logout")
-    def logout(response: Response, request: Request):
+    def logout(response: Response, request: Request, _claims=Depends(require_viewer)):
+        # VA-029: logout requires an authenticated session (any role).
         # VA-004: revoke the session server-side so replaying the cookie fails.
         cookie = request.cookies.get(SESSION_COOKIE_NAME, "")
         if cookie:
@@ -314,6 +319,7 @@ def create_app() -> FastAPI:
 
     # --- static dashboard ------------------------------------------------------
     # Mounted last so /api/* routes win.
+    # VA-008: review web/ contents before deploys
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
 
     app.state.session_manager = manager

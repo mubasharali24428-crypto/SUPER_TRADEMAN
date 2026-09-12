@@ -50,6 +50,64 @@ async def test_oms_idempotent_submission():
     assert s2 in (OrderState.ACKED, OrderState.FILLED)
 
 
+def _approved(size: float = 1.0) -> ApprovedOrder:
+    return ApprovedOrder(
+        asset="BTC",
+        asset_class="crypto",
+        side=Side.LONG,
+        entry_price=50000.0,
+        stop_price=48000.0,
+        target_price=55000.0,
+        position_size=size,
+        risk_pct=0.01,
+        issuer=_ISSUER,
+    )
+
+
+@pytest.mark.asyncio
+async def test_oms_quantizes_size_to_venue_grid_va066():
+    """VA-066: with an instruments step map, submit_order must quantize the
+    size DOWN onto the venue grid before submission (defense in depth)."""
+    venue = MockVenueAdapter()
+    oms = OrderManagementSystem(
+        venue_adapter=venue, instruments={"BTC": "0.001"}
+    )
+
+    order = _approved(size=0.12345678)
+    cid = "strat_1:sig_grid:abc12345"
+
+    state = await oms.submit_order(order, cid)
+    assert state == OrderState.SUBMITTED
+
+    # The recorded intended qty (what we asked the venue for) is on-grid.
+    intended = oms.order_records[cid]["intended_qty"]
+    assert intended == pytest.approx(0.123)
+    # Decimal-exact: multiple of the step.
+    from decimal import Decimal
+
+    d = Decimal(str(intended)) / Decimal("0.001")
+    assert d == d.to_integral_value()
+
+    # And the venue actually received the quantized size.
+    assert venue.orders[cid]["amount"] == pytest.approx(0.123)
+
+
+@pytest.mark.asyncio
+async def test_oms_rejects_sub_step_size_va066():
+    """VA-066: a size that quantizes to zero must be REJECTED, not sent."""
+    venue = MockVenueAdapter()
+    oms = OrderManagementSystem(
+        venue_adapter=venue, instruments={"BTC": "1"}
+    )
+
+    order = _approved(size=0.4)  # below one lot on a 1.0-step grid
+    cid = "strat_1:sig_substep:abc12345"
+
+    state = await oms.submit_order(order, cid)
+    assert state == OrderState.REJECTED
+    assert cid not in venue.orders
+
+
 @pytest.mark.asyncio
 async def test_reconciler_quarantine_on_mismatch():
     venue = MockVenueAdapter()

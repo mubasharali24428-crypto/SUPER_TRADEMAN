@@ -191,6 +191,7 @@ class TradingHeartbeatDaemon:
                 if signal is not None:
                     proposed_signals_count += 1
                     # Check survival confidence floor
+                    # VA-064: RiskEngine.evaluate also enforces floor independently
                     if signal.confidence >= survival_status.min_confidence_floor:
                         # Apply GARCH risk scaling factor ONLY here.
                         # The survival tier multiplier is enforced separately by the

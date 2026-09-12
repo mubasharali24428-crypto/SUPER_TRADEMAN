@@ -74,7 +74,13 @@ def decision_id_for(record: DecisionRecord) -> str:
     re-running the journal for the same session must UPDATE in place, never
     duplicate. SHA-256 keeps the key stable and collision-free.
     """
-    raw = f"{record.asset}|{record.entry_time.isoformat()}|{record.side}"
+    # VA-040: fold the strategy rationale (decision) into the hash so two
+    # strategies taking the same asset/side in the same minute no longer
+    # collide onto one journal row.
+    raw = (
+        f"{record.asset}|{record.entry_time.isoformat()}|{record.side}"
+        f"|{record.decision}"
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 

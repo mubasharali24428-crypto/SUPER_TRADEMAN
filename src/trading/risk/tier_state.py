@@ -195,9 +195,8 @@ class RedisTierState:
             self.refresh_ttl()  # VA-072: ensure heartbeat keeps defense alive
             return True
         except Exception as exc:  # noqa: BLE001 — cached above; persist best-effort
-            logger.warning(
-                "Could not save risk tier state to redis key %s (%s); held in "
-                "in-process memory and will re-persist on the next save",
+            logger.error(
+                "FAILED_SAVE tier_state redis key %s (%s); state in-memory only",
                 self.key, exc,
             )
             return False

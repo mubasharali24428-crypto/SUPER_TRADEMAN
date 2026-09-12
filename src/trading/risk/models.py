@@ -165,6 +165,7 @@ class ExitSignal:
 
 @dataclass(frozen=True)
 class ApprovedExit:
+    """VA-059: minted only by RiskEngine._approve_exit; dispatch via ExitDecision."""
     asset: str
     asset_class: str
     reason: str

@@ -184,7 +184,8 @@ class RiskEngine:
                 f"portfolio heat {current_heat + effective_risk_pct:.1%} would exceed cap {heat_cap:.1%}",
             )
 
-        # VB-038: correlation guard compares combined cluster risk against heat cap
+        # VA-075: correlation guard sums cluster risk vs heat cap
+        # TODO: net correlated risk when positions overlap instead of summing
         # rather than rejecting on ANY correlated risk (old binary veto).
         correlated_risk = sum(
             p.risk_pct

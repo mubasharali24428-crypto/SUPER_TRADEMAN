@@ -13,9 +13,11 @@ Order-state correctness invariants (WAVE4 EX5):
   (fixes F-0031).
 """
 
-from typing import Any, Dict, Optional
+from dataclasses import replace
+from typing import Any, Dict, Mapping, Optional
 
 from trading.config import ExecutionMode
+from trading.core.money import quantize_to_step
 from trading.data.staleness import StalenessSentinel
 from trading.execution.outbox import OrderIntent, OutboxStore
 from trading.execution.shadow import L2OrderBookSnapshot, ShadowInterceptor
@@ -48,7 +50,9 @@ class OrderFill(Dict[str, Any]):
 
 
 class OrderManagementSystem:
-    """Manages order submission, state transitions, outbox updates, and shadow mode interception."""
+    """Manages order submission, state transitions, outbox updates, and shadow mode
+    interception. VA-066: order sizes are quantized to the instrument step via
+    RiskEngine.instruments (quantize_to_step) before submission."""
 
     def __init__(
         self,
@@ -58,7 +62,14 @@ class OrderManagementSystem:
         shadow_interceptor: Optional[ShadowInterceptor] = None,
         order_chaser: Optional[Any] = None,
         execution_mode: ExecutionMode = ExecutionMode.BACKTEST,
+        instruments: Optional[Mapping[str, str]] = None,
     ):
+        # VA-066: optional per-instrument step-size map (asset -> step string),
+        # same convention as RiskEngine.instruments. When present, submit_order
+        # quantizes the order size DOWN onto the venue grid before submission
+        # so the exchange never receives an off-grid quantity — defense in
+        # depth on top of the engine-side quantization (F-0342).
+        self.instruments = dict(instruments) if instruments else None
         self.venue_adapter = venue_adapter
         self.outbox_store = outbox_store
         self.staleness_sentinel = staleness_sentinel
@@ -141,6 +152,27 @@ class OrderManagementSystem:
         Shadow Mode check:
           - If ExecutionMode.SHADOW, routes order to ShadowInterceptor without calling venue_adapter.
         """
+        # VA-066: quantize the size onto the venue grid (round DOWN, exchange
+        # convention) before the order leaves this process. The engine also
+        # quantizes when its instruments map is configured; this is the
+        # boundary guard for callers that construct orders directly.
+        step_str = self.instruments.get(order.asset) if self.instruments else None
+        if step_str is not None:
+            grid_qty = float(quantize_to_step(order.position_size, step_str))
+            if grid_qty <= 0:
+                logger.error(
+                    f"[GRID_SIZE_REJECTION] {client_order_id}: quantized size for "
+                    f"{order.asset} is zero (size={order.position_size}, "
+                    f"step={step_str}) — below venue minimum lot."
+                )
+                return await self._transition(client_order_id, OrderEventType.REJECTED)
+            if grid_qty != order.position_size:
+                logger.info(
+                    f"[GRID_SIZE_QUANTIZED] {client_order_id}: {order.position_size} -> "
+                    f"{grid_qty} on step {step_str} for {order.asset} (VA-066)."
+                )
+                order = replace(order, position_size=grid_qty)
+
         # Record the order's OWN identity/side before anything else: fills may
         # only ever be applied against this record (F-0030).
         self.order_records.setdefault(

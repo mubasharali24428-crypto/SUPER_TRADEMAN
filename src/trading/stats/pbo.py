@@ -45,7 +45,7 @@ __all__ = [
     "CSCVConfig",
     "PBOResult",
     "compute_pbo_cscv",
-    "compute_pbo",  # deprecated legacy alias
+    "compute_pbo",  # deprecated legacy alias (kept for backward compat)
 ]
 
 _LOGIT_EPS = 1e-12

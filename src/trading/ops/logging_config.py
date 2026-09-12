@@ -57,6 +57,10 @@ def get_correlation_id() -> str:
     return cid
 
 
+# VA-014: fallback counter when correlation id cannot be set
+_correlation_fallback_count = 0
+
+
 def set_correlation_id(correlation_id: str) -> None:
     """Set the correlation id for the current execution context."""
     _correlation_id_var.set(correlation_id or "")

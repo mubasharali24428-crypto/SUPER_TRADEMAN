@@ -35,6 +35,7 @@ __all__ = [
 
 logger = get_logger("trading.ops.deployment_metrics")
 
+# VA-021: DDL lives in alembic/versions/0001_initial.py (SoT).
 INIT_OPS_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS deployment_metrics (
     id BIGSERIAL PRIMARY KEY,

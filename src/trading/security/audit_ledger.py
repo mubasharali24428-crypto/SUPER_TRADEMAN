@@ -41,7 +41,8 @@ class AuditLedger:
         self._db_execute = db_execute
 
     def _compute_hash(self, prev_hash: str, timestamp_utc: str, event_type: str, payload_json: str) -> str:
-        data_str = f"{prev_hash}|{timestamp_utc}|{event_type}|{payload_json}"
+        # VA-035: timestamp is metadata, not hash input - portable chain
+        data_str = f"{prev_hash}|{event_type}|{payload_json}"
         return hashlib.sha256(data_str.encode("utf-8")).hexdigest()
 
     def append_event(self, event_type: str, payload: Dict[str, Any]) -> AuditRecord:

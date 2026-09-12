@@ -101,6 +101,14 @@ class InProcessLockBackend(LockBackend):
         return self.state is not None and self.state.node_id == self.node_id
 
     def acquire(self, now: float) -> bool:
+        # VA-043: refuse backward time jumps (stale-node failover protection)
+        _last = getattr(self, "_last_acquire_time", None)
+        if _last is not None and now < _last - 0.001:
+            logger.warning(
+                "[HA_LOCK_REJECTED] Backward time jump %.6f -> %.6f", _last, now
+            )
+            return False
+        self._last_acquire_time = now
         if self.state is None:
             self.state = LockState(node_id=self.node_id, last_heartbeat_ts=now, ttl_sec=self.ttl_sec)
             return True
