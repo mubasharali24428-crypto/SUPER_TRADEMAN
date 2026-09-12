@@ -4,12 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from trading.stats.cross_validation import (
-    CPCVConfig,
-    TrainTestSplit,
-    apply_split,
-    generate_cpcv_splits,
-)
+from trading.stats.cross_validation import (CPCVConfig, TrainTestSplit,
+                                            apply_split, generate_cpcv_splits)
 
 
 def _daily_df(n: int) -> pd.DataFrame:
@@ -46,7 +42,13 @@ def test_generate_cpcv_splits_basic():
         assert np.all(train_idx < np.min(test_idx))
 
         # Check total purge distance
-        total_purge = cfg.purge_days + cfg.max_holding_days + cfg.label_horizon_days + cfg.signal_lookback_days + cfg.feature_lookback_days
+        total_purge = (
+            cfg.purge_days
+            + cfg.max_holding_days
+            + cfg.label_horizon_days
+            + cfg.signal_lookback_days
+            + cfg.feature_lookback_days
+        )
         min_test_time = dates[np.min(test_idx)]
         max_train_time = dates[np.max(train_idx)]
         assert (min_test_time - max_train_time) > pd.Timedelta(days=total_purge)
@@ -78,14 +80,19 @@ def test_generate_cpcv_splits_short_df_raises():
 # Sub-06 rigor: embargo applied on the TEST-side boundary                #
 # --------------------------------------------------------------------- #
 
+
 def test_embargo_applied_to_test_side_boundary():
     # Same data/config differing ONLY in embargo_days: the embargoed config's
     # test block must start LATER (embargo samples trimmed from the left of
     # each test block), while the training side is untouched by embargo.
     df = _daily_df(120)
     base = dict(
-        n_folds=4, purge_days=2, max_holding_days=3,
-        min_train_size=10, min_test_size=5, signal_lookback_days=0,
+        n_folds=4,
+        purge_days=2,
+        max_holding_days=3,
+        min_train_size=10,
+        min_test_size=5,
+        signal_lookback_days=0,
     )
     no_emb = generate_cpcv_splits(df, CPCVConfig(embargo_days=0, **base))
     emb = generate_cpcv_splits(df, CPCVConfig(embargo_days=4, **base))
@@ -136,8 +143,12 @@ def test_embargo_never_shrinks_test_below_min_size():
     # A huge embargo must drop whole folds rather than emit undersized tests.
     df = _daily_df(120)
     cfg = CPCVConfig(
-        n_folds=4, purge_days=1, embargo_days=500,
-        max_holding_days=1, min_train_size=10, min_test_size=5,
+        n_folds=4,
+        purge_days=1,
+        embargo_days=500,
+        max_holding_days=1,
+        min_train_size=10,
+        min_test_size=5,
     )
     with pytest.raises(ValueError, match="Could not generate any valid"):
         generate_cpcv_splits(df, cfg)
@@ -146,6 +157,7 @@ def test_embargo_never_shrinks_test_below_min_size():
 # --------------------------------------------------------------------- #
 # Wave-6 RECT-ALPHA (VB-024): no fabricated calendars                   #
 # --------------------------------------------------------------------- #
+
 
 def test_vb024_integer_index_with_day_windows_raises():
     """Intraday/integer-indexed data must NOT silently inherit a fabricated
@@ -177,10 +189,12 @@ def test_vb024_integer_index_all_zero_windows_still_yields_splits():
 
 
 def test_vb024_timestamp_column_accepted_without_datetime_index():
-    df = pd.DataFrame({
-        "timestamp": pd.date_range("2025-01-01", periods=120, freq="D"),
-        "close": np.arange(120, dtype=float),
-    })
+    df = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2025-01-01", periods=120, freq="D"),
+            "close": np.arange(120, dtype=float),
+        }
+    )
     cfg = CPCVConfig(n_folds=4, purge_days=2, max_holding_days=1)
     splits = generate_cpcv_splits(df, cfg)
     assert splits

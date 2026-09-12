@@ -6,19 +6,15 @@ Backend-selection contract shared by all sub-04 components:
 
 import json
 
-import pytest
-
 import fake_redis_stub  # noqa: F401 — ensures deterministic stub is importable
+import pytest
 from fake_redis_stub import MemoryRedis
 
-from trading.risk.tier_state import TierState, load_state, save_state, RedisTierState
-from trading.ops.alert_manager import (
-    AlertManager,
-    AlertSeverity,
-    FileCooldownStore,
-    RedisCooldownStore,
-    select_cooldown_store,
-)
+from trading.ops.alert_manager import (AlertManager, AlertSeverity,
+                                       FileCooldownStore, RedisCooldownStore,
+                                       select_cooldown_store)
+from trading.risk.tier_state import (RedisTierState, TierState, load_state,
+                                     save_state)
 
 
 @pytest.fixture()
@@ -34,7 +30,9 @@ def mem():
 def test_tier_state_file_backend_default(monkeypatch, tmp_path):
     monkeypatch.delenv("REDIS_URL", raising=False)
     path = tmp_path / "tier.json"
-    assert save_state(TierState(tier="defended", entered_cycle=4, below_count=2), path=str(path))
+    assert save_state(
+        TierState(tier="defended", entered_cycle=4, below_count=2), path=str(path)
+    )
     st = load_state(path=str(path))
     assert (st.tier, st.entered_cycle, st.below_count) == ("defended", 4, 2)
 
@@ -76,7 +74,10 @@ def test_save_load_dispatch_to_redis_when_url_set(monkeypatch, mem):
         orig_init(self, client=mem, key="dispatch:test", ttl_sec=60)
 
     monkeypatch.setattr(ts.RedisTierState, "__init__", _fake_init)
-    assert ts.save_state(TierState(tier="defended", entered_cycle=1, below_count=1)) is True
+    assert (
+        ts.save_state(TierState(tier="defended", entered_cycle=1, below_count=1))
+        is True
+    )
     st = ts.load_state()
     assert st.tier == "defended"
 
@@ -117,7 +118,10 @@ def test_file_cooldown_store_format_unchanged(tmp_path):
     store = FileCooldownStore(path)
     store.persist_snapshot({"High Latency": 100.0}, {"High Latency": 2})
     data = json.loads(path.read_text(encoding="utf-8"))
-    assert data == {"last_alert_time": {"High Latency": 100.0}, "alert_counts": {"High Latency": 2}}
+    assert data == {
+        "last_alert_time": {"High Latency": 100.0},
+        "alert_counts": {"High Latency": 2},
+    }
     last, counts = FileCooldownStore(path).load_all()
     assert last == {"High Latency": 100.0}
     assert counts == {"High Latency": 2}
@@ -126,8 +130,12 @@ def test_file_cooldown_store_format_unchanged(tmp_path):
 def test_redis_cooldown_store_window_and_escalation(mem):
     store = RedisCooldownStore(client=mem, prefix="t:al", escalation_hash="t:al:esc")
     assert store.should_suppress("R", "WARNING", now_ts=1.0, cooldown_sec=5.0) is False
-    assert store.should_suppress("R", "WARNING", now_ts=1.1, cooldown_sec=5.0) is True  # window held
-    assert store.should_suppress("R", "CRITICAL", now_ts=1.2, cooldown_sec=5.0) is False  # per-severity key
+    assert (
+        store.should_suppress("R", "WARNING", now_ts=1.1, cooldown_sec=5.0) is True
+    )  # window held
+    assert (
+        store.should_suppress("R", "CRITICAL", now_ts=1.2, cooldown_sec=5.0) is False
+    )  # per-severity key
     assert store.record_escalation("R") == 1
     assert store.record_escalation("R") == 2  # HINCRBY accumulates
     last, counts = store.load_all()
@@ -164,9 +172,13 @@ def test_alert_manager_redis_backend_cross_instance_dedup(mem):
     store_a = RedisCooldownStore(client=mem, prefix="t:x", escalation_hash="t:x:esc")
     mgr_a = AlertManager(cooldown_store=store_a, cooldown_sec=300.0)
     mgr_b = AlertManager(
-        cooldown_store=RedisCooldownStore(client=mem, prefix="t:x", escalation_hash="t:x:esc"),
+        cooldown_store=RedisCooldownStore(
+            client=mem, prefix="t:x", escalation_hash="t:x:esc"
+        ),
         cooldown_sec=300.0,
     )
 
     assert mgr_a.evaluate_metric("latency_p95_ms", 800.0) is not None
-    assert mgr_b.evaluate_metric("latency_p95_ms", 800.0) is None  # suppressed by A's window
+    assert (
+        mgr_b.evaluate_metric("latency_p95_ms", 800.0) is None
+    )  # suppressed by A's window

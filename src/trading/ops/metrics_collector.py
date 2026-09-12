@@ -4,13 +4,11 @@ import os
 import uuid
 from typing import Any, Dict, List, Optional
 
-from trading.ops.deployment_metrics import (
-    AlertRecord,
-    DeploymentMetricRecord,
-    DeploymentMetricsStore,
-    persist_alert,
-)
 from trading.observability.logger import get_logger
+from trading.ops.deployment_metrics import (AlertRecord,
+                                            DeploymentMetricRecord,
+                                            DeploymentMetricsStore,
+                                            persist_alert)
 
 __all__ = [
     "MetricsCollector",
@@ -124,31 +122,31 @@ class MetricsCollector:
         lines = [
             "# HELP super_trademan_signals_total Total trading signals generated.",
             "# TYPE super_trademan_signals_total counter",
-            f'super_trademan_signals_total{{{lbl_str}}} {cum.signals_generated if cum else 0}',
+            f"super_trademan_signals_total{{{lbl_str}}} {cum.signals_generated if cum else 0}",
             "",
             "# HELP super_trademan_fills_total Total synthetic/live fills executed.",
             "# TYPE super_trademan_fills_total counter",
-            f'super_trademan_fills_total{{{lbl_str}}} {cum.shadow_fills_generated if cum else 0}',
+            f"super_trademan_fills_total{{{lbl_str}}} {cum.shadow_fills_generated if cum else 0}",
             "",
             "# HELP super_trademan_latency_p95_ms Signal-to-fill 95th percentile latency in ms.",
             "# TYPE super_trademan_latency_p95_ms gauge",
-            f'super_trademan_latency_p95_ms{{{lbl_str}}} {cum.p95_signal_to_fill_latency_ms if cum else 0.0}',
+            f"super_trademan_latency_p95_ms{{{lbl_str}}} {cum.p95_signal_to_fill_latency_ms if cum else 0.0}",
             "",
             "# HELP super_trademan_latency_p99_ms Signal-to-fill 99th percentile latency in ms.",
             "# TYPE super_trademan_latency_p99_ms gauge",
-            f'super_trademan_latency_p99_ms{{{lbl_str}}} {cum.p99_signal_to_fill_latency_ms if cum else 0.0}',
+            f"super_trademan_latency_p99_ms{{{lbl_str}}} {cum.p99_signal_to_fill_latency_ms if cum else 0.0}",
             "",
             "# HELP super_trademan_shadow_pnl_pct Cumulative Shadow PnL percentage.",
             "# TYPE super_trademan_shadow_pnl_pct gauge",
-            f'super_trademan_shadow_pnl_pct{{{lbl_str}}} {cum.shadow_pnl_pct if cum else 0.0}',
+            f"super_trademan_shadow_pnl_pct{{{lbl_str}}} {cum.shadow_pnl_pct if cum else 0.0}",
             "",
             "# HELP super_trademan_max_drawdown_pct Maximum portfolio drawdown percentage.",
             "# TYPE super_trademan_max_drawdown_pct gauge",
-            f'super_trademan_max_drawdown_pct{{{lbl_str}}} {cum.max_shadow_drawdown_pct if cum else 0.0}',
+            f"super_trademan_max_drawdown_pct{{{lbl_str}}} {cum.max_shadow_drawdown_pct if cum else 0.0}",
             "",
             "# HELP super_trademan_staleness_trips Total staleness circuit breaker trips.",
             "# TYPE super_trademan_staleness_trips counter",
-            f'super_trademan_staleness_trips{{{lbl_str}}} {cum.staleness_circuit_breaker_trips if cum else 0}',
+            f"super_trademan_staleness_trips{{{lbl_str}}} {cum.staleness_circuit_breaker_trips if cum else 0}",
             "",
             "# HELP super_trademan_reconciliation_mismatches_total Reconciliation mismatch events.",
             "# TYPE super_trademan_reconciliation_mismatches_total counter",

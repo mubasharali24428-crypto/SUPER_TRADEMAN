@@ -8,11 +8,8 @@ import asyncpg
 import pytest
 
 from trading.data.crypto import SchemaMissingError
-from trading.data.pipeline import (
-    detect_gaps,
-    expected_cadence_ms,
-    fetch_and_store_ohlcv,
-)
+from trading.data.pipeline import (detect_gaps, expected_cadence_ms,
+                                   fetch_and_store_ohlcv)
 
 
 class FakePageExchange:
@@ -58,6 +55,7 @@ def candles(start_ms, n):
 
 # ------------------------------- cadence -------------------------------- #
 
+
 def test_expected_cadence_known_and_compound_timeframes():
     assert expected_cadence_ms("1m") == 60_000
     assert expected_cadence_ms("5m") == 300_000
@@ -69,12 +67,13 @@ def test_expected_cadence_known_and_compound_timeframes():
 
 
 def test_detect_gaps_flags_only_true_gaps():
-    ts = [0, 60_000, 120_000, 600_000, 660_000]   # one 8-minute hole
+    ts = [0, 60_000, 120_000, 600_000, 660_000]  # one 8-minute hole
     gaps = detect_gaps(ts, TF_MS)
     assert gaps == [(180_000, 600_000)]
 
 
 # ------------------------------ pagination ------------------------------ #
+
 
 @pytest.mark.asyncio
 async def test_pagination_stops_on_short_page_and_stores_all_rows():
@@ -96,7 +95,7 @@ async def test_pagination_stops_on_short_page_and_stores_all_rows():
 @pytest.mark.asyncio
 async def test_full_pages_keep_paging_until_short_page():
     pages = [candles(i * 100 * TF_MS, 100) for i in range(3)]
-    pages.append(candles(3 * 100 * TF_MS, 40))          # short => stop
+    pages.append(candles(3 * 100 * TF_MS, 40))  # short => stop
     ex = FakePageExchange(list(pages))
     pool = FakePool()
 
@@ -104,18 +103,20 @@ async def test_full_pages_keep_paging_until_short_page():
         ex, "BTC/USDT", "1m", since=0, pool=pool, page_limit=100
     )
     assert stored == 340
-    assert len(ex.since_args) == 4                       # exactly four fetches
+    assert len(ex.since_args) == 4  # exactly four fetches
 
 
 @pytest.mark.asyncio
 async def test_overlapping_rows_are_deduped_not_double_stored():
     p1 = candles(0, 3)
-    p2 = candles(2 * TF_MS, 3)                            # overlaps ts 2m
+    p2 = candles(2 * TF_MS, 3)  # overlaps ts 2m
     ex = FakePageExchange([p1, p2])
     pool = FakePool()
 
-    stored = await fetch_and_store_ohlcv(ex, "BTC/USDT", "1m", since=0, pool=pool, page_limit=3)
-    assert stored == 5                                    # dup ts dropped
+    stored = await fetch_and_store_ohlcv(
+        ex, "BTC/USDT", "1m", since=0, pool=pool, page_limit=3
+    )
+    assert stored == 5  # dup ts dropped
 
 
 @pytest.mark.asyncio
@@ -130,14 +131,17 @@ async def test_max_pages_caps_the_loop():
 
 # --------------------------------- gaps --------------------------------- #
 
+
 @pytest.mark.asyncio
 async def test_gap_detection_logs_missing_candles(caplog):
-    page = candles(0, 2) + candles(9 * TF_MS, 1)          # hole between 2m..9m
+    page = candles(0, 2) + candles(9 * TF_MS, 1)  # hole between 2m..9m
     ex = FakePageExchange([page])
     pool = FakePool()
     caplog.set_level("WARNING", logger="trading.data.pipeline")
 
-    stored = await fetch_and_store_ohlcv(ex, "BTC/USDT", "1m", since=0, pool=pool, page_limit=10)
+    stored = await fetch_and_store_ohlcv(
+        ex, "BTC/USDT", "1m", since=0, pool=pool, page_limit=10
+    )
     assert stored == 3
     assert any("OHLCV GAP" in r.message for r in caplog.records)
 
@@ -151,7 +155,12 @@ async def test_maintenance_calendar_windows_suppress_gap_warnings(caplog):
 
     calendar = lambda: [(2 * TF_MS, 9 * TF_MS)]
     stored = await fetch_and_store_ohlcv(
-        ex, "BTC/USDT", "1m", since=0, pool=pool, page_limit=10,
+        ex,
+        "BTC/USDT",
+        "1m",
+        since=0,
+        pool=pool,
+        page_limit=10,
         maintenance_calendar=calendar,
     )
     assert stored == 3
@@ -159,6 +168,7 @@ async def test_maintenance_calendar_windows_suppress_gap_warnings(caplog):
 
 
 # ----------------------------- schema guard ----------------------------- #
+
 
 @pytest.mark.asyncio
 async def test_schema_missing_error_passthrough_from_pool():

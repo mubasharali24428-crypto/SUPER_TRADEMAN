@@ -53,7 +53,9 @@ class TokenBucketRateLimiter:
         async with self._lock:
             now = time.time()
             elapsed = now - self.last_refill_time
-            self.tokens = min(float(self.capacity), self.tokens + elapsed * self.refill_rate)
+            self.tokens = min(
+                float(self.capacity), self.tokens + elapsed * self.refill_rate
+            )
             self.last_refill_time = now
 
             if self.tokens >= 1.0:
@@ -106,11 +108,17 @@ class OrderChaser:
         if client_order_id in self.working_orders:
             order = self.working_orders[client_order_id]
             order.filled_qty += filled_qty
-            order.last_fill_time_ms = timestamp_ms if timestamp_ms is not None else (time.time() * 1000.0)
+            order.last_fill_time_ms = (
+                timestamp_ms if timestamp_ms is not None else (time.time() * 1000.0)
+            )
             if order.filled_qty >= order.requested_qty:
                 order.status = OrderState.FILLED
 
-    async def check_and_chase(self, current_time_ms: Optional[float] = None, oms_reference: Optional[Any] = None) -> List[str]:
+    async def check_and_chase(
+        self,
+        current_time_ms: Optional[float] = None,
+        oms_reference: Optional[Any] = None,
+    ) -> List[str]:
         """Scans working orders and performs cancel/reprice or remainder abandonment.
 
         Rate-limit invariant (EX5): EVERY order-touching venue action (cancel,
@@ -120,13 +128,19 @@ class OrderChaser:
         it does not spin into an unthrottled rescan storm. Denials are counted
         on ``rate_limiter.denied_count`` and ``self.denied_actions``.
         """
-        now_ms = current_time_ms if current_time_ms is not None else (time.time() * 1000.0)
+        now_ms = (
+            current_time_ms if current_time_ms is not None else (time.time() * 1000.0)
+        )
         action_log: List[str] = []
 
         to_remove = []
         for client_order_id, order in list(self.working_orders.items()):
-            if order.status in (OrderState.FILLED, OrderState.CANCELED, OrderState.REJECTED,
-                                OrderState.PARTIAL_FILL_FINALIZED):
+            if order.status in (
+                OrderState.FILLED,
+                OrderState.CANCELED,
+                OrderState.REJECTED,
+                OrderState.PARTIAL_FILL_FINALIZED,
+            ):
                 to_remove.append(client_order_id)
                 continue
 
@@ -137,7 +151,8 @@ class OrderChaser:
 
                 current_notional = remaining_qty * order.submitted_price
                 below_min = (
-                    current_notional < instrument.min_notional or remaining_qty < instrument.min_qty
+                    current_notional < instrument.min_notional
+                    or remaining_qty < instrument.min_qty
                 )
                 # Gate EVERY order-touching action on the shared rate limiter:
                 # abandonment (cancel + OMS finalize) and cancel/reprice alike.
@@ -164,7 +179,9 @@ class OrderChaser:
                     )
                     await self.venue_adapter.cancel_order(client_order_id, order.symbol)
                     order.status = OrderState.PARTIAL_FILL_FINALIZED
-                    if oms_reference is not None and hasattr(oms_reference, "finalize_partial_fill"):
+                    if oms_reference is not None and hasattr(
+                        oms_reference, "finalize_partial_fill"
+                    ):
                         await oms_reference.finalize_partial_fill(
                             client_order_id=client_order_id,
                             filled_qty=order.filled_qty,
@@ -191,10 +208,14 @@ class OrderChaser:
                     # market price would require a live reference price, which
                     # VenueAdapter does not expose; until it does, abandoning
                     # beats silently dropping the remainder (F-0280).
-                    logger.info(f"[CANCEL_AND_REPRICE] Stale order {client_order_id} (age {elapsed_ms:.0f}ms). Canceling.")
+                    logger.info(
+                        f"[CANCEL_AND_REPRICE] Stale order {client_order_id} (age {elapsed_ms:.0f}ms). Canceling."
+                    )
                     await self.venue_adapter.cancel_order(client_order_id, order.symbol)
                     order.status = OrderState.PARTIAL_FILL_FINALIZED
-                    if oms_reference is not None and hasattr(oms_reference, "finalize_partial_fill"):
+                    if oms_reference is not None and hasattr(
+                        oms_reference, "finalize_partial_fill"
+                    ):
                         await oms_reference.finalize_partial_fill(
                             client_order_id=client_order_id,
                             filled_qty=order.filled_qty,

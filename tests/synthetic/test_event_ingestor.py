@@ -1,15 +1,13 @@
 """Unit tests for Task 4: Asynchronous News & Event Ingestion Layer."""
 
 import time
+
 import pytest
 
-from trading.synthetic.event_ingestor import (
-    CrossMarketCorrelationEngine,
-    EventLatencyTracker,
-    MacroBroadcastPayload,
-    NewsEvent,
-    StructuredNewsListener,
-)
+from trading.synthetic.event_ingestor import (CrossMarketCorrelationEngine,
+                                              EventLatencyTracker,
+                                              MacroBroadcastPayload, NewsEvent,
+                                              StructuredNewsListener)
 from trading.synthetic.forex_engine import ForexEngine
 from trading.synthetic.polymarket_engine import PolymarketEngine
 from trading.synthetic.stocks_engine import StocksEngine
@@ -33,7 +31,9 @@ def test_cross_market_broadcast():
     received_payloads = []
     engine.subscribe(lambda p: received_payloads.append(p))
 
-    news = NewsEvent("URGENT: CPI DATA RELEASE SURGES ABOVE EXPECTATIONS", source="REUTERS")
+    news = NewsEvent(
+        "URGENT: CPI DATA RELEASE SURGES ABOVE EXPECTATIONS", source="REUTERS"
+    )
     payload = engine.process_news_event(news)
 
     assert len(received_payloads) == 1

@@ -17,14 +17,22 @@ async def main(symbol: str, days: int = 270):
     since = until - days * 24 * 60 * 60 * 1000
     candles = await fetch_ohlcv_range(exchange, symbol, "1h", since, until)
     if len(candles) < 150:
-        print(json.dumps({"symbol": symbol, "error": f"insufficient candles ({len(candles)})"}))
+        print(
+            json.dumps(
+                {"symbol": symbol, "error": f"insufficient candles ({len(candles)})"}
+            )
+        )
         return
 
     account = AccountState(equity=100_000.0, peak_equity=100_000.0)
     result = run_backtest(candles, symbol, generate_signal, RiskEngine(), account)
     r = result.report
     trades = [
-        {"entry_time": t.entry_time.isoformat(), "net_pnl": t.net_pnl, "r_multiple": t.r_multiple}
+        {
+            "entry_time": t.entry_time.isoformat(),
+            "net_pnl": t.net_pnl,
+            "r_multiple": t.r_multiple,
+        }
         for t in result.trades
     ]
     print(

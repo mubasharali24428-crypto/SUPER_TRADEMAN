@@ -7,16 +7,16 @@ committed here -- credentials come from the environment only.
 
 import asyncio
 import os
+# Make ``src`` importable so trading.* settings could be used if ever needed.
+import sys
 from logging.config import fileConfig
+from pathlib import Path
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-# Make ``src`` importable so trading.* settings could be used if ever needed.
-import sys
-from pathlib import Path
+from alembic import context
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 

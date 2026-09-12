@@ -40,7 +40,9 @@ class AuditLedger:
         self.chain: List[AuditRecord] = []
         self._db_execute = db_execute
 
-    def _compute_hash(self, prev_hash: str, timestamp_utc: str, event_type: str, payload_json: str) -> str:
+    def _compute_hash(
+        self, prev_hash: str, timestamp_utc: str, event_type: str, payload_json: str
+    ) -> str:
         # VA-035: timestamp is metadata, not hash input - portable chain
         data_str = f"{prev_hash}|{event_type}|{payload_json}"
         return hashlib.sha256(data_str.encode("utf-8")).hexdigest()
@@ -51,7 +53,9 @@ class AuditLedger:
         timestamp_utc = datetime.now(timezone.utc).isoformat()
         payload_json = json.dumps(payload, sort_keys=True)
 
-        rec_hash = self._compute_hash(prev_hash, timestamp_utc, event_type, payload_json)
+        rec_hash = self._compute_hash(
+            prev_hash, timestamp_utc, event_type, payload_json
+        )
         record = AuditRecord(
             record_id=f"aud_{uuid.uuid4().hex[:12]}",
             timestamp_utc=timestamp_utc,
@@ -67,12 +71,22 @@ class AuditLedger:
                 self._db_execute(
                     "INSERT INTO audit_events (record_id, timestamp_utc, event_type, "
                     "payload_json, prev_hash, hash) VALUES (%s, %s, %s, %s, %s, %s)",
-                    (record.record_id, timestamp_utc, event_type, payload_json,
-                     prev_hash, rec_hash),
+                    (
+                        record.record_id,
+                        timestamp_utc,
+                        event_type,
+                        payload_json,
+                        prev_hash,
+                        rec_hash,
+                    ),
                 )
             except Exception as exc:
-                logger.warning("[AUDIT_DB_WRITE_FAILED] event=%s err=%s", event_type, exc)
-        logger.info(f"[AUDIT_EVENT_APPENDED] Type={event_type}, Hash={rec_hash[:12]}...")
+                logger.warning(
+                    "[AUDIT_DB_WRITE_FAILED] event=%s err=%s", event_type, exc
+                )
+        logger.info(
+            f"[AUDIT_EVENT_APPENDED] Type={event_type}, Hash={rec_hash[:12]}..."
+        )
         return record
 
     def verify_chain_integrity(self) -> bool:
@@ -85,12 +99,21 @@ class AuditLedger:
             expected_prev_hash = self.chain[i - 1].hash if i > 0 else GENESIS_HASH
 
             if record.prev_hash != expected_prev_hash:
-                logger.error(f"[AUDIT_CORRUPTION] Invalid prev_hash at index {i}: expected {expected_prev_hash}, got {record.prev_hash}")
+                logger.error(
+                    f"[AUDIT_CORRUPTION] Invalid prev_hash at index {i}: expected {expected_prev_hash}, got {record.prev_hash}"
+                )
                 return False
 
-            recalculated_hash = self._compute_hash(record.prev_hash, record.timestamp_utc, record.event_type, record.payload_json)
+            recalculated_hash = self._compute_hash(
+                record.prev_hash,
+                record.timestamp_utc,
+                record.event_type,
+                record.payload_json,
+            )
             if record.hash != recalculated_hash:
-                logger.error(f"[AUDIT_CORRUPTION] Hash mismatch at index {i}: record {record.hash}, recalculated {recalculated_hash}")
+                logger.error(
+                    f"[AUDIT_CORRUPTION] Hash mismatch at index {i}: record {record.hash}, recalculated {recalculated_hash}"
+                )
                 return False
 
         return True

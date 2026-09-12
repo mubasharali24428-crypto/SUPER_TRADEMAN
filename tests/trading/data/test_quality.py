@@ -4,13 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from trading.data.quality import (
-    DataValidationError,
-    check_price_consistency,
-    detect_duplicate_timestamps,
-    validate_funding,
-    validate_ohlcv,
-)
+from trading.data.quality import (DataValidationError, check_price_consistency,
+                                  detect_duplicate_timestamps,
+                                  validate_funding, validate_ohlcv)
 
 
 def test_valid_ohlcv():

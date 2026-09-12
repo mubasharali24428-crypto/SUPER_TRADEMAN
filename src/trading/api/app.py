@@ -21,15 +21,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from trading.api.auth import (
-    SESSION_COOKIE_NAME,
-    Role,
-    SessionManager,
-    authenticate_operator,
-    cookie_options,
-    login_rate_limiter,
-    resolve_secret,
-)
+from trading.api.auth import (SESSION_COOKIE_NAME, Role, SessionManager,
+                              authenticate_operator, cookie_options,
+                              login_rate_limiter, resolve_secret)
 from trading.api.deps import require_admin, require_operator, require_viewer
 
 logger = logging.getLogger("trading.api.app")
@@ -82,9 +76,9 @@ def _load_health_payload() -> dict:
     if cached is not None and now - cached_at < HEALTH_CACHE_TTL_SEC:
         return cached
     try:
-        from trading.ops.health_service import HealthService
         from trading.config import ExecutionMode
         from trading.execution.venue_adapter import MockVenueAdapter
+        from trading.ops.health_service import HealthService
 
         # The hardened HealthService REQUIRES an explicit venue_adapter and its
         # own constructor only auto-selects MockVenueAdapter in simulation mode
@@ -106,8 +100,12 @@ def _load_health_payload() -> dict:
             "status": "DEGRADED",
             "timestamp_utc": None,
             "components": [
-                {"name": "health_service", "status": "DEGRADED", "latency_ms": 0.0,
-                 "details": "service unavailable"},
+                {
+                    "name": "health_service",
+                    "status": "DEGRADED",
+                    "latency_ms": 0.0,
+                    "details": "service unavailable",
+                },
             ],
             "source": "fallback",
         }
@@ -149,8 +147,8 @@ def create_app() -> FastAPI:
     # and open one span per request when real OTel tracing was configured via
     # trading.observability.otel.setup_tracing(). Both degrade gracefully:
     # no OTel extras installed => no-op spans, logging keeps working.
-    from trading.ops.logging_config import set_correlation_id
     from trading.observability import otel as _otel
+    from trading.ops.logging_config import set_correlation_id
 
     _otel.setup_tracing("super_trademan-api")  # active only w/ OTLP endpoint env
     _request_tracer = _otel.get_request_tracer()
@@ -236,13 +234,17 @@ def create_app() -> FastAPI:
             )
         # VA-045: pin username to operator, log unexpected usernames for audit
         if body.username.strip().lower() not in ("operator", "admin"):
-            logger.warning("LOGIN_UNEXPECTED_USERNAME: %s from %s", body.username,
-                          request.client.host if request.client else "unknown")
+            logger.warning(
+                "LOGIN_UNEXPECTED_USERNAME: %s from %s",
+                body.username,
+                request.client.host if request.client else "unknown",
+            )
         claims = authenticate_operator(body.username, body.password)
         if claims is None:
-            if not os.environ.get("OPERATOR_PASSWORD_HASH", "").strip() and os.environ.get(
-                "API_INSECURE_DEV"
-            ) != "1":
+            if (
+                not os.environ.get("OPERATOR_PASSWORD_HASH", "").strip()
+                and os.environ.get("API_INSECURE_DEV") != "1"
+            ):
                 # R2 / VA-001 fail-closed: no credential configured at all.
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -252,10 +254,11 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials",
             )
-        secure = os.environ.get("BIND_HOST", "127.0.0.1") not in ("127.0.0.1", "localhost")
-        response.set_cookie(
-            value=manager.sign(claims), **cookie_options(secure=secure)
+        secure = os.environ.get("BIND_HOST", "127.0.0.1") not in (
+            "127.0.0.1",
+            "localhost",
         )
+        response.set_cookie(value=manager.sign(claims), **cookie_options(secure=secure))
         return {"status": "ok", "username": claims.sub, "role": claims.role.value}
 
     @app.post("/api/auth/logout")
@@ -278,7 +281,14 @@ def create_app() -> FastAPI:
         if cookie:
             manager.revoke(cookie)
         # Also invalidate own session
-        response_obj = Response(content=_json.dumps({"status": "ok", "detail": "Session revoked; all active sessions invalidated for this process"}))
+        response_obj = Response(
+            content=_json.dumps(
+                {
+                    "status": "ok",
+                    "detail": "Session revoked; all active sessions invalidated for this process",
+                }
+            )
+        )
         response_obj.delete_cookie(SESSION_COOKIE_NAME, path="/")
         return response_obj
 
@@ -320,7 +330,8 @@ def create_app() -> FastAPI:
         return {"status": "reset"}
 
     # --- walk-forward routes (Phase-3) -----------------------------------------
-    from trading.api import walkforward_routes  # noqa: E402 — local import avoids cycles
+    from trading.api import \
+        walkforward_routes  # noqa: E402 — local import avoids cycles
 
     app.include_router(walkforward_routes.router)
 

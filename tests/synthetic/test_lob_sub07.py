@@ -3,11 +3,8 @@
 import numpy as np
 import pytest
 
-from trading.synthetic.lob import (
-    BookIntegrityViolation,
-    LimitOrder,
-    SyntheticLOB,
-)
+from trading.synthetic.lob import (BookIntegrityViolation, LimitOrder,
+                                   SyntheticLOB)
 
 
 class _AlwaysSlipRng:
@@ -41,10 +38,10 @@ def test_crossing_buy_order_slipped_is_rejected_not_resting():
     with pytest.raises(BookIntegrityViolation):
         lob.place_order(cross_buy)
 
-    assert all(o.order_id != "x-buy" for o in lob.bids)   # residual rejected
-    assert cross_buy.filled_qty == 0.0                    # nothing filled pre-slip
-    assert cross_buy.priority_timestamp_ms == 1050.0      # friction penalty applied
-    assert lob.integrity_violation_count == 1             # metric hook fired
+    assert all(o.order_id != "x-buy" for o in lob.bids)  # residual rejected
+    assert cross_buy.filled_qty == 0.0  # nothing filled pre-slip
+    assert cross_buy.priority_timestamp_ms == 1050.0  # friction penalty applied
+    assert lob.integrity_violation_count == 1  # metric hook fired
 
 
 def test_crossing_sell_order_slipped_is_rejected_not_resting():
@@ -74,7 +71,7 @@ def test_non_crossing_residual_still_rests_normally():
     passive = LimitOrder("p-buy", "buy", best_a - 2.0, 1.0, 1000.0, "agent_test")
     fills = lob.place_order(passive)
     assert fills == []
-    assert any(o.order_id == "p-buy" for o in lob.bids)   # rested legally
+    assert any(o.order_id == "p-buy" for o in lob.bids)  # rested legally
 
 
 def test_fully_filled_aggressive_order_does_not_raise():
@@ -134,8 +131,8 @@ def test_rng_injection_determinism_same_seed_identical_fills():
     a = run(1234)
     b = run(1234)
     c = run(99)
-    assert a == b                      # same seed -> identical outcomes
-    assert a != c                      # different seed -> divergent friction
+    assert a == b  # same seed -> identical outcomes
+    assert a != c  # different seed -> divergent friction
     kinds = {kind for kind, _ in a}
     assert kinds <= {"fills", "violated"} and len(kinds) >= 1
 

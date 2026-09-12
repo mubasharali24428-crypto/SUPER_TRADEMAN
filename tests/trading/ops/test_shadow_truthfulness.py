@@ -8,13 +8,11 @@ Covers:
 
 import math
 
+from trading.observability.shadow_metrics import (daily_z_score,
+                                                  lower_tail_breach,
+                                                  per_day_expectation,
+                                                  per_day_std_dev)
 from trading.ops.deployment_metrics import DeploymentMetricRecord
-from trading.observability.shadow_metrics import (
-    daily_z_score,
-    lower_tail_breach,
-    per_day_expectation,
-    per_day_std_dev,
-)
 from trading.ops.shadow_campaign import ShadowCampaign
 
 
@@ -32,6 +30,7 @@ def _record(date, pnl_pct, slippage_bps=2.0):
 # Primitive-level tests
 # --------------------------------------------------------------------------
 
+
 def test_lower_tail_breach_underperformance_is_breach():
     assert lower_tail_breach(-3.5, 3.0) is True
 
@@ -45,8 +44,8 @@ def test_outperforming_day_is_not_a_breach():
 
 def test_per_day_scaling_consistency_golden():
     """Golden: both expectation and std use per-day scale; ratio law holds."""
-    exp = per_day_expectation(0.05, 25)   # 0.05 / 25
-    std = per_day_std_dev(0.02, 25)       # 0.02 / sqrt(25)
+    exp = per_day_expectation(0.05, 25)  # 0.05 / 25
+    std = per_day_std_dev(0.02, 25)  # 0.02 / sqrt(25)
     assert math.isclose(exp, 0.002, rel_tol=1e-12)
     assert math.isclose(std, 0.004, rel_tol=1e-12)
 
@@ -61,6 +60,7 @@ def test_per_day_scaling_consistency_golden():
 # --------------------------------------------------------------------------
 # Campaign-level behavior
 # --------------------------------------------------------------------------
+
 
 def test_campaign_outperforming_days_are_not_breaches():
     """A monster outperforming day must NOT trigger hard stop under one-sided test."""

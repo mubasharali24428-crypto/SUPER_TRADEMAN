@@ -2,7 +2,8 @@
 
 import pytest
 
-from trading.ops.deployment_metrics import DeploymentMetricRecord, DeploymentMetricsStore
+from trading.ops.deployment_metrics import (DeploymentMetricRecord,
+                                            DeploymentMetricsStore)
 from trading.ops.shadow_campaign import ShadowCampaign
 
 
@@ -23,7 +24,9 @@ def test_shadow_campaign_gate1_pass():
         )
         campaign.record_daily_metrics(rec)
 
-    summary = campaign.evaluate_campaign_status(backtest_expected_pnl_pct=0.05, backtest_std_dev=0.02)
+    summary = campaign.evaluate_campaign_status(
+        backtest_expected_pnl_pct=0.05, backtest_std_dev=0.02
+    )
     assert summary.days_evaluated == 20
     assert summary.campaign_status == "GATE_1_PASS"
     assert summary.consecutive_breaches == 0

@@ -4,15 +4,11 @@ import uuid
 
 import pytest
 
-from trading.ops.deployment_metrics import (
-    AlertRecord,
-    DeploymentMetricRecord,
-    DeploymentMetricsStore,
-)
+from trading.ops.deployment_metrics import (AlertRecord,
+                                            DeploymentMetricRecord,
+                                            DeploymentMetricsStore)
 from trading.ops.metrics_collector import (
-    MetricsCollector,
-    super_trademan_reconciliation_mismatches,
-)
+    MetricsCollector, super_trademan_reconciliation_mismatches)
 
 
 class FakePool:

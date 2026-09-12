@@ -2,7 +2,8 @@
 
 import pytest
 
-from trading.synthetic.oms_engine import OMSActorEngine, OMSEventTier, OrderStatus
+from trading.synthetic.oms_engine import (OMSActorEngine, OMSEventTier,
+                                          OrderStatus)
 from trading.synthetic.portfolio_governor import PortfolioGovernor
 
 
@@ -40,11 +41,17 @@ def test_governor_suspends_tier2_during_throttle():
     for i in range(79):
         gov.record_message("BTC/USDT", now_ts=float(i) * 0.001)
     assert gov.is_throttled is False
-    assert gov.allow_event(OMSEventTier.TIER_2_EXECUTION) is True  # below the 80/sec throttle line
+    assert (
+        gov.allow_event(OMSEventTier.TIER_2_EXECUTION) is True
+    )  # below the 80/sec throttle line
 
-    gov.record_message("BTC/USDT", now_ts=0.08)  # 80th message -> crosses the 80% throttle threshold
+    gov.record_message(
+        "BTC/USDT", now_ts=0.08
+    )  # 80th message -> crosses the 80% throttle threshold
     assert gov.is_throttled is True
-    assert gov.allow_event(OMSEventTier.TIER_2_EXECUTION) is False  # ALL Tier 2 suspended globally
+    assert (
+        gov.allow_event(OMSEventTier.TIER_2_EXECUTION) is False
+    )  # ALL Tier 2 suspended globally
 
 
 def test_governor_tier0_bypass():
@@ -71,9 +78,13 @@ def test_governor_realtime_portfolio_risk():
     assert gov.portfolio_risk_exposure_pct == pytest.approx(0.05)
 
     gov.update_portfolio_risk("ETH/USDT", 0.03)
-    assert gov.portfolio_risk_exposure_pct == pytest.approx(0.08)  # aggregates in real time
+    assert gov.portfolio_risk_exposure_pct == pytest.approx(
+        0.08
+    )  # aggregates in real time
 
-    gov.update_portfolio_risk("BTC/USDT", 0.10)  # BTC's exposure changes -> re-aggregates, not accumulates
+    gov.update_portfolio_risk(
+        "BTC/USDT", 0.10
+    )  # BTC's exposure changes -> re-aggregates, not accumulates
     assert gov.portfolio_risk_exposure_pct == pytest.approx(0.13)
 
 
@@ -87,7 +98,9 @@ def test_governor_global_halt_on_risk_breach():
     assert breached is False
     assert not gov.is_globally_halted
 
-    breached = gov.update_portfolio_risk("ETH/USDT", 0.10)  # total 0.20 >= 0.15 threshold
+    breached = gov.update_portfolio_risk(
+        "ETH/USDT", 0.10
+    )  # total 0.20 >= 0.15 threshold
     assert breached is True
     assert gov.is_globally_halted is True
     for actor in actors.values():
@@ -128,8 +141,13 @@ def test_governor_circuit_breaker_cooldown():
 def test_thundering_herd_no_deadlock():
     """50 symbols shock simultaneously. This is a single-threaded, synchronous simulation
     with no real locks to deadlock on -- the honest proof is deterministic completion with
-    every symbol's state landing correctly, nothing silently dropped or left half-processed."""
-    gov = PortfolioGovernor(max_messages_per_sec=1000.0, throttle_threshold_pct=0.80, max_portfolio_risk_pct=1.0)
+    every symbol's state landing correctly, nothing silently dropped or left half-processed.
+    """
+    gov = PortfolioGovernor(
+        max_messages_per_sec=1000.0,
+        throttle_threshold_pct=0.80,
+        max_portfolio_risk_pct=1.0,
+    )
     actors = []
     for i in range(50):
         symbol = f"SYM{i}/USDT"
@@ -145,7 +163,9 @@ def test_thundering_herd_no_deadlock():
         for _ in range(5):
             gov.record_message(symbol, now_ts=0.0)
         gov.update_portfolio_risk(symbol, 0.005)  # each contributes a small slice
-        actor.enqueue_event(OMSEventTier.TIER_0_SAFETY, "STALE_QUOTE_DETECTED", {"order_id": order_id})
+        actor.enqueue_event(
+            OMSEventTier.TIER_0_SAFETY, "STALE_QUOTE_DETECTED", {"order_id": order_id}
+        )
 
     for _, actor, _ in actors:
         while actor.event_pq:
@@ -154,9 +174,13 @@ def test_thundering_herd_no_deadlock():
     assert len(gov.actors) == 50
     assert gov.aggregate_message_rate == 250  # 50 symbols * 5 messages each, none lost
     assert gov.portfolio_risk_exposure_pct == pytest.approx(0.25)  # 50 * 0.005
-    assert not gov.is_globally_halted  # 0.25 < max_portfolio_risk_pct=1.0, no false trip
+    assert (
+        not gov.is_globally_halted
+    )  # 0.25 < max_portfolio_risk_pct=1.0, no false trip
     for symbol, actor, order_id in actors:
-        assert actor.orders[order_id]["status"] == OrderStatus.PENDING_CANCEL  # every symbol's cancel processed
+        assert (
+            actor.orders[order_id]["status"] == OrderStatus.PENDING_CANCEL
+        )  # every symbol's cancel processed
 
 
 def test_system_recovery_from_global_halt():

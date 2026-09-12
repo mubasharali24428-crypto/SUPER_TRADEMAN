@@ -33,6 +33,7 @@ def test_effective_trials_with_precomputed_corr():
 # Sub-06 rigor: fail loudly on invalid denominators; NaN pairs missing   #
 # --------------------------------------------------------------------- #
 
+
 def test_nonpositive_denominator_raises_instead_of_returning_full_n():
     # Old bug: N=10, avg_corr=-0.2 -> denom = 1 + 9*(-0.2) = -0.8 <= 0
     # silently returned the FULL N (10.0), inflating deflation headroom.
@@ -58,12 +59,14 @@ def test_admissible_negative_corr_still_works():
 def test_nan_pairs_treated_as_missing_conservative():
     # Two constant series => their correlation pairs are undefined (NaN).
     rng = np.random.randn
-    base = np.column_stack([
-        rng(80),      # trial 0: random
-        rng(80),      # trial 1: random
-        np.full(80, 7.7),  # constant -> zero variance
-        np.full(80, -2.2), # constant -> zero variance
-    ])
+    base = np.column_stack(
+        [
+            rng(80),  # trial 0: random
+            rng(80),  # trial 1: random
+            np.full(80, 7.7),  # constant -> zero variance
+            np.full(80, -2.2),  # constant -> zero variance
+        ]
+    )
     n_eff = effective_trials(base)
     # Must NOT crash and must NOT treat NaN pairs as rho=0; with only one
     # valid pair (trials 0-1, ~uncorrelated) rho_bar~0 -> N_eff ~ N is wrong;
@@ -81,12 +84,14 @@ def test_all_constant_series_returns_one():
 def test_mixed_valid_and_constant_trials_uses_valid_pairs_only():
     rng = np.random.default_rng(5)
     shared = rng.normal(0.001, 0.01, 200)
-    M = np.column_stack([
-        shared,                      # perfectly correlated pair...
-        shared,
-        rng.normal(0.000, 0.02, 200),
-        np.full(200, 1.23),          # constant: excluded from averaging
-    ])
+    M = np.column_stack(
+        [
+            shared,  # perfectly correlated pair...
+            shared,
+            rng.normal(0.000, 0.02, 200),
+            np.full(200, 1.23),  # constant: excluded from averaging
+        ]
+    )
     n_eff = effective_trials(M)
     assert np.isfinite(n_eff) and 1.0 <= n_eff <= 4.0
 

@@ -50,13 +50,19 @@ def per_day_std_dev(campaign_std_dev: float, days_count: int) -> float:
     return float(campaign_std_dev) / math.sqrt(float(days_count))
 
 
-def daily_z_score(day_pnl_pct: float, campaign_expected_pnl_pct: float,
-                  campaign_std_dev: float, days_count: int) -> float:
+def daily_z_score(
+    day_pnl_pct: float,
+    campaign_expected_pnl_pct: float,
+    campaign_std_dev: float,
+    days_count: int,
+) -> float:
     """z-score of one day against the per-day null hypothesis (both scales agree)."""
     std = per_day_std_dev(campaign_std_dev, days_count)
     if std <= 0.0:
         return 0.0
-    return (float(day_pnl_pct) - per_day_expectation(campaign_expected_pnl_pct, days_count)) / std
+    return (
+        float(day_pnl_pct) - per_day_expectation(campaign_expected_pnl_pct, days_count)
+    ) / std
 
 
 def lower_tail_breach(z: float, threshold: float) -> bool:
@@ -73,7 +79,11 @@ class ShadowMetricsTracker:
     def record_shadow_trade(
         self, signal_price: float, shadow_fill_price: float, latency_ms: float
     ) -> ShadowMetricRecord:
-        slippage_pct = abs(shadow_fill_price - signal_price) / signal_price if signal_price > 0 else 0.0
+        slippage_pct = (
+            abs(shadow_fill_price - signal_price) / signal_price
+            if signal_price > 0
+            else 0.0
+        )
         rec = ShadowMetricRecord(
             signal_price=signal_price,
             shadow_fill_price=shadow_fill_price,

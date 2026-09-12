@@ -36,9 +36,7 @@ class CPCVConfig:
     min_test_size: int = 5
 
 
-def generate_cpcv_splits(
-    df: pd.DataFrame, cfg: CPCVConfig
-) -> list[TrainTestSplit]:
+def generate_cpcv_splits(df: pd.DataFrame, cfg: CPCVConfig) -> list[TrainTestSplit]:
     """Generates causal purged walk-forward cross-validation splits.
 
     For each test block k in range(1, n_folds):
@@ -103,9 +101,7 @@ def generate_cpcv_splits(
             "embargo_days",
         )
         configured = {
-            name: val
-            for name, val in zip(window_names, day_windows)
-            if val > 0
+            name: val for name, val in zip(window_names, day_windows) if val > 0
         }
         if configured:
             raise ValueError(
@@ -134,9 +130,7 @@ def generate_cpcv_splits(
     # Folds 1..n_folds-1 serve as test blocks.
     for fold in range(1, n_folds):
         test_start_idx = fold * block_size
-        test_end_idx = (
-            n_samples if fold == n_folds - 1 else (fold + 1) * block_size
-        )
+        test_end_idx = n_samples if fold == n_folds - 1 else (fold + 1) * block_size
 
         test_indices = np.arange(test_start_idx, test_end_idx)
 
@@ -145,7 +139,7 @@ def generate_cpcv_splits(
         # still be resolving during those samples; excluding them keeps the
         # test evaluation clean of train-adjacent label spillover.
         if cfg.embargo_days > 0 and len(test_indices) > cfg.min_test_size:
-            test_indices = test_indices[cfg.embargo_days:]
+            test_indices = test_indices[cfg.embargo_days :]
 
         if len(test_indices) < cfg.min_test_size:
             continue

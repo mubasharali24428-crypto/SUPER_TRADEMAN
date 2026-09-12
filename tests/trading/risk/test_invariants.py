@@ -1,6 +1,10 @@
 import pytest
+
 from trading.risk.engine import RiskEngine
-from trading.risk.models import ApprovedOrder, ApprovedExit, _ISSUER, AccountState, Side, Signal, RiskDecision, ExitSignal, ExitDecision
+from trading.risk.models import (_ISSUER, AccountState, ApprovedExit,
+                                 ApprovedOrder, ExitDecision, ExitSignal,
+                                 RiskDecision, Side, Signal)
+
 
 # Helper to create a dummy RiskEngine (uses the private _ISSUER internally)
 class DummyRiskEngine(RiskEngine):
@@ -23,7 +27,9 @@ class DummyRiskEngine(RiskEngine):
             risk_pct=risk_pct,
             issuer=_ISSUER,
         )
-        return RiskDecision(approved=True, reason="test", signal=signal, approved_order=order)
+        return RiskDecision(
+            approved=True, reason="test", signal=signal, approved_order=order
+        )
 
     def evaluate_exit(self, exit_signal, snapshot) -> ExitDecision:
         exit = ApprovedExit(
@@ -32,7 +38,9 @@ class DummyRiskEngine(RiskEngine):
             reason=exit_signal.reason,
             issuer=_ISSUER,
         )
-        return ExitDecision(approved=True, reason="test", signal=exit_signal, approved_exit=exit)
+        return ExitDecision(
+            approved=True, reason="test", signal=exit_signal, approved_exit=exit
+        )
 
 
 def test_approved_order_construction_allowed():
@@ -76,7 +84,9 @@ def test_approved_exit_construction_allowed():
         confidence=1.0,
         timestamp=__import__("datetime").datetime.utcnow(),
     )
-    decision = engine.evaluate_exit(exit_signal, AccountState(equity=100000, peak_equity=100000))
+    decision = engine.evaluate_exit(
+        exit_signal, AccountState(equity=100000, peak_equity=100000)
+    )
     assert decision.approved
     assert isinstance(decision.approved_exit, ApprovedExit)
 
@@ -89,6 +99,7 @@ def test_approved_exit_cannot_be_created_directly():
             reason="illegal",
             issuer=object(),
         )
+
 
 def test_evaluate_exit_signal_not_blocked_by_drawdown():
     engine = DummyRiskEngine()
@@ -110,6 +121,7 @@ def test_evaluate_exit_signal_not_blocked_by_drawdown():
     )
     decision = engine.evaluate(signal, account)
     assert decision.approved
+
 
 def test_position_sizing_formula():
     # Size = Equity * risk_pct / |Entry - Stop|
@@ -133,9 +145,11 @@ def test_position_sizing_formula():
     order = decision.approved_order
     assert pytest.approx(order.position_size) == expected_size
 
+
 def test_r_multiple_uses_initial_stop():
     # Placeholder test to enforce policy that R‑multiple uses the initial stop price.
     assert True
+
 
 def test_stop_fill_is_pessimistic():
     # For a long position, pessimistic fill should be <= stop price (or worse due to gap)

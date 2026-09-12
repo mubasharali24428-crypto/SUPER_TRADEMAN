@@ -41,7 +41,9 @@ def generate_trend_signal(
     if len(candles) < max(entry_lookback + 1, atr_period + 1):
         return None
 
-    channel = donchian(candles[:-1], entry_lookback)  # exclude current bar: it can't break its own high
+    channel = donchian(
+        candles[:-1], entry_lookback
+    )  # exclude current bar: it can't break its own high
     if channel is None:
         return None
     channel_high, channel_low = channel

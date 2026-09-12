@@ -1,19 +1,16 @@
 """Tests for Behavioral Personas and Agent Orchestrator."""
 
-import pytest
-
 import numpy as np
+import pytest
 
 from trading.synthetic.agents.base_agent import Agent
 from trading.synthetic.agents.orchestrator import AgentOrchestrator
-from trading.synthetic.agents.personas import (
-    AdversarialSpoofer,
-    CoordinatedPredatorSwarm,
-    HFTMarketMaker,
-    InstitutionalVWAP,
-    LiquidityVampire,
-    RetailMomentum,
-)
+from trading.synthetic.agents.personas import (AdversarialSpoofer,
+                                               CoordinatedPredatorSwarm,
+                                               HFTMarketMaker,
+                                               InstitutionalVWAP,
+                                               LiquidityVampire,
+                                               RetailMomentum)
 from trading.synthetic.lob import BookIntegrityViolation, SyntheticLOB
 
 
@@ -94,7 +91,11 @@ class _QuietAgent(Agent):
         from trading.synthetic.lob import LimitOrder
 
         bb, ba = lob.get_best_bid_ask()
-        return [LimitOrder(f"{self.agent_id}_b", "buy", bb - 1.0, 1.0, 1000.0, self.agent_id)]
+        return [
+            LimitOrder(
+                f"{self.agent_id}_b", "buy", bb - 1.0, 1.0, 1000.0, self.agent_id
+            )
+        ]
 
     def update_beliefs(self, market_data):
         pass
@@ -131,9 +132,9 @@ def test_quarantined_agent_can_recover_next_step():
     orch = AgentOrchestrator(lob=SyntheticLOB(initial_price=100.0), seed=3)
     flaky = _FlakyAgent()
     orch.agents = [flaky]
-    assert orch.step() == 0            # quarantined this step
+    assert orch.step() == 0  # quarantined this step
     assert "flaky" in orch.quarantined
-    assert orch.step() == 1            # recovered next step
+    assert orch.step() == 1  # recovered next step
     assert orch.quarantined["flaky"]["errors"] == 1
 
 
@@ -163,4 +164,3 @@ def test_injected_generator_takes_precedence():
     gen = np.random.default_rng(5)
     orch = AgentOrchestrator(rng=gen)
     assert orch.rng is gen
-

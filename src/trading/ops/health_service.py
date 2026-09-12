@@ -194,8 +194,16 @@ class HealthService:
     def check_websocket_health(self, symbol: str = "BTC") -> ComponentHealth:
         is_stale = self.staleness_sentinel.is_stale(symbol)
         if is_stale:
-            return ComponentHealth(name="websocket_data", status=HealthStatus.DEGRADED, details=f"Data for {symbol} is stale.")
-        return ComponentHealth(name="websocket_data", status=HealthStatus.HEALTHY, details=f"Data stream for {symbol} fresh.")
+            return ComponentHealth(
+                name="websocket_data",
+                status=HealthStatus.DEGRADED,
+                details=f"Data for {symbol} is stale.",
+            )
+        return ComponentHealth(
+            name="websocket_data",
+            status=HealthStatus.HEALTHY,
+            details=f"Data stream for {symbol} fresh.",
+        )
 
     def check_daemon_health(self) -> ComponentHealth:
         """Heartbeat freshness via tier-state file mtime (< 2 * interval), else UNKNOWN."""
@@ -229,7 +237,9 @@ class HealthService:
             details=f"Heartbeat stale: {age_sec:.1f}s old (>= {max_age:.1f}s budget).",
         )
 
-    def evaluate_system_health(self, symbol: str = "BTC") -> Tuple[str, List[ComponentHealth], Dict[str, Any]]:
+    def evaluate_system_health(
+        self, symbol: str = "BTC"
+    ) -> Tuple[str, List[ComponentHealth], Dict[str, Any]]:
         components = [
             self.check_database_health(),
             self.check_exchange_api_health(),

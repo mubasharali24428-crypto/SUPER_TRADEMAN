@@ -41,13 +41,19 @@ class SymbolLatencyStats:
 
     @property
     def avg_latency_ms(self) -> float:
-        return sum(self.latencies_ms) / len(self.latencies_ms) if self.latencies_ms else 0.0
+        return (
+            sum(self.latencies_ms) / len(self.latencies_ms)
+            if self.latencies_ms
+            else 0.0
+        )
 
 
 class StalenessSentinel:
     """Monitors live data stream freshness per symbol and enforces circuit breaker protection."""
 
-    def __init__(self, default_max_staleness_ms: float = 3000.0, max_latency_history: int = 100):
+    def __init__(
+        self, default_max_staleness_ms: float = 3000.0, max_latency_history: int = 100
+    ):
         self.default_max_staleness_ms = default_max_staleness_ms
         self.max_latency_history = max_latency_history
         self.stats: Dict[str, SymbolLatencyStats] = {}
@@ -62,7 +68,9 @@ class StalenessSentinel:
 
         Maintains monotonic high-water mark timestamp to ignore out-of-order replayed ticks.
         """
-        now_ms = received_at_ms if received_at_ms is not None else (time.time() * 1000.0)
+        now_ms = (
+            received_at_ms if received_at_ms is not None else (time.time() * 1000.0)
+        )
         if symbol not in self.stats:
             self.stats[symbol] = SymbolLatencyStats(symbol=symbol)
 
@@ -85,12 +93,16 @@ class StalenessSentinel:
             # Out-of-order or replayed tick: log latency but do not update high-water mark
             pass
 
-    def time_since_last_tick_ms(self, symbol: str, current_time_ms: Optional[float] = None) -> float:
+    def time_since_last_tick_ms(
+        self, symbol: str, current_time_ms: Optional[float] = None
+    ) -> float:
         """Returns time elapsed in milliseconds since the last monotonic tick."""
         if symbol not in self.stats or self.stats[symbol].last_received_at_ms == 0.0:
             return float("inf")
 
-        now_ms = current_time_ms if current_time_ms is not None else (time.time() * 1000.0)
+        now_ms = (
+            current_time_ms if current_time_ms is not None else (time.time() * 1000.0)
+        )
         return max(0.0, now_ms - self.stats[symbol].last_received_at_ms)
 
     def is_stale(

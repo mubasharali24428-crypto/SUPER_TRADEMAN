@@ -13,7 +13,8 @@ from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
 from trading.observability.logger import get_logger
-from trading.risk.models import AccountState, ApprovedExit, Position, Side, _ISSUER
+from trading.risk.models import (_ISSUER, AccountState, ApprovedExit, Position,
+                                 Side)
 
 __all__ = [
     "CircuitBreakerTier",
@@ -65,13 +66,17 @@ class PortfolioCircuitBreaker:
         self, account_state: AccountState, mark_prices: Dict[str, float]
     ) -> Tuple[CircuitBreakerTier, List[ApprovedExit]]:
         """Evaluates aggregate portfolio drawdown and returns (tier, exit_orders_if_flatten)."""
-        unrealized_pnl = self.calculate_unrealized_pnl(account_state.open_positions, mark_prices)
+        unrealized_pnl = self.calculate_unrealized_pnl(
+            account_state.open_positions, mark_prices
+        )
         current_total_equity = account_state.equity + unrealized_pnl
 
         if account_state.peak_equity <= 0:
             return CircuitBreakerTier.NORMAL, []
 
-        drawdown_pct = (account_state.peak_equity - current_total_equity) / account_state.peak_equity
+        drawdown_pct = (
+            account_state.peak_equity - current_total_equity
+        ) / account_state.peak_equity
 
         # Tier 3: Flatten
         if drawdown_pct >= self.flatten_threshold_pct:
@@ -114,4 +119,7 @@ class PortfolioCircuitBreaker:
 
     def is_entry_allowed(self) -> bool:
         """Returns False if circuit breaker is in ENTRY_BLOCK or FLATTEN state."""
-        return self.current_tier not in (CircuitBreakerTier.ENTRY_BLOCK, CircuitBreakerTier.FLATTEN)
+        return self.current_tier not in (
+            CircuitBreakerTier.ENTRY_BLOCK,
+            CircuitBreakerTier.FLATTEN,
+        )

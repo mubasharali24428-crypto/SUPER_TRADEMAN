@@ -59,7 +59,9 @@ class Settings(BaseSettings):
         return v
 
 
-def gate_execution_mode(required_mode: ExecutionMode, current_mode: ExecutionMode) -> None:
+def gate_execution_mode(
+    required_mode: ExecutionMode, current_mode: ExecutionMode
+) -> None:
     """Gates live functions based on system execution mode hierarchy.
 
     Hierarchy order: BACKTEST < PAPER < SHADOW < LIVE_RESTRICTED < LIVE_FULL

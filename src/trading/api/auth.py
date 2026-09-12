@@ -167,7 +167,9 @@ class SessionManager:
 
     def __init__(self, secret: str):
         # VA-057: SHA-256 digest (not SHA-1 default) + per-env salt for signature separation.
-        self._signer = TimestampSigner(secret, salt="trading-api", digest_method=hashlib.sha256)
+        self._signer = TimestampSigner(
+            secret, salt="trading-api", digest_method=hashlib.sha256
+        )
         # VA-004: in-memory token revocation denylist (SHA256 hashes).
         # Lost on restart, but prevents replay within same process lifetime.
         self._revoked_hashes: set = set()

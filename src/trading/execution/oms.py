@@ -21,14 +21,11 @@ from trading.core.money import quantize_to_step
 from trading.data.staleness import StalenessSentinel
 from trading.execution.outbox import OrderIntent, OutboxStore
 from trading.execution.shadow import L2OrderBookSnapshot, ShadowInterceptor
-from trading.execution.state_machine import (
-    TERMINAL_STATES,
-    IllegalTransitionError,
-    OrderEvent,
-    OrderEventType,
-    OrderState,
-    transition_order_state,
-)
+from trading.execution.state_machine import (TERMINAL_STATES,
+                                             IllegalTransitionError,
+                                             OrderEvent, OrderEventType,
+                                             OrderState,
+                                             transition_order_state)
 from trading.execution.venue_adapter import VenueAdapter
 from trading.observability.logger import get_logger
 from trading.risk.models import ApprovedOrder, RiskDeviationEvent, Side
@@ -185,15 +182,21 @@ class OrderManagementSystem:
         )
 
         # Wash Trading Prevention
-        if self.order_chaser is not None and hasattr(self.order_chaser, "working_orders"):
+        if self.order_chaser is not None and hasattr(
+            self.order_chaser, "working_orders"
+        ):
             for w_cid, w_info in list(self.order_chaser.working_orders.items()):
                 if w_info.symbol == order.asset and w_info.side != order.side:
-                    logger.info(f"[WASH_TRADING_PREVENTION] Canceling opposite working order {w_cid} on {order.asset} before submitting new order.")
+                    logger.info(
+                        f"[WASH_TRADING_PREVENTION] Canceling opposite working order {w_cid} on {order.asset} before submitting new order."
+                    )
                     await self.venue_adapter.cancel_order(w_cid, order.asset)
                     w_info.status = OrderState.CANCELED
 
         # 1. Pre-flight Staleness Check
-        if self.staleness_sentinel is not None and self.staleness_sentinel.is_stale(order.asset):
+        if self.staleness_sentinel is not None and self.staleness_sentinel.is_stale(
+            order.asset
+        ):
             logger.error(
                 f"[STALE_DATA_REJECTION] Rejecting order {client_order_id} for asset {order.asset}: WebSocket data is stale or circuit breaker tripped."
             )
@@ -201,9 +204,13 @@ class OrderManagementSystem:
 
         # 2. Shadow Mode Interception Check
         if self.execution_mode is ExecutionMode.SHADOW:
-            logger.info(f"[SHADOW_MODE] Intercepting order {client_order_id} for synthetic execution against live order book.")
+            logger.info(
+                f"[SHADOW_MODE] Intercepting order {client_order_id} for synthetic execution against live order book."
+            )
             if self.shadow_interceptor is not None and order_book is not None:
-                shadow_res = await self.shadow_interceptor.execute_shadow_fill(order, client_order_id, order_book)
+                shadow_res = await self.shadow_interceptor.execute_shadow_fill(
+                    order, client_order_id, order_book
+                )
                 if shadow_res.filled_qty > 0:
                     return await self._transition(
                         client_order_id,

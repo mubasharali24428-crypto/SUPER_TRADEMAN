@@ -87,7 +87,12 @@ _WEBHOOK_RE = re.compile(
 
 def _redact_text(text: str) -> str:
     """Strip credentials/querystrings from any postgres:// DSN occurrences."""
-    if "postgres" not in text and "redis" not in text and "hooks" not in text and "api." not in text:
+    if (
+        "postgres" not in text
+        and "redis" not in text
+        and "hooks" not in text
+        and "api." not in text
+    ):
         return text
 
     def _sub(match: "re.Match[str]") -> str:
@@ -119,7 +124,11 @@ class RedactionFilter(logging.Filter):
                 record.msg = rendered
                 record.args = None
             exc_info = record.exc_info
-            if exc_info and exc_info[0] is not None and isinstance(exc_info[1], BaseException):
+            if (
+                exc_info
+                and exc_info[0] is not None
+                and isinstance(exc_info[1], BaseException)
+            ):
                 # Pre-render + redact exception text once; formatters consume
                 # record.exc_text directly so the scrubbed version is authoritative.
                 record.exc_text = _redact_text(
@@ -176,11 +185,30 @@ class JSONFormatter(logging.Formatter):
 
         # Include custom extra fields if attached to LogRecord
         extra_keys = set(record.__dict__.keys()) - {
-            "name", "msg", "args", "levelname", "levelno", "pathname",
-            "filename", "module", "exc_info", "exc_text", "stack_info",
-            "lineno", "funcName", "created", "msecs", "relativeCreated",
-            "thread", "threadName", "processName", "process", "correlation_id",
-            "taskName", "redacted", "message",
+            "name",
+            "msg",
+            "args",
+            "levelname",
+            "levelno",
+            "pathname",
+            "filename",
+            "module",
+            "exc_info",
+            "exc_text",
+            "stack_info",
+            "lineno",
+            "funcName",
+            "created",
+            "msecs",
+            "relativeCreated",
+            "thread",
+            "threadName",
+            "processName",
+            "process",
+            "correlation_id",
+            "taskName",
+            "redacted",
+            "message",
         }
         ctx_extra = {}
         for k in extra_keys:

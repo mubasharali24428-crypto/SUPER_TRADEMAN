@@ -106,8 +106,12 @@ class SyntheticLOB:
         self.base_fill_probability = base_fill_probability
         self.rng = _resolve_rng(rng)
         self.fill_probability_floor = max(0.0, min(1.0, float(fill_probability_floor)))
-        self.bids: List[LimitOrder] = []  # Sorted descending by price, then ascending by priority_timestamp_ms
-        self.asks: List[LimitOrder] = []  # Sorted ascending by price, then ascending by priority_timestamp_ms
+        self.bids: List[
+            LimitOrder
+        ] = []  # Sorted descending by price, then ascending by priority_timestamp_ms
+        self.asks: List[
+            LimitOrder
+        ] = []  # Sorted ascending by price, then ascending by priority_timestamp_ms
         self.event_log: Deque[Dict[str, Any]] = collections.deque(maxlen=10000)
         self.integrity_violation_count = 0
 
@@ -124,7 +128,9 @@ class SyntheticLOB:
         self.asks = [
             LimitOrder("a1", "sell", self.current_price + 1.0, 2.5, now_ms, "mm_init"),
             LimitOrder("a2", "sell", self.current_price + 5.0, 5.0, now_ms, "mm_init"),
-            LimitOrder("a3", "sell", self.current_price + 10.0, 10.0, now_ms, "mm_init"),
+            LimitOrder(
+                "a3", "sell", self.current_price + 10.0, 10.0, now_ms, "mm_init"
+            ),
         ]
 
     def get_best_bid_ask(self) -> Tuple[float, float]:
@@ -169,7 +175,9 @@ class SyntheticLOB:
         if total_vol <= 0.0:
             return (best_bid + best_ask) / 2.0
 
-        return (best_bid * total_weighted_ask_vol + best_ask * total_weighted_bid_vol) / total_vol
+        return (
+            best_bid * total_weighted_ask_vol + best_ask * total_weighted_bid_vol
+        ) / total_vol
 
     def _check_book_integrity(self) -> None:
         """Reject a crossed book: best_bid >= best_ask after any insert."""
@@ -201,7 +209,9 @@ class SyntheticLOB:
         )
         raise BookIntegrityViolation(message)
 
-    def place_order(self, order: LimitOrder, stress_score: float = 0.0) -> List[Dict[str, Any]]:
+    def place_order(
+        self, order: LimitOrder, stress_score: float = 0.0
+    ) -> List[Dict[str, Any]]:
         """Processes limit/market order placement with queue friction and returns fill events.
 
         Crossing orders are rejected: if matching would leave the book crossed
@@ -213,7 +223,9 @@ class SyntheticLOB:
         fill_prob = self.get_effective_fill_probability(stress_score)
         slip_penalty = 50.0 if stress_score < 0.70 else 75.0
 
-        source_tag = "INTERNAL_STRATEGY" if order.is_internal_strategy else "EXTERNAL_MARKET"
+        source_tag = (
+            "INTERNAL_STRATEGY" if order.is_internal_strategy else "EXTERNAL_MARKET"
+        )
 
         if order.side == "buy":
             while self.asks and order.filled_qty < order.qty:
@@ -221,7 +233,9 @@ class SyntheticLOB:
                 if order.price >= best_ask.price:
                     # Stochastic queue slip friction check
                     if self.rng.random() > fill_prob:
-                        logger.debug(f"[FRICTION] Order {order.order_id} experienced queue slip (penalty +{slip_penalty}ms).")
+                        logger.debug(
+                            f"[FRICTION] Order {order.order_id} experienced queue slip (penalty +{slip_penalty}ms)."
+                        )
                         order.priority_timestamp_ms += slip_penalty
                         # A slipped crossing order must NOT rest: its limit
                         # price still crosses the outstanding ask.
@@ -232,7 +246,9 @@ class SyntheticLOB:
                             "residual not rested"
                         )
 
-                    matched_qty = min(order.qty - order.filled_qty, best_ask.qty - best_ask.filled_qty)
+                    matched_qty = min(
+                        order.qty - order.filled_qty, best_ask.qty - best_ask.filled_qty
+                    )
                     order.filled_qty += matched_qty
                     best_ask.filled_qty += matched_qty
                     self.current_price = best_ask.price
@@ -249,14 +265,16 @@ class SyntheticLOB:
                     }
                     fills.append(fill_event)
 
-                    self.event_log.append({
-                        "event_type": "trade",
-                        "side": order.side,
-                        "price": best_ask.price,
-                        "qty": matched_qty,
-                        "timestamp_ms": now_ms,
-                        "source": source_tag,
-                    })
+                    self.event_log.append(
+                        {
+                            "event_type": "trade",
+                            "side": order.side,
+                            "price": best_ask.price,
+                            "qty": matched_qty,
+                            "timestamp_ms": now_ms,
+                            "source": source_tag,
+                        }
+                    )
 
                     if best_ask.filled_qty >= best_ask.qty:
                         self.asks.pop(0)
@@ -282,7 +300,9 @@ class SyntheticLOB:
                 if order.price <= best_bid.price:
                     # Stochastic queue slip friction check
                     if self.rng.random() > fill_prob:
-                        logger.debug(f"[FRICTION] Order {order.order_id} experienced queue slip (penalty +{slip_penalty}ms).")
+                        logger.debug(
+                            f"[FRICTION] Order {order.order_id} experienced queue slip (penalty +{slip_penalty}ms)."
+                        )
                         order.priority_timestamp_ms += slip_penalty
                         # A slipped crossing order must NOT rest: its limit
                         # price still crosses the outstanding bid.
@@ -293,7 +313,9 @@ class SyntheticLOB:
                             "residual not rested"
                         )
 
-                    matched_qty = min(order.qty - order.filled_qty, best_bid.qty - best_bid.filled_qty)
+                    matched_qty = min(
+                        order.qty - order.filled_qty, best_bid.qty - best_bid.filled_qty
+                    )
                     order.filled_qty += matched_qty
                     best_bid.filled_qty += matched_qty
                     self.current_price = best_bid.price
@@ -310,14 +332,16 @@ class SyntheticLOB:
                     }
                     fills.append(fill_event)
 
-                    self.event_log.append({
-                        "event_type": "trade",
-                        "side": order.side,
-                        "price": best_bid.price,
-                        "qty": matched_qty,
-                        "timestamp_ms": now_ms,
-                        "source": source_tag,
-                    })
+                    self.event_log.append(
+                        {
+                            "event_type": "trade",
+                            "side": order.side,
+                            "price": best_bid.price,
+                            "qty": matched_qty,
+                            "timestamp_ms": now_ms,
+                            "source": source_tag,
+                        }
+                    )
 
                     if best_bid.filled_qty >= best_bid.qty:
                         self.bids.pop(0)
@@ -347,29 +371,37 @@ class SyntheticLOB:
 
         for i, o in enumerate(self.bids):
             if o.order_id == order_id:
-                source_tag = "INTERNAL_STRATEGY" if o.is_internal_strategy else "EXTERNAL_MARKET"
-                self.event_log.append({
-                    "event_type": "cancel",
-                    "side": o.side,
-                    "price": o.price,
-                    "qty": max(0.0, o.qty - o.filled_qty),
-                    "timestamp_ms": now_ms,
-                    "source": source_tag,
-                })
+                source_tag = (
+                    "INTERNAL_STRATEGY" if o.is_internal_strategy else "EXTERNAL_MARKET"
+                )
+                self.event_log.append(
+                    {
+                        "event_type": "cancel",
+                        "side": o.side,
+                        "price": o.price,
+                        "qty": max(0.0, o.qty - o.filled_qty),
+                        "timestamp_ms": now_ms,
+                        "source": source_tag,
+                    }
+                )
                 self.bids.pop(i)
                 return True
 
         for i, o in enumerate(self.asks):
             if o.order_id == order_id:
-                source_tag = "INTERNAL_STRATEGY" if o.is_internal_strategy else "EXTERNAL_MARKET"
-                self.event_log.append({
-                    "event_type": "cancel",
-                    "side": o.side,
-                    "price": o.price,
-                    "qty": max(0.0, o.qty - o.filled_qty),
-                    "timestamp_ms": now_ms,
-                    "source": source_tag,
-                })
+                source_tag = (
+                    "INTERNAL_STRATEGY" if o.is_internal_strategy else "EXTERNAL_MARKET"
+                )
+                self.event_log.append(
+                    {
+                        "event_type": "cancel",
+                        "side": o.side,
+                        "price": o.price,
+                        "qty": max(0.0, o.qty - o.filled_qty),
+                        "timestamp_ms": now_ms,
+                        "source": source_tag,
+                    }
+                )
                 self.asks.pop(i)
                 return True
 

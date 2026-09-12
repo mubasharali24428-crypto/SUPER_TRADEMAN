@@ -1,6 +1,6 @@
 import pytest
 
-from trading.risk.garch import GARCHVolatilityModel, GARCHForecastResult
+from trading.risk.garch import GARCHForecastResult, GARCHVolatilityModel
 
 
 def test_garch_fallback_on_short_series():

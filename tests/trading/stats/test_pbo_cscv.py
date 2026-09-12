@@ -5,12 +5,8 @@ import warnings
 import numpy as np
 import pytest
 
-from trading.stats.pbo import (
-    CSCVConfig,
-    PBOResult,
-    compute_pbo,
-    compute_pbo_cscv,
-)
+from trading.stats.pbo import (CSCVConfig, PBOResult, compute_pbo,
+                               compute_pbo_cscv)
 
 RNG = np.random.default_rng(20260824)
 
@@ -28,7 +24,9 @@ def test_cscv_one_truly_best_strategy_yields_low_pbo():
     M = _synthetic_field(dominant_edge=0.004)
     res = compute_pbo_cscv(M)
     assert isinstance(res, PBOResult)
-    assert res.pbo <= 0.10, f"PBO should be near 0 for a truly dominant strategy, got {res.pbo}"
+    assert (
+        res.pbo <= 0.10
+    ), f"PBO should be near 0 for a truly dominant strategy, got {res.pbo}"
     assert np.mean(res.is_best_indices == 0) > 0.9  # IS selection consistently finds it
 
 
@@ -41,7 +39,9 @@ def test_cscv_random_equal_strategies_yield_pbo_near_half():
         res = compute_pbo_cscv(M)
         pbos.append(res.pbo)
     mean_pbo = float(np.mean(pbos))
-    assert 0.30 <= mean_pbo <= 0.70, f"exchangeable strategies should give PBO~0.5, got {mean_pbo}"
+    assert (
+        0.30 <= mean_pbo <= 0.70
+    ), f"exchangeable strategies should give PBO~0.5, got {mean_pbo}"
 
 
 def test_cscv_monotonicity_in_edge_strength():
@@ -63,9 +63,9 @@ def test_cscv_monotonicity_in_edge_strength():
     weak = pbo_for(0.0005)
     none = pbo_for(0.0)
     mean = lambda xs: float(np.mean(xs))
-    assert mean(strong) < mean(weak), (
-        f"PBO should increase as edge weakens: {mean(strong):.3f} !< {mean(weak):.3f}"
-    )
+    assert mean(strong) < mean(
+        weak
+    ), f"PBO should increase as edge weakens: {mean(strong):.3f} !< {mean(weak):.3f}"
     assert 0.30 <= mean(none) <= 0.70  # edgeless field ~ coin flip
     print(
         f"\n[cscv monotonicity] mean PBO by edge strength "
@@ -91,9 +91,9 @@ def test_cscv_more_trials_harder_to_deflate():
     small = pbo_for(4)
     large = pbo_for(64)
     # The large field cannot be *safer* than the small one beyond noise.
-    assert large >= small - 0.15, (
-        f"64-trial field unexpectedly safer than 4-trial: {small:.3f} vs {large:.3f}"
-    )
+    assert (
+        large >= small - 0.15
+    ), f"64-trial field unexpectedly safer than 4-trial: {small:.3f} vs {large:.3f}"
     print(f"\n[cscv trial count] mean PBO: N=4 -> {small:.3f}, N=64 -> {large:.3f}")
 
 
@@ -133,7 +133,7 @@ def test_cscv_sampling_caps_combinations():
     rc = compute_pbo_cscv(M, cfg_c)
     assert ra.n_splits_evaluated == 50
     assert ra.n_splits_total == 924
-    assert ra.pbo == rb.pbo            # same seed -> identical result
+    assert ra.pbo == rb.pbo  # same seed -> identical result
     assert ra.combinations != rc.combinations or ra.pbo == rc.pbo
 
 
@@ -184,6 +184,7 @@ def test_cscv_result_shapes_and_ranges():
 # Wave-6 RECT-ALPHA                                                     #
 # --------------------------------------------------------------------- #
 
+
 def test_vb003_conditional_pbo_exposes_concentrated_condemnation():
     """Pooled PBO dilutes when the IS-best only wins a minority of splits;
     the per-IS-best-strategy conditional view must still flag it.
@@ -197,12 +198,10 @@ def test_vb003_conditional_pbo_exposes_concentrated_condemnation():
     n_obs, n_strats, T = 480, 6, 16
     M = rng.normal(0.0002, 0.01, size=(n_obs, n_strats))
     block = n_obs // T
-    M[0:block * 4, 1] += 0.02          # IS-dominant in early blocks...
-    M[block * 4:, 1] -= 0.03           # ...but collapses everywhere else
+    M[0 : block * 4, 1] += 0.02  # IS-dominant in early blocks...
+    M[block * 4 :, 1] -= 0.03  # ...but collapses everywhere else
 
-    res = compute_pbo_cscv(
-        M, CSCVConfig(n_blocks=T, max_splits=1000, random_state=42)
-    )
+    res = compute_pbo_cscv(M, CSCVConfig(n_blocks=T, max_splits=1000, random_state=42))
     assert res.n_splits_evaluated == len(res.lambdas)
     # Backward compat: pooled fields unchanged in meaning.
     assert 0.0 <= res.pbo <= 1.0
@@ -274,9 +273,7 @@ def test_vb044_pbo_stderr_reported_and_warns_on_few_splits():
     with pytest.warns(UserWarning, match="standard error"):
         few = compute_pbo_cscv(M, CSCVConfig(n_blocks=6, max_splits=5))
     assert few.n_splits_evaluated == 5
-    assert few.pbo_stderr == pytest.approx(
-        float(np.sqrt(few.pbo * (1 - few.pbo) / 5))
-    )
+    assert few.pbo_stderr == pytest.approx(float(np.sqrt(few.pbo * (1 - few.pbo) / 5)))
     assert few.pbo_stderr >= 0.0
 
 

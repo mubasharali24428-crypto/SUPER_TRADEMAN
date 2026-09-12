@@ -77,9 +77,9 @@ class TierState:
     with a default so old persisted payloads remain readable.
     """
 
-    tier: str = "normal"        # SurvivalTier.value
-    entered_cycle: int = 0      # cycle index at which current tier was entered
-    below_count: int = 0        # consecutive cycles evaluating BELOW current tier
+    tier: str = "normal"  # SurvivalTier.value
+    entered_cycle: int = 0  # cycle index at which current tier was entered
+    below_count: int = 0  # consecutive cycles evaluating BELOW current tier
     last_settled_equity: Optional[float] = None
 
 
@@ -120,8 +120,12 @@ def more_defensive(a: TierState, b: TierState) -> TierState:
     Unrecognized tier strings rank at UNKNOWN defensiveness. Ties keep ``a``
     (the fresher in-memory value).
     """
-    sev_a = _TIER_SEVERITY.get(str(getattr(a, "tier", "")).lower(), _TIER_SEVERITY[UNKNOWN_TIER])
-    sev_b = _TIER_SEVERITY.get(str(getattr(b, "tier", "")).lower(), _TIER_SEVERITY[UNKNOWN_TIER])
+    sev_a = _TIER_SEVERITY.get(
+        str(getattr(a, "tier", "")).lower(), _TIER_SEVERITY[UNKNOWN_TIER]
+    )
+    sev_b = _TIER_SEVERITY.get(
+        str(getattr(b, "tier", "")).lower(), _TIER_SEVERITY[UNKNOWN_TIER]
+    )
     return a if sev_a >= sev_b else b
 
 
@@ -197,7 +201,8 @@ class RedisTierState:
         except Exception as exc:  # noqa: BLE001 — cached above; persist best-effort
             logger.error(
                 "FAILED_SAVE tier_state redis key %s (%s); state in-memory only",
-                self.key, exc,
+                self.key,
+                exc,
             )
             return False
 
@@ -210,14 +215,18 @@ class RedisTierState:
                 logger.warning(
                     "Could not load risk tier state from redis key %s (%s); "
                     "holding last-known in-memory tier '%s' (fail-closed)",
-                    self.key, exc, cached.tier,
+                    self.key,
+                    exc,
+                    cached.tier,
                 )
                 return cached
             logger.warning(
                 "Could not load risk tier state from redis key %s (%s) and no "
                 "in-memory last-known state exists; returning '%s' tier -- "
                 "callers MUST treat this as CAUTION-minimum",
-                self.key, exc, UNKNOWN_TIER,
+                self.key,
+                exc,
+                UNKNOWN_TIER,
             )
             return unknown_state()
         if raw is None:
@@ -226,7 +235,9 @@ class RedisTierState:
             state = _state_from_mapping(json.loads(raw))
         except (ValueError, TypeError, AttributeError) as exc:
             logger.warning(
-                "Corrupt risk tier state in redis key %s (%s); defaulting to NORMAL", self.key, exc
+                "Corrupt risk tier state in redis key %s (%s); defaulting to NORMAL",
+                self.key,
+                exc,
             )
             return default_state()
         # R2 / VA-062: merge with the in-process last-known cache taking the
@@ -238,7 +249,9 @@ class RedisTierState:
         return state
 
 
-def _select_backend(client: Any = None, path: Optional[str] = None, scope: str = DEFAULT_SCOPE):
+def _select_backend(
+    client: Any = None, path: Optional[str] = None, scope: str = DEFAULT_SCOPE
+):
     """File backend by default; Redis only on explicit client or REDIS_URL."""
     if client is not None:
         return RedisTierState(client=client, scope=scope)
@@ -309,7 +322,9 @@ def load_state(
         # Corrupt RECORD (readable store, unparsable content): legacy policy
         # applies -- this is not a transport failure, so NORMAL stands.
         logger.warning(
-            "Could not load risk tier state from %s (%s); defaulting to NORMAL", target, exc
+            "Could not load risk tier state from %s (%s); defaulting to NORMAL",
+            target,
+            exc,
         )
         return default_state()
     except (OSError, ValueError, TypeError) as exc:
@@ -318,13 +333,17 @@ def load_state(
             logger.warning(
                 "Could not load risk tier state from %s (%s); holding "
                 "last-known in-memory tier '%s' (fail-closed)",
-                target, exc, cached.tier,
+                target,
+                exc,
+                cached.tier,
             )
             return cached
         logger.warning(
             "Could not load risk tier state from %s (%s); returning '%s' tier "
             "-- callers MUST treat this as CAUTION-minimum",
-            target, exc, UNKNOWN_TIER,
+            target,
+            exc,
+            UNKNOWN_TIER,
         )
         return unknown_state()
     _cache_put(f"file:{target}", state)

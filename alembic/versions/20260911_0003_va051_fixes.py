@@ -45,13 +45,21 @@ def upgrade() -> None:
                 f"but differ in asset_class. Deduplicate before upgrading."
             )
     op.execute("ALTER TABLE ohlcv DROP CONSTRAINT ohlcv_pkey;")
-    op.execute("ALTER TABLE ohlcv ADD PRIMARY KEY (exchange, symbol, timeframe, timestamp, asset_class);")
+    op.execute(
+        "ALTER TABLE ohlcv ADD PRIMARY KEY (exchange, symbol, timeframe, timestamp, asset_class);"
+    )
     op.execute("ALTER TABLE funding_rates DROP CONSTRAINT funding_rates_pkey;")
-    op.execute("ALTER TABLE funding_rates ADD PRIMARY KEY (exchange, symbol, timestamp, asset_class);")
+    op.execute(
+        "ALTER TABLE funding_rates ADD PRIMARY KEY (exchange, symbol, timestamp, asset_class);"
+    )
 
 
 def downgrade() -> None:
     op.execute("ALTER TABLE ohlcv DROP CONSTRAINT ohlcv_pkey;")
-    op.execute("ALTER TABLE ohlcv ADD PRIMARY KEY (exchange, symbol, timeframe, timestamp);")
+    op.execute(
+        "ALTER TABLE ohlcv ADD PRIMARY KEY (exchange, symbol, timeframe, timestamp);"
+    )
     op.execute("ALTER TABLE funding_rates DROP CONSTRAINT funding_rates_pkey;")
-    op.execute("ALTER TABLE funding_rates ADD PRIMARY KEY (exchange, symbol, timestamp);")
+    op.execute(
+        "ALTER TABLE funding_rates ADD PRIMARY KEY (exchange, symbol, timestamp);"
+    )

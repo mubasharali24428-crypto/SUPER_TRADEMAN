@@ -10,11 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from trading.learning.graph import (
-    DEFAULT_ROTATE_BYTES,
-    LockAcquireTimeout,
-    LearningGraph,
-)
+from trading.learning.graph import (DEFAULT_ROTATE_BYTES, LearningGraph,
+                                    LockAcquireTimeout)
 
 
 @pytest.fixture()
@@ -117,8 +114,8 @@ def test_torn_line_quarantine_sidecar(store):
     g.to_jsonl()
     good_lines = len(store.read_text().splitlines())
     with store.open("a", encoding="utf-8") as f:
-        f.write('{"decision": torn\n')          # truncated mid-object
-        f.write("not json at all\n")             # garbage
+        f.write('{"decision": torn\n')  # truncated mid-object
+        f.write("not json at all\n")  # garbage
 
     corrupt_path = Path(str(store) + ".corrupt")
     assert not corrupt_path.exists() or corrupt_path.stat().st_size == 0
@@ -132,7 +129,9 @@ def test_torn_line_quarantine_sidecar(store):
     # Good records survived and are not re-appended on flush.
     assert g2.graph.number_of_edges() == 1
     g2.to_jsonl()
-    assert len([ln for ln in store.read_text().splitlines() if ln.strip()]) == good_lines
+    assert (
+        len([ln for ln in store.read_text().splitlines() if ln.strip()]) == good_lines
+    )
 
 
 def test_lock_timeout_raises(store, tmp_path):

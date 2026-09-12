@@ -2,10 +2,12 @@ import argparse
 import json
 from pathlib import Path
 
-from trading.backtest.portfolio_engine import run_portfolio_backtest, PortfolioResult
-from trading.risk.engine import RiskEngine
-from trading.risk.models import RiskConfig, AccountState
 from trading.backtest.engine import BacktestConfig
+from trading.backtest.portfolio_engine import (PortfolioResult,
+                                               run_portfolio_backtest)
+from trading.risk.engine import RiskEngine
+from trading.risk.models import AccountState, RiskConfig
+
 
 def load_cached_candles(cache_dir: Path) -> dict:
     """Load cached OHLCV JSON files from the given directory.
@@ -19,12 +21,14 @@ def load_cached_candles(cache_dir: Path) -> dict:
             candles_by_asset[asset] = json.load(f)
     return candles_by_asset
 
+
 def simple_strategy(histories, asset, ts):
     """A deterministic demo strategy: always go LONG on the first bar.
     Returns a Signal or None.
     """
     # Import lazily to avoid circular imports at module load.
-    from trading.risk.models import Signal, Side
+    from trading.risk.models import Side, Signal
+
     if not histories:
         return None
     # If no open position for this asset, generate entry signal on first candle.
@@ -40,10 +44,20 @@ def simple_strategy(histories, asset, ts):
         )
     return None
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Run portfolio backtest over cached OHLCV data.")
-    parser.add_argument("--cache-dir", type=str, default="data/cache", help="Directory with per-asset JSON candle caches.")
-    parser.add_argument("--trail", type=float, default=None, help="Trailing ATR multiplier (optional).")
+    parser = argparse.ArgumentParser(
+        description="Run portfolio backtest over cached OHLCV data."
+    )
+    parser.add_argument(
+        "--cache-dir",
+        type=str,
+        default="data/cache",
+        help="Directory with per-asset JSON candle caches.",
+    )
+    parser.add_argument(
+        "--trail", type=float, default=None, help="Trailing ATR multiplier (optional)."
+    )
     args = parser.parse_args()
 
     cache_path = Path(args.cache_dir)
@@ -73,7 +87,9 @@ def main():
     print("Portfolio Backtest Summary")
     print(f"Initial equity: {result.report.starting_equity:.2f}")
     print(f"Final equity: {result.report.final_equity:.2f}")
-    print(f"Total PnL: {result.report.final_equity - result.report.starting_equity:.2f}")
+    print(
+        f"Total PnL: {result.report.final_equity - result.report.starting_equity:.2f}"
+    )
     print(f"Number of trades: {len(result.trades)}")
     print(f"Sharpe (annualized): {result.report.sharpe:.2f}")
 
@@ -91,6 +107,7 @@ def main():
             indent=2,
         )
     print(f"Full result written to {output_path.resolve()}")
+
 
 if __name__ == "__main__":
     main()

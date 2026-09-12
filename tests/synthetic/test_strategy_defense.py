@@ -3,13 +3,12 @@
 import pytest
 
 from trading.risk.models import Position, Side
-from trading.synthetic.regime_validator import MicrostructureMetrics, MicrostructureRegime
-from trading.synthetic.strategy_defense import (
-    EWMVTracker,
-    MicrostructureStrategyDefender,
-    StrategyDefensePosture,
-    StrategyDefenseState,
-)
+from trading.synthetic.regime_validator import (MicrostructureMetrics,
+                                                MicrostructureRegime)
+from trading.synthetic.strategy_defense import (EWMVTracker,
+                                                MicrostructureStrategyDefender,
+                                                StrategyDefensePosture,
+                                                StrategyDefenseState)
 
 
 def _mock_metrics(regime: str, stress_score: float) -> MicrostructureMetrics:
@@ -52,7 +51,9 @@ def test_strategy_defender_defensive_state_with_ewmv_stop():
     defender = MicrostructureStrategyDefender()
     # Feed some volatility
     for p in [50000.0, 50100.0, 49900.0, 50200.0]:
-        defender.evaluate_posture(_mock_metrics(MicrostructureRegime.CALM, 0.0), micro_price=p)
+        defender.evaluate_posture(
+            _mock_metrics(MicrostructureRegime.CALM, 0.0), micro_price=p
+        )
 
     metrics = _mock_metrics(MicrostructureRegime.SELL_STRESS, 0.80)
     pos = Position(
@@ -81,26 +82,36 @@ def test_strategy_defender_healing_protocol_and_graduation():
     calm_metrics = _mock_metrics(MicrostructureRegime.CALM, 0.05)
 
     # 1. Trigger HALTED on 8.5% drawdown at t=0
-    posture = defender.evaluate_posture(calm_metrics, micro_price=50000.0, current_drawdown_pct=0.085, now_ts=0.0)
+    posture = defender.evaluate_posture(
+        calm_metrics, micro_price=50000.0, current_drawdown_pct=0.085, now_ts=0.0
+    )
     assert posture.state == StrategyDefenseState.HALTED
     assert posture.trigger_emergency_flatten
 
     # 2. At t=100s, still in purgatory cooldown (< 300s), drawdown reduced to 2%
-    posture = defender.evaluate_posture(calm_metrics, micro_price=50000.0, current_drawdown_pct=0.02, now_ts=100.0)
+    posture = defender.evaluate_posture(
+        calm_metrics, micro_price=50000.0, current_drawdown_pct=0.02, now_ts=100.0
+    )
     assert posture.state == StrategyDefenseState.HALTED
 
     # 3. At t=305s, purgatory cooldown complete, calm streak starts
-    posture = defender.evaluate_posture(calm_metrics, micro_price=50000.0, current_drawdown_pct=0.02, now_ts=305.0)
+    posture = defender.evaluate_posture(
+        calm_metrics, micro_price=50000.0, current_drawdown_pct=0.02, now_ts=305.0
+    )
     assert posture.state == StrategyDefenseState.HALTED
 
     # 4. At t=370s (> 60s calm streak), graduates to RECOVERING (0.10x size cap)
-    posture = defender.evaluate_posture(calm_metrics, micro_price=50000.0, current_drawdown_pct=0.02, now_ts=370.0)
+    posture = defender.evaluate_posture(
+        calm_metrics, micro_price=50000.0, current_drawdown_pct=0.02, now_ts=370.0
+    )
     assert posture.state == StrategyDefenseState.RECOVERING
     assert posture.size_multiplier == 0.10
     assert not posture.block_new_entries
 
     # 5. At t=680s (> 300s in RECOVERING), graduates to CAUTION (0.50x)
-    posture = defender.evaluate_posture(calm_metrics, micro_price=50000.0, current_drawdown_pct=0.02, now_ts=680.0)
+    posture = defender.evaluate_posture(
+        calm_metrics, micro_price=50000.0, current_drawdown_pct=0.02, now_ts=680.0
+    )
     assert posture.state == StrategyDefenseState.CAUTION
     assert posture.size_multiplier == 0.50
 
@@ -112,7 +123,9 @@ def test_sniper_disarmed_in_normal():
     defender = MicrostructureStrategyDefender()
     assert defender.current_state == StrategyDefenseState.NORMAL  # default, untouched
 
-    posture = defender.evaluate_posture(_mock_metrics(MicrostructureRegime.CALM, 0.0), micro_price=100.0, now_ts=0.0)
+    posture = defender.evaluate_posture(
+        _mock_metrics(MicrostructureRegime.CALM, 0.0), micro_price=100.0, now_ts=0.0
+    )
 
     assert posture.state == StrategyDefenseState.NORMAL
     assert posture.sniper_mode_armed is False
@@ -127,7 +140,9 @@ def test_sniper_armed_in_recovering():
     defender.recovering_entry_ts = 0.0
     defender.sniper_mode.is_armed = True
 
-    posture = defender.evaluate_posture(_mock_metrics(MicrostructureRegime.CALM, 0.05), micro_price=100.0, now_ts=1.0)
+    posture = defender.evaluate_posture(
+        _mock_metrics(MicrostructureRegime.CALM, 0.05), micro_price=100.0, now_ts=1.0
+    )
 
     assert posture.state == StrategyDefenseState.RECOVERING
     assert posture.sniper_mode_armed is True

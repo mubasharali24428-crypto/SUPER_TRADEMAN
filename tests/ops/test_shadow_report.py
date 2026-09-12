@@ -9,7 +9,8 @@ import pytest
 
 from scripts import shadow_report
 from scripts.shadow_report import MIN_DAYS_REQUIRED, evaluate_gate_1
-from trading.ops.deployment_metrics import DeploymentMetricRecord, DeploymentMetricsStore
+from trading.ops.deployment_metrics import (DeploymentMetricRecord,
+                                            DeploymentMetricsStore)
 
 
 def _make_record(day: int, pnl_pct: float = 0.0025) -> DeploymentMetricRecord:
@@ -48,14 +49,18 @@ def test_evaluate_gate_1_pass():
         liquidity_deficit_pct=0.01,
         reconciliation_mismatches=0,
     )
-    passed, failures, details = evaluate_gate_1(record, backtest_expected_pnl_pct=0.05, backtest_pnl_std_dev=0.02)
+    passed, failures, details = evaluate_gate_1(
+        record, backtest_expected_pnl_pct=0.05, backtest_pnl_std_dev=0.02
+    )
     assert passed
     assert len(failures) == 0
     assert details["shadow_pnl_z_score"] == 0.0
 
 
 def test_evaluate_gate_1_fail_missing_benchmark():
-    record = DeploymentMetricRecord(metric_date="2026-08-18", execution_mode="shadow", symbols="BTC/USDT")
+    record = DeploymentMetricRecord(
+        metric_date="2026-08-18", execution_mode="shadow", symbols="BTC/USDT"
+    )
     passed, failures, details = evaluate_gate_1(record, backtest_expected_pnl_pct=None)
     assert not passed
     assert any("MISSING_BACKTEST_BENCHMARK" in f for f in failures)
@@ -113,7 +118,9 @@ def test_full_window_broken_campaign_exits_3(monkeypatch, capsys):
 def test_json_output_reports_not_evaluable_on_empty_store(monkeypatch, capsys):
     import json as _json
 
-    code, _created = _run_main(monkeypatch, lambda: DeploymentMetricsStore(), extra_args=["--format", "json"])
+    code, _created = _run_main(
+        monkeypatch, lambda: DeploymentMetricsStore(), extra_args=["--format", "json"]
+    )
     assert code == 2
     payload = _json.loads(capsys.readouterr().out)
     assert payload["gate_1_status"] == "NOT_EVALUABLE"

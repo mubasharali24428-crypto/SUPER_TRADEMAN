@@ -8,17 +8,15 @@ import numpy as np
 import pytest
 from scipy import stats as scistats
 
-from trading.stats.sharpe_variants import (
-    deflated_sharpe_ratio,
-    estimate_moments,
-    expected_max_sharpe,
-    probabilistic_sharpe_ratio,
-)
-
+from trading.stats.sharpe_variants import (deflated_sharpe_ratio,
+                                           estimate_moments,
+                                           expected_max_sharpe,
+                                           probabilistic_sharpe_ratio)
 
 # --------------------------------------------------------------------- #
 # Hand-computed PSR values                                               #
 # --------------------------------------------------------------------- #
+
 
 def test_psr_zero_difference_is_half():
     # SR_obs == SR* => z = 0 => PSR = Phi(0) = 0.5 exactly.
@@ -55,9 +53,7 @@ def test_psr_higher_benchmark_lower_psr():
 
 
 def test_psr_grows_with_t():
-    psrs = [
-        probabilistic_sharpe_ratio(0.0, 0.1, t) for t in (50, 100, 500, 2000)
-    ]
+    psrs = [probabilistic_sharpe_ratio(0.0, 0.1, t) for t in (50, 100, 500, 2000)]
     assert psrs == sorted(psrs)
     assert psrs[-1] > 0.999
 
@@ -88,10 +84,11 @@ def test_psr_extreme_sr_valid_for_gaussian():
 # Expected max Sharpe under multiple testing                             #
 # --------------------------------------------------------------------- #
 
+
 def test_expected_max_sharpe_single_trial_and_monotonicity():
     assert expected_max_sharpe(1, var_sharpe_trials=1.0) == 0.0
     vals = [expected_max_sharpe(n, var_sharpe_trials=1.0) for n in (2, 5, 20, 100)]
-    assert vals == sorted(vals)          # grows with N
+    assert vals == sorted(vals)  # grows with N
     assert all(v >= 0 for v in vals)
     # Published ballpark (Bailey & LdP 2014, eq. 4): E[max] over N=100 iid
     # standard-normal trials is ~2.50-2.51.
@@ -99,9 +96,9 @@ def test_expected_max_sharpe_single_trial_and_monotonicity():
 
 
 def test_expected_max_sharpe_scales_with_dispersion():
-    a = expected_max_sharpe(50, var_sharpe_trials=0.04)   # sd(SR)=0.2
-    b = expected_max_sharpe(50, var_sharpe_trials=1.0)    # sd(SR)=1.0
-    assert b == pytest.approx(a / 0.2, rel=1e-9)          # linear in sd(SR)
+    a = expected_max_sharpe(50, var_sharpe_trials=0.04)  # sd(SR)=0.2
+    b = expected_max_sharpe(50, var_sharpe_trials=1.0)  # sd(SR)=1.0
+    assert b == pytest.approx(a / 0.2, rel=1e-9)  # linear in sd(SR)
 
 
 def test_expected_max_sharpe_invalid_inputs():
@@ -116,6 +113,7 @@ def test_expected_max_sharpe_invalid_inputs():
 # --------------------------------------------------------------------- #
 # Deflated Sharpe Ratio                                                  #
 # --------------------------------------------------------------------- #
+
 
 def test_dsr_published_example_bailey_lopez_de_prado_2014():
     # Bailey & Lopez de Prado (2014): N=100 trials, sd(SR)=1.0 across trials
@@ -159,8 +157,8 @@ def test_dsr_decreases_with_number_of_trials():
         for n_trials in (1, 10, 100, 1000)
     ]
     assert dsrs == sorted(dsrs, reverse=True)  # strictly decreasing in N
-    assert dsrs[0] > 0.95                      # single trial: high confidence
-    assert dsrs[3] < 0.30                      # 1000 trials: selection eats it
+    assert dsrs[0] > 0.95  # single trial: high confidence
+    assert dsrs[3] < 0.30  # 1000 trials: selection eats it
 
 
 def test_dsr_penalized_by_non_normality():
@@ -168,12 +166,20 @@ def test_dsr_penalized_by_non_normality():
     # per-period -> E[max] ~= 0.021), differing ONLY in skew/kurtosis:
     # heavy left tail + excess kurtosis must lower DSR.
     d_norm = deflated_sharpe_ratio(
-        sharpe_observed=0.15, n_trials=20, n_observations=750,
-        skew=0.0, kurtosis=3.0, var_sharpe_trials=1e-4,
+        sharpe_observed=0.15,
+        n_trials=20,
+        n_observations=750,
+        skew=0.0,
+        kurtosis=3.0,
+        var_sharpe_trials=1e-4,
     )
     d_fat = deflated_sharpe_ratio(
-        sharpe_observed=0.15, n_trials=20, n_observations=750,
-        skew=-1.5, kurtosis=9.0, var_sharpe_trials=1e-4,
+        sharpe_observed=0.15,
+        n_trials=20,
+        n_observations=750,
+        skew=-1.5,
+        kurtosis=9.0,
+        var_sharpe_trials=1e-4,
     )
     assert 0.99 < d_fat < d_norm < 1.0
 
@@ -196,6 +202,7 @@ def test_dsr_perfectly_skillful_strategy_stays_above_half():
 # Wave-6 RECT-ALPHA (VB-079): pinned moment estimator                    #
 # --------------------------------------------------------------------- #
 
+
 def test_vb079_estimate_moments_biased_pearson_convention():
     """estimate_moments must return biased plug-in Pearson moments: g4 ~ 3.0
     for normal data (NOT scipy's excess ~0), and ddof=0 dispersion."""
@@ -210,10 +217,12 @@ def test_vb079_estimate_moments_biased_pearson_convention():
 
 
 def test_vb079_estimate_moments_feeds_psr_end_to_end():
-    r = np.concatenate([
-        np.random.default_rng(5).normal(-0.01, 0.02, 250),
-        np.random.default_rng(6).normal(0.02, 0.01, 250),
-    ])
+    r = np.concatenate(
+        [
+            np.random.default_rng(5).normal(-0.01, 0.02, 250),
+            np.random.default_rng(6).normal(0.02, 0.01, 250),
+        ]
+    )
     sr, g3, g4 = estimate_moments(r)
     psr = probabilistic_sharpe_ratio(
         benchmark_sharpe=0.0,

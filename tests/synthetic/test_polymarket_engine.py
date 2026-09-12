@@ -2,15 +2,13 @@
 
 import pytest
 
-from trading.synthetic.polymarket_engine import (
-    AMMSlippageCalculator,
-    AtomicBatchExecutor,
-    EdgeAfterMEVValidator,
-    MEVTaxCalculator,
-    PolymarketEngine,
-    PrivateMempoolRouter,
-    ProbabilityVelocityTracker,
-)
+from trading.synthetic.polymarket_engine import (AMMSlippageCalculator,
+                                                 AtomicBatchExecutor,
+                                                 EdgeAfterMEVValidator,
+                                                 MEVTaxCalculator,
+                                                 PolymarketEngine,
+                                                 PrivateMempoolRouter,
+                                                 ProbabilityVelocityTracker)
 
 
 def test_probability_velocity_regime_shift():

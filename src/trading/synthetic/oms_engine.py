@@ -24,9 +24,9 @@ logger = get_logger("trading.synthetic.oms_engine")
 
 
 class OMSEventTier(int, Enum):
-    TIER_0_SAFETY = 0       # STALE_QUOTE_DETECTED, EMERGENCY_CANCEL, KILL_SWITCH, TOXIC_FLOW
-    TIER_1_STATE = 1        # REGIME_SHIFT, DEFENSE_TRIGGER, FORCE_STATE_SYNC
-    TIER_2_EXECUTION = 2    # SNIPER_ENTRY, PASSIVE_QUOTE, IOC_SWEEP
+    TIER_0_SAFETY = 0  # STALE_QUOTE_DETECTED, EMERGENCY_CANCEL, KILL_SWITCH, TOXIC_FLOW
+    TIER_1_STATE = 1  # REGIME_SHIFT, DEFENSE_TRIGGER, FORCE_STATE_SYNC
+    TIER_2_EXECUTION = 2  # SNIPER_ENTRY, PASSIVE_QUOTE, IOC_SWEEP
 
 
 class OrderStatus(str, Enum):
@@ -45,7 +45,9 @@ class OMSEvent:
     sequence: int
     event_type: str = field(compare=False)
     payload: Dict[str, Any] = field(compare=False)
-    timestamp_ms: float = field(compare=False, default_factory=lambda: time.time() * 1000.0)
+    timestamp_ms: float = field(
+        compare=False, default_factory=lambda: time.time() * 1000.0
+    )
 
 
 @dataclass
@@ -84,22 +86,22 @@ class OMSActorEngine:
     def __init__(self, symbol: str = "BTC/USDT", max_discrepancy_pct: float = 0.10):
         self.symbol = symbol
         self.max_discrepancy_pct = max_discrepancy_pct
-        
+
         self.event_pq: List[OMSEvent] = []
         self._counter = itertools.count()
         self.mailbox = AtomicMailbox()
-        
+
         # Local state storage. Private backing dict -- external callers (e.g. the
         # background reconciler thread) only ever get a read-only view via `orders`;
         # mutation must go through the Actor's own event-loop methods.
         self._orders: Dict[str, Dict[str, Any]] = {}
         self.local_position: float = 0.0
         self.processed_events: List[str] = []
-        
+
         # Sequence buffering for out-of-order exchange messages
         self.next_expected_seq_num: int = 1
         self.seq_buffer: Dict[int, ExchangeMessage] = {}
-        
+
         # Circuit breaker state
         self.circuit_breaker_tripped: bool = False
         self.is_halted: bool = False
@@ -110,7 +112,9 @@ class OMSActorEngine:
         """Read-only view of order state; direct external mutation is rejected."""
         return MappingProxyType(self._orders)
 
-    def enqueue_event(self, tier: OMSEventTier, event_type: str, payload: Dict[str, Any]) -> int:
+    def enqueue_event(
+        self, tier: OMSEventTier, event_type: str, payload: Dict[str, Any]
+    ) -> int:
         """Enqueues event into prioritized heap (Tier 0 > Tier 1 > Tier 2)."""
         seq = next(self._counter)
         event = OMSEvent(
@@ -138,7 +142,9 @@ class OMSActorEngine:
             order = self._orders[order_id]
             if order["status"] in (OrderStatus.ACTIVE, OrderStatus.NEW):
                 order["status"] = OrderStatus.PENDING_CANCEL
-                logger.info(f"[OMS_PENDING_CANCEL] Order {order_id} moved to PENDING_CANCEL limbo.")
+                logger.info(
+                    f"[OMS_PENDING_CANCEL] Order {order_id} moved to PENDING_CANCEL limbo."
+                )
                 return True
         return False
 
@@ -158,7 +164,7 @@ class OMSActorEngine:
     def on_exchange_message(self, msg: ExchangeMessage) -> None:
         """Buffers exchange message and processes in strict sequence order (Task 3.4)."""
         self.seq_buffer[msg.seq_num] = msg
-        
+
         # Process contiguous sequence numbers
         while self.next_expected_seq_num in self.seq_buffer:
             curr_msg = self.seq_buffer.pop(self.next_expected_seq_num)
@@ -174,7 +180,9 @@ class OMSActorEngine:
             if order is not None:
                 order["filled_qty"] += msg.qty
                 if order["status"] == OrderStatus.PENDING_CANCEL:
-                    logger.warning(f"[OMS_LATE_FILL_CAPTURED] Caught late fill on PENDING_CANCEL order {order_id} (Qty={msg.qty}).")
+                    logger.warning(
+                        f"[OMS_LATE_FILL_CAPTURED] Caught late fill on PENDING_CANCEL order {order_id} (Qty={msg.qty})."
+                    )
                     order["status"] = OrderStatus.FILLED
                 elif order["filled_qty"] >= order["qty"]:
                     order["status"] = OrderStatus.FILLED
@@ -188,18 +196,24 @@ class OMSActorEngine:
         elif msg.msg_type == "CANCEL_CONFIRMED":
             if order is not None:
                 if order["status"] == OrderStatus.FILLED:
-                    logger.debug(f"[OMS_DISCARD_CANCEL_ACK] Order {order_id} already filled. Discarding cancel ack.")
+                    logger.debug(
+                        f"[OMS_DISCARD_CANCEL_ACK] Order {order_id} already filled. Discarding cancel ack."
+                    )
                 else:
                     order["status"] = OrderStatus.CANCELLED
 
         elif msg.msg_type == "CANCEL_REJECTED":
             if order is not None and order["status"] == OrderStatus.FILLED:
-                logger.debug(f"[OMS_DISCARD_REJECT] Order {order_id} already filled. Discarding cancel reject.")
+                logger.debug(
+                    f"[OMS_DISCARD_REJECT] Order {order_id} already filled. Discarding cancel reject."
+                )
 
         elif msg.msg_type == "REJECT":
             if order is not None:
                 order["status"] = OrderStatus.REJECTED
-                logger.error(f"[OMS_ORDER_REJECTED] Order {order_id} rejected by exchange.")
+                logger.error(
+                    f"[OMS_ORDER_REJECTED] Order {order_id} rejected by exchange."
+                )
 
     def run_event_step(self) -> Optional[OMSEvent]:
         """Runs a single event step, strictly enforcing Safe Boundary reconciler draining."""
@@ -232,13 +246,20 @@ class OMSActorEngine:
 
     def _process_single_event(self, event: OMSEvent) -> None:
         """Executes event according to its type."""
-        if event.event_type in ("STALE_QUOTE_DETECTED", "EMERGENCY_CANCEL", "KILL_SWITCH", "TOXIC_FLOW"):
+        if event.event_type in (
+            "STALE_QUOTE_DETECTED",
+            "EMERGENCY_CANCEL",
+            "KILL_SWITCH",
+            "TOXIC_FLOW",
+        ):
             order_id = event.payload.get("order_id")
             if order_id:
                 self.request_cancel(order_id)
         elif event.event_type == "SNIPER_ENTRY":
             if self.is_halted:
-                logger.warning(f"[OMS_HALTED_ENTRY_BLOCKED] {self.symbol} is halted; discarding new order generation.")
+                logger.warning(
+                    f"[OMS_HALTED_ENTRY_BLOCKED] {self.symbol} is halted; discarding new order generation."
+                )
                 return
             order_id = event.payload["order_id"]
             self.submit_order(
@@ -267,6 +288,8 @@ class OMSActorEngine:
                 f"Local={self.local_position:.2f}, Exchange={exchange_pos:.2f} (Delta={discrepancy_pct*100:.1f}% > {self.max_discrepancy_pct*100:.1f}%). HALTING."
             )
         elif delta > 1e-6:
-            logger.warning(f"[OMS_DELTA_SYNC] Minor discrepancy adjusted: Local {self.local_position:.2f} -> Exchange {exchange_pos:.2f}.")
+            logger.warning(
+                f"[OMS_DELTA_SYNC] Minor discrepancy adjusted: Local {self.local_position:.2f} -> Exchange {exchange_pos:.2f}."
+            )
             self.local_position = exchange_pos
             self.processed_events.append("DELTA_SYNC")

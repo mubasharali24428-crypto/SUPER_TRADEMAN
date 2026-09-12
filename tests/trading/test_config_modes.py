@@ -5,8 +5,8 @@ from pydantic import ValidationError
 
 from trading.config import ExecutionMode, Settings, gate_execution_mode
 
-
 # --- Execution mode gating -----------------------------------------------------
+
 
 def test_mode_gating_pass():
     # PAPER >= PAPER -> pass
@@ -82,7 +82,9 @@ def test_missing_both_urls_raises_with_both_field_names():
 
 
 def test_settings_accept_explicit_values_without_defaults():
-    s = Settings(_env_file=None, postgres_url=VALID["postgres_url"], redis_url=VALID["redis_url"])
+    s = Settings(
+        _env_file=None, postgres_url=VALID["postgres_url"], redis_url=VALID["redis_url"]
+    )
     assert s.postgres_url == VALID["postgres_url"]
     assert s.redis_url == VALID["redis_url"]
     assert s.execution_mode == ExecutionMode.BACKTEST

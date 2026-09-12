@@ -19,12 +19,14 @@ def test_compute_pbo_2d():
     # Split 1: strat 0 is best IS but has lowest OOS score
     # Split 2: strat 1 is best IS but underperforms median
     # Split 3: strat 2 is best IS and retains high OOS score
-    metrics = np.array([
-        [2.0, 1.0, 0.5],   # Top choice (idx 0) score 2.0 > median (1.0)
-        [0.1, 1.5, 2.0],   # Top choice (idx 2) score 2.0 > median (1.5)
-        [0.2, -0.5, 0.8],  # Top choice (idx 2) score 0.8 > median (0.2)
-        [-1.0, 0.0, -0.5], # Top choice (idx 1) score 0.0 > median (-0.5)
-    ])
+    metrics = np.array(
+        [
+            [2.0, 1.0, 0.5],  # Top choice (idx 0) score 2.0 > median (1.0)
+            [0.1, 1.5, 2.0],  # Top choice (idx 2) score 2.0 > median (1.5)
+            [0.2, -0.5, 0.8],  # Top choice (idx 2) score 0.8 > median (0.2)
+            [-1.0, 0.0, -0.5],  # Top choice (idx 1) score 0.0 > median (-0.5)
+        ]
+    )
     pbo = compute_pbo(metrics)
     assert 0.0 <= pbo <= 1.0
 

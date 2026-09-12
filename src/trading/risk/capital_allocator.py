@@ -62,7 +62,9 @@ class CapitalAllocator:
         """Computes priority score components for an ApprovedOrder."""
         # 1. Signal strength proxy (risk-reward distance or price magnitude)
         dist = abs(order.entry_price - order.stop_price)
-        signal_strength = abs(order.target_price - order.entry_price) / dist if dist > 0 else 1.0
+        signal_strength = (
+            abs(order.target_price - order.entry_price) / dist if dist > 0 else 1.0
+        )
 
         # 2. Volatility-adjusted return
         vol_adj_return = order.entry_price / dist if dist > 0 else 1.0
@@ -115,14 +117,18 @@ class CapitalAllocator:
 
         current_positions = account_state.open_positions
         current_pos_count = len(current_positions)
-        current_exposure = sum(p.entry_price * getattr(p, "position_size", 1.0) for p in current_positions)
+        current_exposure = sum(
+            p.entry_price * getattr(p, "position_size", 1.0) for p in current_positions
+        )
         max_allowed_exposure = account_state.equity * self.max_portfolio_exposure_pct
 
         # Score pending orders
         scored_orders = [
             (
                 order,
-                self.calculate_priority_score(order, current_positions, correlations, now_ts),
+                self.calculate_priority_score(
+                    order, current_positions, correlations, now_ts
+                ),
             )
             for order in pending_orders
         ]
@@ -140,18 +146,39 @@ class CapitalAllocator:
             single_asset_limit = account_state.equity * self.max_single_asset_pct
 
             if active_count >= self.max_concurrent_positions:
-                rejected.append((order, f"CAPITAL_ALLOCATION_REJECTED: Max concurrent positions ({self.max_concurrent_positions}) reached"))
-                logger.info(f"[CAPITAL_ALLOCATION_REJECTED] {order.asset}: Max positions reached.")
+                rejected.append(
+                    (
+                        order,
+                        f"CAPITAL_ALLOCATION_REJECTED: Max concurrent positions ({self.max_concurrent_positions}) reached",
+                    )
+                )
+                logger.info(
+                    f"[CAPITAL_ALLOCATION_REJECTED] {order.asset}: Max positions reached."
+                )
                 continue
 
             if accumulated_exp + order_notional > max_allowed_exposure:
-                rejected.append((order, f"CAPITAL_ALLOCATION_REJECTED: Portfolio exposure limit (${max_allowed_exposure:.2f}) exceeded"))
-                logger.info(f"[CAPITAL_ALLOCATION_REJECTED] {order.asset}: Exposure limit exceeded.")
+                rejected.append(
+                    (
+                        order,
+                        f"CAPITAL_ALLOCATION_REJECTED: Portfolio exposure limit (${max_allowed_exposure:.2f}) exceeded",
+                    )
+                )
+                logger.info(
+                    f"[CAPITAL_ALLOCATION_REJECTED] {order.asset}: Exposure limit exceeded."
+                )
                 continue
 
             if order_notional > single_asset_limit:
-                rejected.append((order, f"CAPITAL_ALLOCATION_REJECTED: Single asset notional (${order_notional:.2f}) > cap (${single_asset_limit:.2f})"))
-                logger.info(f"[CAPITAL_ALLOCATION_REJECTED] {order.asset}: Single asset limit exceeded.")
+                rejected.append(
+                    (
+                        order,
+                        f"CAPITAL_ALLOCATION_REJECTED: Single asset notional (${order_notional:.2f}) > cap (${single_asset_limit:.2f})",
+                    )
+                )
+                logger.info(
+                    f"[CAPITAL_ALLOCATION_REJECTED] {order.asset}: Single asset limit exceeded."
+                )
                 continue
 
             # Accept full order (SOVEREIGN INVARIANT: Never alter position size)

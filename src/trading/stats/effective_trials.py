@@ -136,4 +136,6 @@ def effective_trials(
             pass
         return float(np.clip(n_eff, 1.0, float(n_trials)))
 
-    raise ValueError(f"Expected 1D or 2D array for effective_trials, got shape {arr.shape}")
+    raise ValueError(
+        f"Expected 1D or 2D array for effective_trials, got shape {arr.shape}"
+    )

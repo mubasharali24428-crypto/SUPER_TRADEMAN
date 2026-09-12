@@ -11,7 +11,9 @@ from trading.strategy.crypto import generate_signal
 
 def _segment_stats(candles, label):
     closes = [c[4] for c in candles]
-    log_returns = [math.log(b / a) for a, b in zip(closes, closes[1:]) if a > 0 and b > 0]
+    log_returns = [
+        math.log(b / a) for a, b in zip(closes, closes[1:]) if a > 0 and b > 0
+    ]
     hourly_vol = statistics.pstdev(log_returns) if len(log_returns) > 1 else 0.0
     annualized_vol = hourly_vol * math.sqrt(24 * 365)
 
@@ -26,7 +28,9 @@ def _segment_stats(candles, label):
     for i in range(trend_window + trend_lookback, len(closes), 20):
         window = closes[: i + 1]
         trend_now = statistics.mean(window[-trend_window:])
-        trend_prior = statistics.mean(window[-trend_window - trend_lookback : -trend_lookback])
+        trend_prior = statistics.mean(
+            window[-trend_window - trend_lookback : -trend_lookback]
+        )
         slope = (trend_now - trend_prior) / trend_prior
         sampled += 1
         if abs(slope) > threshold:
@@ -57,10 +61,18 @@ def _segment_stats(candles, label):
     print(f"\n{label}: {len(candles)} bars ({len(candles) / 24:.0f} days)")
     print(f"  total_change_pct        {total_change_pct:+.2%}")
     print(f"  annualized_volatility   {annualized_vol:.1%}")
-    print(f"  pct_bars_trending       {pct_trending:.1%}  (abs(100-bar SMA slope) > 2%, sampled every 20 bars)")
+    print(
+        f"  pct_bars_trending       {pct_trending:.1%}  (abs(100-bar SMA slope) > 2%, sampled every 20 bars)"
+    )
     print(f"  raw_zscore_signals      {raw_signals}  (z>=2, before any gate)")
-    print(f"  signals_passing_gates   {passed_signals}  (regime filter + RSI confirmation)")
-    print(f"  gate_pass_rate          {passed_signals / raw_signals:.1%}" if raw_signals else "  gate_pass_rate          n/a")
+    print(
+        f"  signals_passing_gates   {passed_signals}  (regime filter + RSI confirmation)"
+    )
+    print(
+        f"  gate_pass_rate          {passed_signals / raw_signals:.1%}"
+        if raw_signals
+        else "  gate_pass_rate          n/a"
+    )
 
 
 async def main():
@@ -76,9 +88,13 @@ async def main():
 
     split_idx = int(len(candles) * 0.7)
     bad_period = candles[:split_idx]  # Nov 2025 -> ~May 2026, lost -17.81%
-    good_period = candles[split_idx:]  # ~May 2026 -> Aug 2026, -1.02% but healthier win rate
+    good_period = candles[
+        split_idx:
+    ]  # ~May 2026 -> Aug 2026, -1.02% but healthier win rate
 
-    _segment_stats(bad_period, "BAD PERIOD (train, older -- lost -17.81% in the strategy backtest)")
+    _segment_stats(
+        bad_period, "BAD PERIOD (train, older -- lost -17.81% in the strategy backtest)"
+    )
     _segment_stats(good_period, "GOOD PERIOD (test, recent -- -1.02%, 57% win rate)")
 
 

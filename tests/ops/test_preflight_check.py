@@ -11,7 +11,14 @@ from trading.config import ExecutionMode
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
     """Isolate each test from the caller's environment."""
-    for var in ("POSTGRES_URL", "DATABASE_URL", "REDIS_URL", "RISK_PCT", "EXCHANGE_API_KEY", "EXCHANGE_API_SECRET"):
+    for var in (
+        "POSTGRES_URL",
+        "DATABASE_URL",
+        "REDIS_URL",
+        "RISK_PCT",
+        "EXCHANGE_API_KEY",
+        "EXCHANGE_API_SECRET",
+    ):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -66,7 +73,9 @@ def test_unreachable_database_fails_with_migration_guidance(monkeypatch):
             "funding_rates, ohlcv. Apply migrations: POSTGRES_URL=<url> alembic upgrade head."
         )
 
-    passed, results = run_preflight_checks(ExecutionMode.SHADOW, db_prober=failing_prober)
+    passed, results = run_preflight_checks(
+        ExecutionMode.SHADOW, db_prober=failing_prober
+    )
     assert not passed
     db_result = next(r for r in results if r.name.startswith("Database:"))
     assert not db_result.passed
@@ -86,7 +95,9 @@ def test_placeholder_credential_rejected(monkeypatch, ok_db_prober):
 def test_live_mode_requires_exchange_credentials(monkeypatch, ok_db_prober):
     monkeypatch.setenv("POSTGRES_URL", "postgresql://user:pw@localhost:5432/trading")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    passed, results = run_preflight_checks(ExecutionMode.LIVE_RESTRICTED, db_prober=ok_db_prober)
+    passed, results = run_preflight_checks(
+        ExecutionMode.LIVE_RESTRICTED, db_prober=ok_db_prober
+    )
     assert not passed
     failed = {r.name for r in results if not r.passed}
     assert any("Exchange API Credentials" in name for name in failed), failed
@@ -104,7 +115,9 @@ def test_risk_cap_enforced_via_env_contract(monkeypatch, ok_db_prober):
         return real_getenv(key, default)
 
     with patch("scripts.preflight_check.os.getenv", getenv):
-        passed, results = run_preflight_checks(ExecutionMode.SHADOW, db_prober=ok_db_prober)
+        passed, results = run_preflight_checks(
+            ExecutionMode.SHADOW, db_prober=ok_db_prober
+        )
     assert not passed
     failed = {r.name for r in results if not r.passed}
     assert any("Risk Percentage" in name for name in failed), failed

@@ -10,16 +10,22 @@ from trading.config import ExecutionMode
 
 def test_mode_promotion_rules():
     # Valid promotion: BACKTEST -> PAPER (fail-closed contract: preflight must be EXPLICITLY proven)
-    ok, msg = promote_execution_mode(ExecutionMode.BACKTEST, ExecutionMode.PAPER, preflight_passed=True)
+    ok, msg = promote_execution_mode(
+        ExecutionMode.BACKTEST, ExecutionMode.PAPER, preflight_passed=True
+    )
     assert ok
 
     # Invalid jump: BACKTEST -> LIVE_RESTRICTED (blocked)
-    ok, msg = promote_execution_mode(ExecutionMode.BACKTEST, ExecutionMode.LIVE_RESTRICTED)
+    ok, msg = promote_execution_mode(
+        ExecutionMode.BACKTEST, ExecutionMode.LIVE_RESTRICTED
+    )
     assert not ok
     assert "Invalid mode promotion jump" in msg
 
     # Promotion to LIVE_RESTRICTED requires confirmation token
-    ok, msg = promote_execution_mode(ExecutionMode.SHADOW, ExecutionMode.LIVE_RESTRICTED, confirm_token="")
+    ok, msg = promote_execution_mode(
+        ExecutionMode.SHADOW, ExecutionMode.LIVE_RESTRICTED, confirm_token=""
+    )
     assert not ok
     assert "confirmation token" in msg
 

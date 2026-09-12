@@ -37,7 +37,6 @@ class Position:
     position_size: float = 1.0
 
 
-
 @dataclass(frozen=True)
 class RiskConfig:
     risk_pct: float = 0.01  # 1-2% per trade, hard capped below
@@ -54,7 +53,9 @@ class RiskConfig:
     cooldown_hours: float = 4
     pre_event_hours: float = 2
     pre_event_reduction: float = 0.5
-    min_exit_confidence: float = 0.5  # floor for third-party (e.g. LLM) exit/reduce-risk signals
+    min_exit_confidence: float = (
+        0.5  # floor for third-party (e.g. LLM) exit/reduce-risk signals
+    )
 
     def __post_init__(self):
         if not 0 < self.risk_pct <= 0.02:
@@ -123,7 +124,9 @@ class ApprovedOrder:
 
     def __post_init__(self):
         if self.issuer is not _ISSUER:
-            raise PermissionError("ApprovedOrder can only be constructed by the Risk Engine")
+            raise PermissionError(
+                "ApprovedOrder can only be constructed by the Risk Engine"
+            )
 
 
 @dataclass(frozen=True)
@@ -166,6 +169,7 @@ class ExitSignal:
 @dataclass(frozen=True)
 class ApprovedExit:
     """VA-059: minted only by RiskEngine._approve_exit; dispatch via ExitDecision."""
+
     asset: str
     asset_class: str
     reason: str
@@ -173,7 +177,9 @@ class ApprovedExit:
 
     def __post_init__(self):
         if self.issuer is not _ISSUER:
-            raise PermissionError("ApprovedExit can only be constructed by the Risk Engine")
+            raise PermissionError(
+                "ApprovedExit can only be constructed by the Risk Engine"
+            )
 
 
 @dataclass(frozen=True)
@@ -195,7 +201,9 @@ def check_liquidation(
     """Evaluates whether an open position triggers liquidation based on mark price."""
     if isinstance(position, dict):
         side = position["side"]
-        entry_price = position.get("entry_fill", position.get("entry_price", mark_price))
+        entry_price = position.get(
+            "entry_fill", position.get("entry_price", mark_price)
+        )
         position_size = position["position_size"]
     else:
         side = position.side
@@ -268,6 +276,3 @@ def check_portfolio_liquidation(
     is_warning = effective_equity < buffer_amount
 
     return is_warning, effective_equity, mm_total
-
-
-

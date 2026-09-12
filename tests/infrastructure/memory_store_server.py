@@ -22,8 +22,9 @@ _HERE = str(Path(__file__).resolve().parent)
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-import fake_redis_stub  # noqa: E402 — resolved via the sys.path line above
 from multiprocessing.managers import BaseManager  # noqa: E402
+
+import fake_redis_stub  # noqa: E402 — resolved via the sys.path line above
 
 AUTHKEY = b"alexforce-sub04-two-process-lock"
 
@@ -69,4 +70,6 @@ def connect_store(address, authkey=AUTHKEY):
     _ensure_registration()
     client = _StoreClient(address=tuple(address), authkey=authkey)
     client.connect()
-    return getattr(client, "get_store")()  # dynamic proxy attr (BaseManager registration)
+    return getattr(
+        client, "get_store"
+    )()  # dynamic proxy attr (BaseManager registration)

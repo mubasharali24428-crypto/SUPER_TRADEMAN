@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 
-
 HB = Path(__file__).resolve().parents[1] / "src" / "trading" / "daemon" / "heartbeat.py"
 
 
@@ -25,7 +24,9 @@ def test_heartbeat_does_not_fold_survival_multiplier_into_garch_scale():
 
 
 def test_engine_still_applies_garch_vol_scale_once():
-    eng_src = (Path(__file__).resolve().parents[1] / "src" / "trading" / "risk" / "engine.py").read_text()
+    eng_src = (
+        Path(__file__).resolve().parents[1] / "src" / "trading" / "risk" / "engine.py"
+    ).read_text()
     # exactly one application site remains
     assert eng_src.count("effective_risk_pct *= signal.garch_vol_scale") == 1
 

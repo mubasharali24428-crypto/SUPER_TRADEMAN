@@ -53,7 +53,9 @@ def generate_synthetic_report_markdown() -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate Synthetic Adversarial Stress Test Report")
+    parser = argparse.ArgumentParser(
+        description="Generate Synthetic Adversarial Stress Test Report"
+    )
     parser.add_argument("--output", type=str, default="", help="Optional output path")
     args = parser.parse_args()
 

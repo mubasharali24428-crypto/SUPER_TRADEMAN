@@ -16,14 +16,12 @@ import numpy as np
 
 from trading.observability.logger import get_logger
 from trading.synthetic.agents.base_agent import Agent
-from trading.synthetic.agents.personas import (
-    AdversarialSpoofer,
-    CoordinatedPredatorSwarm,
-    HFTMarketMaker,
-    InstitutionalVWAP,
-    LiquidityVampire,
-    RetailMomentum,
-)
+from trading.synthetic.agents.personas import (AdversarialSpoofer,
+                                               CoordinatedPredatorSwarm,
+                                               HFTMarketMaker,
+                                               InstitutionalVWAP,
+                                               LiquidityVampire,
+                                               RetailMomentum)
 from trading.synthetic.lob import BookIntegrityViolation, SyntheticLOB
 
 __all__ = ["AgentOrchestrator"]
@@ -110,7 +108,8 @@ class AgentOrchestrator:
             self.agent_quarantine_count += 1
             logger.warning(
                 "[AGENT_QUARANTINED] %s failed (%s); skipped for this step",
-                agent.agent_id, exc,
+                agent.agent_id,
+                exc,
                 extra={
                     "event": "agent_quarantined",
                     "metric": "agent_quarantined_total",
@@ -128,7 +127,9 @@ class AgentOrchestrator:
 
     def trigger_coordinated_attack(self, attack_type: str = "predator_swarm") -> int:
         """Triggers coordinated multi-agent attack campaign."""
-        logger.warning(f"[COORDINATED_ATTACK_TRIGGERED] Executing attack campaign: {attack_type}")
+        logger.warning(
+            f"[COORDINATED_ATTACK_TRIGGERED] Executing attack campaign: {attack_type}"
+        )
         count = 0
         if attack_type == "predator_swarm":
             swarm = [a for a in self.agents if isinstance(a, CoordinatedPredatorSwarm)]

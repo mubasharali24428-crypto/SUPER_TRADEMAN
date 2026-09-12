@@ -45,7 +45,9 @@ def test_fit_attributes_rewards_by_name_not_position(tmp_path):
     # Both strategies traded exactly twice with symmetric (+1,-1) outcomes.
     assert summary["alpha"]["trades"] == 2
     assert summary["beta"]["trades"] == 2
-    assert summary["alpha"]["avg_reward"] == pytest.approx(summary["beta"]["avg_reward"])
+    assert summary["alpha"]["avg_reward"] == pytest.approx(
+        summary["beta"]["avg_reward"]
+    )
     assert summary["alpha"]["avg_reward"] == pytest.approx(0.0)  # (+1-1)/2
 
     # Positional corruption would have credited ALL wins to strategies[0]
@@ -63,10 +65,10 @@ def test_positional_corruption_regression_exact_counts(tmp_path):
     allocator.fit_from_learning_graph(lg)
 
     summary = allocator.summary()
-    assert summary["zulu"]["trades"] == 2          # correct attribution
-    assert summary["alpha"]["trades"] == 0         # untouched by zulu's wins
+    assert summary["zulu"]["trades"] == 2  # correct attribution
+    assert summary["alpha"]["trades"] == 0  # untouched by zulu's wins
     assert summary["zulu"]["avg_reward"] == pytest.approx(1.0)
-    assert summary["alpha"]["avg_reward"] == 0.0   # never updated
+    assert summary["alpha"]["avg_reward"] == 0.0  # never updated
 
 
 def test_unknown_labels_follow_unknown_action_policy(tmp_path):
@@ -74,7 +76,9 @@ def test_unknown_labels_follow_unknown_action_policy(tmp_path):
     lg.add_trade(trade_id="x1", strategy="ghost", net_pnl=+1.0)
 
     with pytest.raises(ValueError, match="ghost"):
-        ContextualBanditAllocator(["alpha"]).fit_from_learning_graph(lg, unknown_action="raise")
+        ContextualBanditAllocator(["alpha"]).fit_from_learning_graph(
+            lg, unknown_action="raise"
+        )
 
     skipper = ContextualBanditAllocator(["alpha"])
     skipper.fit_from_learning_graph(lg, unknown_action="skip")

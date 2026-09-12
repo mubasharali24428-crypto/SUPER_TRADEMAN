@@ -19,11 +19,19 @@ from trading.risk.models import Signal
 class JournalPool(Protocol):
     """Structural subset of asyncpg.Pool used by the journal (test-friendly)."""
 
-    async def execute(self, sql: str, *args: Any) -> Any: ...
+    async def execute(self, sql: str, *args: Any) -> Any:
+        ...
 
-    async def executemany(self, sql: str, rows: Any) -> Any: ...
+    async def executemany(self, sql: str, rows: Any) -> Any:
+        ...
 
-__all__ = ["DecisionRecord", "build_decision_record", "decision_id_for", "store_decisions"]
+
+__all__ = [
+    "DecisionRecord",
+    "build_decision_record",
+    "decision_id_for",
+    "store_decisions",
+]
 
 
 @dataclass(frozen=True)
@@ -48,7 +56,9 @@ def _verdict(exit_reason: str) -> str:
         "target": "thesis_confirmed",
         "stop": "thesis_invalidated",
         "time_stop": "inconclusive_ran_out_of_time",
-    }.get(exit_reason, "inconclusive_data_ended")  # exit_reason == "end_of_data"
+    }.get(
+        exit_reason, "inconclusive_data_ended"
+    )  # exit_reason == "end_of_data"
 
 
 def build_decision_record(signal: Signal, trade) -> DecisionRecord:

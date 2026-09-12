@@ -8,10 +8,10 @@ Covers:
   identical behavior to pre-wave approvals.
 """
 
+import logging
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
-import logging
 
 import pytest
 
@@ -47,6 +47,7 @@ def make_account(**overrides) -> AccountState:
 # ---------------------------------------------------------------------------
 # Quantization-active dual-run
 # ---------------------------------------------------------------------------
+
 
 def test_quantization_active_produces_floor_candidate():
     """step=0.001 injected -> approval stays an exact-type RiskDecision (R2
@@ -108,6 +109,7 @@ def test_empty_step_string_treated_as_inactive():
 # Divergence reporting (SIZE_DELTA)
 # ---------------------------------------------------------------------------
 
+
 def test_healthy_quantization_never_warns(caplog):
     """On-grid/off-grid sizes within one step must NOT emit SIZE_DELTA."""
     engine = RiskEngine(instruments={"BTC/USDT": "0.001"})
@@ -125,7 +127,9 @@ def test_size_delta_warning_on_formula_level_divergence(monkeypatch, caplog):
 
     # Sabotage only the quantizer result: 150.000 vs legacy ~246.913578 with a
     # 0.001 tolerance -- ~96.9 steps of divergence.
-    monkeypatch.setattr(engine_mod, "quantize_to_step", lambda value, step: Decimal("150.000"))
+    monkeypatch.setattr(
+        engine_mod, "quantize_to_step", lambda value, step: Decimal("150.000")
+    )
 
     with caplog.at_level(logging.WARNING, logger="trading.risk"):
         decision = engine.evaluate(make_signal(), make_account(equity=123_456.789))
@@ -141,10 +145,16 @@ def test_size_delta_warning_on_formula_level_divergence(monkeypatch, caplog):
     # divergence fires — the old wave-1 approach of comparing vs legacy float
     # was trivially bounded to <1 step by construction and could NEVER fire.
     # Real divergence is now caught by SIZE_DELTA_EXACT (formula-level).
-    deltas = [r for r in caplog.records if r.getMessage().startswith("SIZE_DELTA")
-              or r.getMessage().startswith("SIZE_DELTA_EXACT:")]
+    deltas = [
+        r
+        for r in caplog.records
+        if r.getMessage().startswith("SIZE_DELTA")
+        or r.getMessage().startswith("SIZE_DELTA_EXACT:")
+    ]
     if deltas:
-        pytest.skip("SIZE_DELTA/SIZE_DELTA_EXACT observed (acceptable in some environments)")
+        pytest.skip(
+            "SIZE_DELTA/SIZE_DELTA_EXACT observed (acceptable in some environments)"
+        )
     else:
         # Neither warning fires when both paths produce the same Decimal — correct.
         pass
@@ -153,6 +163,7 @@ def test_size_delta_warning_on_formula_level_divergence(monkeypatch, caplog):
 # ---------------------------------------------------------------------------
 # Degraded mode
 # ---------------------------------------------------------------------------
+
 
 def test_invalid_step_degrades_to_legacy_decision(caplog):
     """Non-positive step must not crash the gate: log SIZE_QUANTIZE_ERROR and
@@ -163,13 +174,13 @@ def test_invalid_step_degrades_to_legacy_decision(caplog):
 
     assert decision.approved
     assert type(decision) is RiskDecision  # R2 VB-002: no carrier subclass anymore
-    assert engine.get_size_candidate(decision.approved_order) is None  # degraded: no candidate
+    assert (
+        engine.get_size_candidate(decision.approved_order) is None
+    )  # degraded: no candidate
     assert decision.approved_order is not None
     assert decision.approved_order.position_size == pytest.approx(200.0)
     errs = [
-        r
-        for r in caplog.records
-        if r.getMessage().startswith("SIZE_QUANTIZE_ERROR")
+        r for r in caplog.records if r.getMessage().startswith("SIZE_QUANTIZE_ERROR")
     ]
     assert errs, "expected SIZE_QUANTIZE_ERROR for invalid step"
 
@@ -178,11 +189,13 @@ def test_invalid_step_degrades_to_legacy_decision(caplog):
 # money.py helper semantics relied on by the dual-run
 # ---------------------------------------------------------------------------
 
+
 def test_money_helpers_boundary_semantics():
-    from trading.core.money import check_min_notional, decimal_from_float, quantize_to_step
+    from trading.core.money import (check_min_notional, decimal_from_float,
+                                    quantize_to_step)
 
     assert quantize_to_step("246.913578", "0.001") == Decimal("246.913")
     assert quantize_to_step(0.1 + 0.2, "0.1") == Decimal("0.3")  # str() round-trip
     assert decimal_from_float(0.1) == Decimal("0.1")
-    assert check_min_notional("10", "100", "1000") is True   # exactly on boundary passes
+    assert check_min_notional("10", "100", "1000") is True  # exactly on boundary passes
     assert check_min_notional("9.99", "100", "1000") is False

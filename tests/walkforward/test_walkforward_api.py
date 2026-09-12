@@ -8,9 +8,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-os.environ.setdefault("API_SESSION_SECRET", "test-secret-0123456789")  # 21 bytes >= 16 min (VA-056)
-os.environ.setdefault("OPERATOR_PASSWORD_HASH",
-                      hashlib.sha256(b"operator-pass").hexdigest())
+os.environ.setdefault(
+    "API_SESSION_SECRET", "test-secret-0123456789"
+)  # 21 bytes >= 16 min (VA-056)
+os.environ.setdefault(
+    "OPERATOR_PASSWORD_HASH", hashlib.sha256(b"operator-pass").hexdigest()
+)
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

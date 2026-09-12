@@ -6,17 +6,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from trading.walkforward.report import folds_to_json, render_tearsheet  # noqa: E402
+from trading.walkforward.report import (folds_to_json,  # noqa: E402
+                                        render_tearsheet)
 from trading.walkforward.scheduler import should_run  # noqa: E402
-from trading.walkforward.validator import (  # noqa: E402
-    FoldResult,
-    WalkForwardConfig,
-    generate_folds,
-    run_walk_forward,
-)
-
+from trading.walkforward.validator import (FoldResult,  # noqa: E402
+                                           WalkForwardConfig, generate_folds,
+                                           run_walk_forward)
 
 # ---------- fold generation ----------
+
 
 def test_generate_folds_golden_boundaries():
     cfg = WalkForwardConfig(train_days=180, validate_days=60, step_days=30)
@@ -47,10 +45,13 @@ def test_scheduler_should_run_boundaries():
 
 # ---------- tearsheet ----------
 
+
 def test_render_tearsheet_contains_summary_and_rows():
     folds = [
         FoldResult(0, (0, 180), (180, 240), 1.2, 0.9, 0.3, "PASS", "", 12),
-        FoldResult(1, (30, 210), (210, 270), None, None, None, "SKIP", "insufficient data"),
+        FoldResult(
+            1, (30, 210), (210, 270), None, None, None, "SKIP", "insufficient data"
+        ),
         FoldResult(2, (60, 240), (240, 300), 0.1, 0.2, 0.8, "FAIL", "pbo 0.800 > 0.5"),
     ]
     md = render_tearsheet(folds, meta={"symbol": "BTC/USDT"})

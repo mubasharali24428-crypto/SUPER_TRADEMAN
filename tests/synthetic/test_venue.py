@@ -15,7 +15,7 @@ and every fill deterministic.
 import pytest
 
 from trading.execution.venue_adapter import InstrumentInfo, VenueAdapter
-from trading.risk.models import ApprovedExit, ApprovedOrder, Side, _ISSUER
+from trading.risk.models import _ISSUER, ApprovedExit, ApprovedOrder, Side
 from trading.synthetic.lob import LimitOrder, SyntheticLOB
 from trading.synthetic.venue import SyntheticVenue
 
@@ -160,11 +160,21 @@ class TestFetchOrder:
 class TestFetchPositions:
     async def test_long_and_short_positions_report_signed_amounts(self, venue):
         await venue.create_order(
-            _make_order(asset="BTC/USDT", side=Side.LONG, entry_price=50_001.0, position_size=2.0),
+            _make_order(
+                asset="BTC/USDT",
+                side=Side.LONG,
+                entry_price=50_001.0,
+                position_size=2.0,
+            ),
             "coid-long",
         )
         await venue.create_order(
-            _make_order(asset="ETH/USDT", side=Side.SHORT, entry_price=49_999.0, position_size=5.0),
+            _make_order(
+                asset="ETH/USDT",
+                side=Side.SHORT,
+                entry_price=49_999.0,
+                position_size=5.0,
+            ),
             "coid-short",
         )
 
@@ -181,7 +191,9 @@ class TestFetchPositions:
 class TestFetchOpenOrders:
     async def test_lists_all_resting_orders_with_their_ids(self, venue):
         await venue.create_order(_make_order(entry_price=49_900.0), "coid-a")
-        await venue.create_order(_make_order(asset="ETH/USDT", entry_price=49_800.0), "coid-b")
+        await venue.create_order(
+            _make_order(asset="ETH/USDT", entry_price=49_800.0), "coid-b"
+        )
 
         open_orders = await venue.fetch_open_orders()
 
@@ -192,7 +204,9 @@ class TestFetchOpenOrders:
 
     async def test_symbol_filter_narrows_results(self, venue):
         await venue.create_order(_make_order(entry_price=49_900.0), "coid-btc")
-        await venue.create_order(_make_order(asset="ETH/USDT", entry_price=49_800.0), "coid-eth")
+        await venue.create_order(
+            _make_order(asset="ETH/USDT", entry_price=49_800.0), "coid-eth"
+        )
 
         btc_only = await venue.fetch_open_orders(symbol="BTC/USDT")
 

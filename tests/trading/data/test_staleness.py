@@ -1,14 +1,15 @@
 """Tests for StalenessSentinel and OMS pre-flight staleness protection."""
 
-import pytest
 import time
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from trading.data.staleness import StalenessSentinel
 from trading.execution.oms import OrderManagementSystem
 from trading.execution.state_machine import OrderState
 from trading.execution.venue_adapter import MockVenueAdapter
-from trading.risk.models import ApprovedOrder, Side, _ISSUER
+from trading.risk.models import _ISSUER, ApprovedOrder, Side
 
 
 def test_staleness_sentinel_fresh_data():

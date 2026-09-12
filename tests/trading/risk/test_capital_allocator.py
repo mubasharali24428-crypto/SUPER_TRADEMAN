@@ -3,7 +3,8 @@
 import pytest
 
 from trading.risk.capital_allocator import CapitalAllocator
-from trading.risk.models import AccountState, ApprovedOrder, Position, Side, _ISSUER
+from trading.risk.models import (_ISSUER, AccountState, ApprovedOrder,
+                                 Position, Side)
 
 
 def test_capital_allocator_priority_and_constraints():
@@ -23,7 +24,7 @@ def test_capital_allocator_priority_and_constraints():
         entry_price=50000.0,
         stop_price=48000.0,
         target_price=60000.0,  # 5:1 reward ratio -> high priority
-        position_size=0.1,    # Notional $5,000 (5% equity)
+        position_size=0.1,  # Notional $5,000 (5% equity)
         risk_pct=0.01,
         issuer=_ISSUER,
     )
@@ -34,7 +35,7 @@ def test_capital_allocator_priority_and_constraints():
         entry_price=3000.0,
         stop_price=2900.0,
         target_price=3300.0,  # 3:1 reward ratio
-        position_size=2.0,    # Notional $6,000 (6% equity)
+        position_size=2.0,  # Notional $6,000 (6% equity)
         risk_pct=0.01,
         issuer=_ISSUER,
     )
@@ -44,8 +45,8 @@ def test_capital_allocator_priority_and_constraints():
         side=Side.LONG,
         entry_price=100.0,
         stop_price=95.0,
-        target_price=110.0,   # 2:1 reward ratio
-        position_size=50.0,   # Notional $5,000 (5% equity)
+        target_price=110.0,  # 2:1 reward ratio
+        position_size=50.0,  # Notional $5,000 (5% equity)
         risk_pct=0.01,
         issuer=_ISSUER,
     )

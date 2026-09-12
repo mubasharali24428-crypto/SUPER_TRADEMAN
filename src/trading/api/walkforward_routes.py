@@ -11,7 +11,11 @@ from trading.walkforward.scheduler import should_run
 router = APIRouter(prefix="/api/walkforward", tags=["walkforward"])
 
 # Placeholder evidence store — replaced by deployment_metrics persistence in a later wave.
-LAST_RUN: dict[str, Any] = {"last_run": None, "last_run_ts": None, "verdict_counts": None}
+LAST_RUN: dict[str, Any] = {
+    "last_run": None,
+    "last_run_ts": None,
+    "verdict_counts": None,
+}
 
 
 @router.get("/status")

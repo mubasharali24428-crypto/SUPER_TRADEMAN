@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from trading.execution.venue_adapter import MockVenueAdapter, VenueAdapter
 from trading.observability.logger import get_logger
-from trading.risk.models import ApprovedExit, Position, Side, _ISSUER
+from trading.risk.models import _ISSUER, ApprovedExit, Position, Side
 
 __all__ = [
     "StateRecoveryResult",
@@ -39,7 +39,9 @@ class StateRecoveryEngine:
     ) -> StateRecoveryResult:
         """Executes full state recovery and reconciliation against venue API."""
         now_utc = datetime.now(timezone.utc)
-        logger.info("[STATE_RECOVERY_STARTED] Executing state recovery check against venue API...")
+        logger.info(
+            "[STATE_RECOVERY_STARTED] Executing state recovery check against venue API..."
+        )
 
         venue_positions = await self.venue_adapter.fetch_positions()
         venue_orders = await self.venue_adapter.fetch_open_orders()
@@ -56,8 +58,16 @@ class StateRecoveryEngine:
         v_pos_dict = {p.get("symbol"): p.get("amount", 0.0) for p in venue_positions}
         l_pos_dict = {p.get("asset"): p.get("position_size", 0.0) for p in l_pos}
         # VA-037: carry asset_class from venue/local positions for emergency exits
-        v_ac = {p.get("symbol"): p.get("asset_class", "crypto") for p in venue_positions if p.get("symbol")}
-        l_ac = {p.get("asset"): p.get("asset_class", "crypto") for p in l_pos if p.get("asset")}
+        v_ac = {
+            p.get("symbol"): p.get("asset_class", "crypto")
+            for p in venue_positions
+            if p.get("symbol")
+        }
+        l_ac = {
+            p.get("asset"): p.get("asset_class", "crypto")
+            for p in l_pos
+            if p.get("asset")
+        }
 
         mismatched_assets = []
         max_qty_delta = 0.0
@@ -103,5 +113,7 @@ class StateRecoveryEngine:
             exits_dispatched=exits_dispatched,
         )
 
-        logger.info(f"[STATE_RECOVERY_COMPLETED] Quarantine={res.quarantine_triggered}, Flatten={res.flatten_triggered}")
+        logger.info(
+            f"[STATE_RECOVERY_COMPLETED] Quarantine={res.quarantine_triggered}, Flatten={res.flatten_triggered}"
+        )
         return res

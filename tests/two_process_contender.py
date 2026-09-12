@@ -27,7 +27,8 @@ for p in (REPO_ROOT, REPO_ROOT / "tests" / "infrastructure"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-from trading.infrastructure.ha_lock import ActivePassiveManager, RedisLockBackend  # noqa: E402
+from trading.infrastructure.ha_lock import (ActivePassiveManager,  # noqa: E402
+                                            RedisLockBackend)
 
 
 def build_client(store_url: str):
@@ -35,7 +36,7 @@ def build_client(store_url: str):
     if store_url.startswith("memory://"):
         import memory_store_server
 
-        host, _, port = store_url[len("memory://"):].partition(":")
+        host, _, port = store_url[len("memory://") :].partition(":")
         return memory_store_server.connect_store((host, int(port)))
     import redis as redis_mod
 
@@ -50,7 +51,10 @@ def main(argv):
         os.environ.setdefault("REDIS_URL", store_url)
 
     backend = RedisLockBackend(
-        lock_name=lock_name, node_id=node_id, ttl_sec=float(ttl_sec), client=build_client(store_url)
+        lock_name=lock_name,
+        node_id=node_id,
+        ttl_sec=float(ttl_sec),
+        client=build_client(store_url),
     )
     mgr = ActivePassiveManager(node_id=node_id, ttl_sec=float(ttl_sec), backend=backend)
     if mgr.acquire_lock():

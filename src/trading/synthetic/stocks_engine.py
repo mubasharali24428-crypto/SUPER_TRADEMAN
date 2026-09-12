@@ -82,7 +82,9 @@ class SIPDirectFeedReconciler:
         if self.last_sip is None:
             return False
 
-        is_discrepancy = (quote.bid_price > self.last_sip.ask_price) or (quote.ask_price < self.last_sip.bid_price)
+        is_discrepancy = (quote.bid_price > self.last_sip.ask_price) or (
+            quote.ask_price < self.last_sip.bid_price
+        )
 
         if is_discrepancy:
             flag = {
@@ -125,10 +127,16 @@ class SIPDirectFeedReconciler:
             self.var_slow = 0.25
             self.initialized = True
         else:
-            self.mu_fast = (1.0 - self.lambda_fast) * self.mu_fast + self.lambda_fast * log_tau
+            self.mu_fast = (
+                1.0 - self.lambda_fast
+            ) * self.mu_fast + self.lambda_fast * log_tau
             diff_slow = log_tau - self.mu_slow
-            self.mu_slow = (1.0 - self.lambda_slow) * self.mu_slow + self.lambda_slow * log_tau
-            self.var_slow = (1.0 - self.lambda_slow) * self.var_slow + self.lambda_slow * (diff_slow ** 2)
+            self.mu_slow = (
+                1.0 - self.lambda_slow
+            ) * self.mu_slow + self.lambda_slow * log_tau
+            self.var_slow = (
+                1.0 - self.lambda_slow
+            ) * self.var_slow + self.lambda_slow * (diff_slow**2)
 
             # Check for permanent infrastructure regime shift (Dual-Speed Divergence)
             sigma_slow = math.sqrt(max(0.01, self.var_slow))
@@ -173,7 +181,9 @@ class SIPDirectFeedReconciler:
             return "STALE_SIP_DISLOCATION", action, z_score
 
         elif z_score >= 2.0:
-            logger.warning(f"[SIP_BURST_WEDGE] {self.symbol}: Elevated queueing latency Z={z_score:.2f}.")
+            logger.warning(
+                f"[SIP_BURST_WEDGE] {self.symbol}: Elevated queueing latency Z={z_score:.2f}."
+            )
             return "TRAFFIC_BURST", "NONE", z_score
 
         return "NORMAL_PROPAGATION", "NONE", z_score
@@ -207,7 +217,12 @@ class RegNMSTradeThroughGuard:
 class LULDStateMachine:
     """Monitors Limit-Up / Limit-Down bands, proximity triggers, and trading halts."""
 
-    def __init__(self, reference_price: float = 100.0, band_pct: float = 0.05, proximity_threshold: float = 0.005):
+    def __init__(
+        self,
+        reference_price: float = 100.0,
+        band_pct: float = 0.05,
+        proximity_threshold: float = 0.005,
+    ):
         self.reference_price = reference_price
         self.band_pct = band_pct  # 5% Tier 1 NMS stock band
         self.proximity_threshold = proximity_threshold  # 0.5% proximity trigger
@@ -225,13 +240,20 @@ class LULDStateMachine:
         # Check LULD Halt trigger
         if current_price <= self.lower_band or current_price >= self.upper_band:
             self.is_halted = True
-            logger.critical(f"[LULD_HALT] Price {current_price:.2f} breached band [{self.lower_band:.2f}, {self.upper_band:.2f}]. HALTED.")
+            logger.critical(
+                f"[LULD_HALT] Price {current_price:.2f} breached band [{self.lower_band:.2f}, {self.upper_band:.2f}]. HALTED."
+            )
             return True, True
 
         # Check 0.5% proximity trigger to pull quotes before official exchange halt
-        if dist_to_lower <= self.proximity_threshold or dist_to_upper <= self.proximity_threshold:
+        if (
+            dist_to_lower <= self.proximity_threshold
+            or dist_to_upper <= self.proximity_threshold
+        ):
             self.proximity_triggered = True
-            logger.warning(f"[LULD_PROXIMITY_PULL] Price {current_price:.2f} within 0.5% of LULD band. Pulling quotes.")
+            logger.warning(
+                f"[LULD_PROXIMITY_PULL] Price {current_price:.2f} within 0.5% of LULD band. Pulling quotes."
+            )
             return True, False
 
         self.proximity_triggered = False
@@ -251,16 +273,22 @@ class ShortSaleRestrictionTracker:
         if drop_pct >= 0.10:
             if not self.ssr_active:
                 self.ssr_active = True
-                logger.warning(f"[SSR_TRIGGERED] Stock dropped {drop_pct*100:.1f}% >= 10.0%. Rule 201 active.")
+                logger.warning(
+                    f"[SSR_TRIGGERED] Stock dropped {drop_pct*100:.1f}% >= 10.0%. Rule 201 active."
+                )
         return self.ssr_active
 
-    def validate_short_order(self, order_price: float, best_bid: float) -> Tuple[bool, str]:
+    def validate_short_order(
+        self, order_price: float, best_bid: float
+    ) -> Tuple[bool, str]:
         """Short sell must be strictly priced above best bid when SSR is active."""
         if not self.ssr_active:
             return True, "ALLOWED"
 
         if order_price <= best_bid:
-            logger.warning(f"[SSR_SHORT_BLOCKED] Short price {order_price:.2f} <= best bid {best_bid:.2f} under Rule 201.")
+            logger.warning(
+                f"[SSR_SHORT_BLOCKED] Short price {order_price:.2f} <= best bid {best_bid:.2f} under Rule 201."
+            )
             return False, "BLOCKED_RULE_201"
 
         return True, "ALLOWED_UPTICK"
@@ -273,7 +301,9 @@ class DarkPoolRouter:
         self.dark_pool_threshold = dark_pool_threshold
         self.routed_orders: List[Dict[str, Any]] = []
 
-    def route_order(self, symbol: str, side: str, qty: float, limit_price: float) -> Dict[str, Any]:
+    def route_order(
+        self, symbol: str, side: str, qty: float, limit_price: float
+    ) -> Dict[str, Any]:
         use_dark_pool = bool(qty >= self.dark_pool_threshold)
         destination = "DARK_POOL_ATS" if use_dark_pool else "LIT_EXCHANGE_NASDAQ"
 
@@ -294,7 +324,12 @@ class DarkPoolRouter:
 class StocksEngine:
     """Consolidated US Equities Regulatory & Execution Engine with Freshness Gating and Minimum Depth Filters."""
 
-    def __init__(self, symbol: str = "AAPL", reference_price: float = 150.0, prev_close: float = 150.0):
+    def __init__(
+        self,
+        symbol: str = "AAPL",
+        reference_price: float = 150.0,
+        prev_close: float = 150.0,
+    ):
         self.symbol = symbol
         self.sip_reconciler = SIPDirectFeedReconciler(symbol=symbol)
         self.trade_through_guard = RegNMSTradeThroughGuard()
@@ -305,7 +340,9 @@ class StocksEngine:
 
     def freeze_entries_on_macro(self) -> None:
         self.entries_frozen = True
-        logger.info(f"[STOCKS_ENTRIES_FROZEN] Macro uncertainty detected. Freezing equity entry orders.")
+        logger.info(
+            f"[STOCKS_ENTRIES_FROZEN] Macro uncertainty detected. Freezing equity entry orders."
+        )
 
     def unfreeze_entries(self) -> None:
         self.entries_frozen = False
@@ -326,7 +363,9 @@ class StocksEngine:
         1. Quote Freshness Gate (< 50 microseconds).
         2. Minimum Contra-Side Depth Gate (>= 100 shares).
         """
-        now_ms = current_time_ms if current_time_ms is not None else time.time() * 1000.0
+        now_ms = (
+            current_time_ms if current_time_ms is not None else time.time() * 1000.0
+        )
         quote = self.sip_reconciler.direct_quotes.get(venue)
 
         if quote is None:
@@ -334,12 +373,16 @@ class StocksEngine:
 
         quote_age_ms = now_ms - quote.timestamp_ms
         if quote_age_ms > max_quote_age_ms:
-            logger.info(f"[SNIPER_ISO_ABORTED_STALE] Direct quote age {quote_age_ms*1000:.1f}us > 50us threshold.")
+            logger.info(
+                f"[SNIPER_ISO_ABORTED_STALE] Direct quote age {quote_age_ms*1000:.1f}us > 50us threshold."
+            )
             return False, "ABORTED_STALE_QUOTE"
 
         contra_qty = quote.ask_qty if side.upper() == "BUY" else quote.bid_qty
         if contra_qty < min_contra_depth or target_qty < min_contra_depth:
-            logger.info(f"[SNIPER_ISO_ABORTED_DEPTH] Contra depth {contra_qty} < {min_contra_depth} min round lot.")
+            logger.info(
+                f"[SNIPER_ISO_ABORTED_DEPTH] Contra depth {contra_qty} < {min_contra_depth} min round lot."
+            )
             return False, "ABORTED_INSUFFICIENT_DEPTH"
 
         return True, "DISPATCH_ISO_IOC"

@@ -41,13 +41,19 @@ class EventLatencyTracker:
     def __init__(self):
         self.latency_records: List[Dict[str, float]] = []
 
-    def record_latency(self, detection_ts_ms: float, reaction_ts_ms: float, event_name: str) -> float:
+    def record_latency(
+        self, detection_ts_ms: float, reaction_ts_ms: float, event_name: str
+    ) -> float:
         latency_ms = max(0.0, reaction_ts_ms - detection_ts_ms)
-        self.latency_records.append({
-            "event_name": event_name,
-            "latency_ms": latency_ms,
-        })
-        logger.info(f"[EVENT_LATENCY_TRACKED] Event '{event_name}' executed in {latency_ms:.2f}ms.")
+        self.latency_records.append(
+            {
+                "event_name": event_name,
+                "latency_ms": latency_ms,
+            }
+        )
+        logger.info(
+            f"[EVENT_LATENCY_TRACKED] Event '{event_name}' executed in {latency_ms:.2f}ms."
+        )
         return latency_ms
 
 
@@ -60,15 +66,21 @@ class StructuredNewsListener:
 
     def disconnect(self) -> None:
         self.is_connected = False
-        logger.warning("[NEWS_FEED_DISCONNECTED] News WebSocket disconnected. Operating in degraded fallback mode.")
+        logger.warning(
+            "[NEWS_FEED_DISCONNECTED] News WebSocket disconnected. Operating in degraded fallback mode."
+        )
 
     def reconnect(self) -> None:
         self.is_connected = True
         logger.info("[NEWS_FEED_RECONNECTED] News WebSocket restored.")
 
-    def ingest_news(self, headline: str, source: str = "BLOOMBERG", symbol: Optional[str] = None) -> Optional[NewsEvent]:
+    def ingest_news(
+        self, headline: str, source: str = "BLOOMBERG", symbol: Optional[str] = None
+    ) -> Optional[NewsEvent]:
         if not self.is_connected:
-            logger.debug(f"[NEWS_IGNORED_DISCONNECTED] Feed is disconnected; skipping '{headline}'.")
+            logger.debug(
+                f"[NEWS_IGNORED_DISCONNECTED] Feed is disconnected; skipping '{headline}'."
+            )
             return None
 
         event = NewsEvent(headline=headline, source=source, symbol=symbol)
@@ -95,7 +107,11 @@ class CrossMarketCorrelationEngine:
         impact = "LOW"
         actions = {}
 
-        if "FED RATE HIKE" in headline or "CPI DATA RELEASE" in headline or "INFLATION SURGE" in headline:
+        if (
+            "FED RATE HIKE" in headline
+            or "CPI DATA RELEASE" in headline
+            or "INFLATION SURGE" in headline
+        ):
             keyword = "CPI_OR_FED_RATE" if "FED" in headline else "CPI_RELEASE"
             impact = "HIGH"
             actions = {

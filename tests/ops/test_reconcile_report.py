@@ -7,7 +7,9 @@ from trading.execution.venue_adapter import MockVenueAdapter
 
 def test_reconciliation_report_clean():
     adapter = MockVenueAdapter()
-    report = generate_reconciliation_report(venue_adapter=adapter, execution_mode=ExecutionMode.SHADOW)
+    report = generate_reconciliation_report(
+        venue_adapter=adapter, execution_mode=ExecutionMode.SHADOW
+    )
 
     assert report.status == "CLEAN"
     assert report.positions_match

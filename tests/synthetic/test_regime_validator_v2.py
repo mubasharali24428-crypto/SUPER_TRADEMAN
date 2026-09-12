@@ -4,11 +4,9 @@ from unittest import mock
 
 import pytest
 
-from trading.synthetic.regime_validator import (
-    AdaptiveStressScaler,
-    MacroVolatilityBaseline,
-    RegimeValidator,
-)
+from trading.synthetic.regime_validator import (AdaptiveStressScaler,
+                                                MacroVolatilityBaseline,
+                                                RegimeValidator)
 
 
 def test_new_normal_annealing():
@@ -50,7 +48,9 @@ def test_socratic_lockout_preserved_during_annealing():
     baseline_before = macro_vol.baseline_vol
 
     # Attempt to anneal
-    annealed = macro_vol.conditional_anneal(current_state="DEFENSIVE", is_defense_locked=True)
+    annealed = macro_vol.conditional_anneal(
+        current_state="DEFENSIVE", is_defense_locked=True
+    )
     assert not annealed
     assert macro_vol.baseline_vol == baseline_before
     # k_dynamic must remain frozen at base value 2.0
@@ -125,13 +125,17 @@ def test_socratic_lockout_prevents_premature_deescalation():
     stress_during_lockout = scaler.calculate_stress(lwr_ext=3.0, ofi_norm=-0.5)
 
     assert stress_during_lockout == pytest.approx(stress_before_lockout)
-    assert scaler.k_dynamic == pytest.approx(2.0)  # frozen at k_base, not stretched by the spike
+    assert scaler.k_dynamic == pytest.approx(
+        2.0
+    )  # frozen at k_base, not stretched by the spike
 
 
 def test_ultra_slow_baseline_independence():
     macro = MacroVolatilityBaseline(lambda_slow=0.05, lambda_ultra_slow=0.0001)
     macro.update(100.0)
-    macro.update(110.0)  # bootstrap: both EWMAs jump to the same ~0.10 structural regime
+    macro.update(
+        110.0
+    )  # bootstrap: both EWMAs jump to the same ~0.10 structural regime
 
     # Long stretch of calm session ticks afterward.
     price = 110.0
@@ -150,7 +154,9 @@ def test_convergence_ema_decaying_memory():
     macro.update(101.0)  # bootstrap tick: ewma_vol == ewma_ultra_slow -> divergence 0
     assert macro.convergence_ema == pytest.approx(0.0)
 
-    macro.update(103.0)  # lambda_slow (0.5) adapts far faster than lambda_ultra_slow (0.01) -> they diverge
+    macro.update(
+        103.0
+    )  # lambda_slow (0.5) adapts far faster than lambda_ultra_slow (0.01) -> they diverge
     raw_divergence = abs(macro.ewma_vol - macro.ewma_ultra_slow) / macro.ewma_ultra_slow
     # Decaying memory: convergence_ema is 95% prior memory (0.0) + 5% this tick's raw
     # divergence, not a straight snap to the raw value.
@@ -164,7 +170,9 @@ def test_conditional_annealing_blocked_in_stress():
     macro.ewma_ultra_slow = 0.001
     macro.convergence_ema = 0.05  # well converged, would anneal if permitted
 
-    assert not macro.conditional_anneal(current_state="DEFENSIVE", is_defense_locked=False)
+    assert not macro.conditional_anneal(
+        current_state="DEFENSIVE", is_defense_locked=False
+    )
     assert not macro.conditional_anneal(current_state="HALTED", is_defense_locked=False)
     assert not macro.conditional_anneal(current_state="NORMAL", is_defense_locked=True)
 
@@ -192,7 +200,9 @@ def test_conditional_annealing_recovering_state():
 def test_new_normal_baseline_drift():
     macro = MacroVolatilityBaseline(convergence_threshold=0.20, annealing_rate=0.05)
     macro.baseline_vol = 0.001
-    macro.ewma_ultra_slow = 0.005  # persistently higher structural vol -- the "new normal"
+    macro.ewma_ultra_slow = (
+        0.005  # persistently higher structural vol -- the "new normal"
+    )
     macro.convergence_ema = 0.05  # stays well converged/stable throughout
 
     baselines = [macro.baseline_vol]

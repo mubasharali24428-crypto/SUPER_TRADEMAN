@@ -24,7 +24,9 @@ def atr(candles: list[list[float]], period: int = 14) -> float | None:
     true_ranges = []
     for prev, cur in zip(candles[-period - 1 : -1], candles[-period:]):
         high, low, prev_close = cur[2], cur[3], prev[4]
-        true_ranges.append(max(high - low, abs(high - prev_close), abs(low - prev_close)))
+        true_ranges.append(
+            max(high - low, abs(high - prev_close), abs(low - prev_close))
+        )
     return sum(true_ranges) / period
 
 

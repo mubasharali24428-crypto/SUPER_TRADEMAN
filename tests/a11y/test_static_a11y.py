@@ -23,6 +23,7 @@ _css = (WEB / "style.css").read_text(encoding="utf-8")
 
 # ---------------------------------------------------------------- index.html -
 
+
 def test_semantic_landmarks_present():
     for tag in ("<header", "<nav", "<main", "<footer"):
         assert tag in _html, f"missing semantic landmark {tag}"
@@ -64,9 +65,7 @@ def test_form_labels_are_programmatically_associated():
         "modalAtrMult",
     ):
         assert f'id="{control_id}"' in _html, f"#{control_id} missing"
-        assert f'for="{control_id}"' in _html, (
-            f"label for={control_id} not associated"
-        )
+        assert f'for="{control_id}"' in _html, f"label for={control_id} not associated"
 
 
 def test_tablist_and_dialog_semantics():
@@ -79,24 +78,25 @@ def test_tablist_and_dialog_semantics():
 
 def test_key_ax_regions_have_data_testids():
     for tid in (
-        "data-testid=\"header\"",
-        "data-testid=\"main\"",
-        "data-testid=\"sidebar\"",
-        "data-testid=\"ledger\"",
-        "data-testid=\"ledger-table-body\"",
-        "data-testid=\"live-region\"",
-        "data-testid=\"footer\"",
+        'data-testid="header"',
+        'data-testid="main"',
+        'data-testid="sidebar"',
+        'data-testid="ledger"',
+        'data-testid="ledger-table-body"',
+        'data-testid="live-region"',
+        'data-testid="footer"',
     ):
         assert tid in _html, f"missing {tid} hook for axe harness"
 
 
 def test_honest_simulation_labeling():
-    assert "SIMULATED" in _html.upper(), (
-        "dashboard must be visibly/honestly labeled as simulated data"
-    )
+    assert (
+        "SIMULATED" in _html.upper()
+    ), "dashboard must be visibly/honestly labeled as simulated data"
 
 
 # ------------------------------------------------------------------- app.js --
+
 
 def test_no_bare_innerhtml_sinks_remain():
     sinks = re.findall(r"\.innerHTML\s*=", _js)
@@ -126,6 +126,7 @@ def test_js_updates_the_status_region():
 
 # --------------------------------------------------------------- style.css --
 
+
 def test_global_focus_visible_ring_present():
     assert ":focus-visible" in _css, "no :focus-visible ring defined"
 
@@ -137,18 +138,19 @@ def test_outline_none_removed():
 def test_muted_text_meets_aa_contrast():
     # #64748b was 4.18:1 on --bg-primary / 3.96:1 on --bg-secondary.
     # #708198 measures 5.01:1 / 4.75:1 (computed WCAG luminance ratios).
-    assert "--text-muted: #708198;" in _css, (
-        "muted text color not bumped to AA-compliant #708198"
-    )
+    assert (
+        "--text-muted: #708198;" in _css
+    ), "muted text color not bumped to AA-compliant #708198"
     # Strip /* */ comments so historical values quoted in documentation
     # comments don't count as live usage.
     live_css = re.sub(r"/\*.*?\*/", "", _css, flags=re.S)
-    assert "#64748b" not in live_css, (
-        "old low-contrast #64748b still used in live CSS rules"
-    )
+    assert (
+        "#64748b" not in live_css
+    ), "old low-contrast #64748b still used in live CSS rules"
 
 
 # ------------------------------------------------------------------ CI gate --
+
 
 def test_a11y_workflow_defines_axe_gate():
     wf = REPO_ROOT / ".github" / "workflows" / "a11y.yml"

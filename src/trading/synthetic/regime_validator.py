@@ -111,13 +111,17 @@ class MacroVolatilityBaseline:
         if self.ewma_vol == 0.0:
             self.ewma_vol = abs_ret
         else:
-            self.ewma_vol = (1.0 - self.lambda_slow) * self.ewma_vol + self.lambda_slow * abs_ret
+            self.ewma_vol = (
+                1.0 - self.lambda_slow
+            ) * self.ewma_vol + self.lambda_slow * abs_ret
 
         # Update ultra-slow structural EWMA vol (Task 1.1)
         if self.ewma_ultra_slow == 0.0:
             self.ewma_ultra_slow = abs_ret
         else:
-            self.ewma_ultra_slow = (1.0 - self.lambda_ultra_slow) * self.ewma_ultra_slow + self.lambda_ultra_slow * abs_ret
+            self.ewma_ultra_slow = (
+                1.0 - self.lambda_ultra_slow
+            ) * self.ewma_ultra_slow + self.lambda_ultra_slow * abs_ret
 
         self.vol_samples.append(self.ewma_vol)
 
@@ -126,7 +130,9 @@ class MacroVolatilityBaseline:
 
         # Track convergence metric with decaying memory (Task 1.2 & 1.3)
         if self.ewma_ultra_slow > 0:
-            divergence = abs(self.ewma_vol - self.ewma_ultra_slow) / self.ewma_ultra_slow
+            divergence = (
+                abs(self.ewma_vol - self.ewma_ultra_slow) / self.ewma_ultra_slow
+            )
             self.convergence_ema = 0.95 * self.convergence_ema + 0.05 * divergence
 
     def conditional_anneal(self, current_state: str, is_defense_locked: bool) -> bool:
@@ -143,7 +149,9 @@ class MacroVolatilityBaseline:
         # Check convergence condition
         if self.convergence_ema <= self.convergence_threshold:
             # Anneal baseline_vol towards structural ultra-slow volatility
-            self.baseline_vol = (1.0 - self.annealing_rate) * self.baseline_vol + self.annealing_rate * self.ewma_ultra_slow
+            self.baseline_vol = (
+                1.0 - self.annealing_rate
+            ) * self.baseline_vol + self.annealing_rate * self.ewma_ultra_slow
             self.annealing_applied_count += 1
             return True
 
@@ -169,14 +177,18 @@ class AdaptiveStressScaler:
         self.k_base = k_base
         self.k_floor = k_floor
         self.k_ceiling = k_ceiling
-        self.macro_vol_tracker = macro_vol_tracker or MacroVolatilityBaseline(lambda_slow=0.001)
+        self.macro_vol_tracker = macro_vol_tracker or MacroVolatilityBaseline(
+            lambda_slow=0.001
+        )
         self.defense_lockout_active: bool = False
 
     def set_defense_lockout(self, active: bool) -> None:
         """Socratic Lockout: Freezes k_dynamic at k_base during defensive states to prevent self-sabotaging suppression."""
         self.defense_lockout_active = active
 
-    def update_baseline(self, current_price: float, current_state: str = "NORMAL") -> None:
+    def update_baseline(
+        self, current_price: float, current_state: str = "NORMAL"
+    ) -> None:
         if not self.defense_lockout_active:
             self.macro_vol_tracker.update(current_price)
             self.macro_vol_tracker.conditional_anneal(
@@ -232,7 +244,7 @@ class AdaptiveEWMVTracker:
 
         diff = price - self.mu
         self.mu = (1.0 - lam) * self.mu + lam * price
-        self.variance = (1.0 - lam) * self.variance + lam * (diff ** 2)
+        self.variance = (1.0 - lam) * self.variance + lam * (diff**2)
         return math.sqrt(max(0.0, self.variance))
 
     @property
@@ -266,12 +278,19 @@ class AdaptiveRegimeThresholds:
     def lwr_shock_threshold(self) -> float:
         return self.base_lwr_shock * self.macro_vol_tracker.vol_ratio
 
-    def classify_regime(self, lwr_ext: float, ofi_norm: float, stress_score: float) -> str:
+    def classify_regime(
+        self, lwr_ext: float, ofi_norm: float, stress_score: float
+    ) -> str:
         if lwr_ext > self.lwr_shock_threshold or stress_score >= 0.75:
             return MicrostructureRegime.ADVERSARIAL_SHOCK
-        elif lwr_ext > self.lwr_fragile_threshold and abs(ofi_norm) <= self.base_ofi_threshold:
+        elif (
+            lwr_ext > self.lwr_fragile_threshold
+            and abs(ofi_norm) <= self.base_ofi_threshold
+        ):
             return MicrostructureRegime.FRAGILE_BALANCED
-        elif lwr_ext > self.lwr_stress_threshold and ofi_norm < -self.base_ofi_threshold:
+        elif (
+            lwr_ext > self.lwr_stress_threshold and ofi_norm < -self.base_ofi_threshold
+        ):
             return MicrostructureRegime.SELL_STRESS
         elif lwr_ext > self.lwr_stress_threshold and ofi_norm > self.base_ofi_threshold:
             return MicrostructureRegime.BUY_STRESS
@@ -302,7 +321,9 @@ class RegimeValidator:
         )
         self.last_defensive_ts: float = 0.0
 
-    def on_tick(self, current_price: float, micro_price: float, current_state: str = "NORMAL") -> float:
+    def on_tick(
+        self, current_price: float, micro_price: float, current_state: str = "NORMAL"
+    ) -> float:
         """Processes live price tick to update macro volatility and micro-price EWMV."""
         self.stress_scaler.update_baseline(current_price, current_state=current_state)
         return self.ewmv_tracker.update(micro_price)
@@ -320,27 +341,47 @@ class RegimeValidator:
         current_time_ms = time.time() * 1000.0
         cutoff_time_ms = current_time_ms - window_ms
 
-        recent_events = [e for e in event_log if e.get("timestamp_ms", 0.0) >= cutoff_time_ms]
+        recent_events = [
+            e for e in event_log if e.get("timestamp_ms", 0.0) >= cutoff_time_ms
+        ]
 
         events_analyzed = len(recent_events)
         effective_window_ms = (
-            (current_time_ms - min(e.get("timestamp_ms", current_time_ms) for e in recent_events))
+            (
+                current_time_ms
+                - min(e.get("timestamp_ms", current_time_ms) for e in recent_events)
+            )
             if recent_events
             else 0.0
         )
         maxlen = getattr(event_log, "maxlen", None)
-        window_truncated = bool(maxlen is not None and len(event_log) >= maxlen and effective_window_ms < (window_ms * 0.95))
+        window_truncated = bool(
+            maxlen is not None
+            and len(event_log) >= maxlen
+            and effective_window_ms < (window_ms * 0.95)
+        )
 
         # Volume aggregations
-        buy_trade_vol = sum(e.get("qty", 0.0) for e in recent_events if e.get("event_type") == "trade" and e.get("side") == "buy")
-        sell_trade_vol = sum(e.get("qty", 0.0) for e in recent_events if e.get("event_type") == "trade" and e.get("side") == "sell")
-        
+        buy_trade_vol = sum(
+            e.get("qty", 0.0)
+            for e in recent_events
+            if e.get("event_type") == "trade" and e.get("side") == "buy"
+        )
+        sell_trade_vol = sum(
+            e.get("qty", 0.0)
+            for e in recent_events
+            if e.get("event_type") == "trade" and e.get("side") == "sell"
+        )
+
         # Endogeneity filtering: separate external market cancellations from internal strategy cancellations
-        all_cancel_vol = sum(e.get("qty", 0.0) for e in recent_events if e.get("event_type") == "cancel")
+        all_cancel_vol = sum(
+            e.get("qty", 0.0) for e in recent_events if e.get("event_type") == "cancel"
+        )
         ext_cancel_vol = sum(
             e.get("qty", 0.0)
             for e in recent_events
-            if e.get("event_type") == "cancel" and e.get("source", "EXTERNAL_MARKET") != "INTERNAL_STRATEGY"
+            if e.get("event_type") == "cancel"
+            and e.get("source", "EXTERNAL_MARKET") != "INTERNAL_STRATEGY"
         )
 
         total_trade_vol = buy_trade_vol + sell_trade_vol
@@ -402,7 +443,11 @@ class RegimeValidator:
         data_staleness_halted: bool = True,
     ) -> ReflexValidationResult:
         """Verifies system reflex execution speed (< 500ms) and _ISSUER sentinel usage."""
-        passed = execution_latency_ms <= 500.0 and issuer_token_used and data_staleness_halted
+        passed = (
+            execution_latency_ms <= 500.0
+            and issuer_token_used
+            and data_staleness_halted
+        )
         res = ReflexValidationResult(
             shock_name=shock_name,
             execution_latency_ms=execution_latency_ms,
@@ -410,7 +455,9 @@ class RegimeValidator:
             data_staleness_halted=data_staleness_halted,
             passed=passed,
         )
-        logger.info(f"[REFLEX_VALIDATED] Shock={shock_name}, Latency={execution_latency_ms:.1f}ms, Passed={passed}")
+        logger.info(
+            f"[REFLEX_VALIDATED] Shock={shock_name}, Latency={execution_latency_ms:.1f}ms, Passed={passed}"
+        )
         return res
 
     def validate_cognition(
@@ -421,7 +468,11 @@ class RegimeValidator:
         max_drawdown_pct: float,
     ) -> CognitionValidationResult:
         """Verifies regime shift detection speed (< 3 min) and proactive entry blocking."""
-        passed = regime_detection_latency_min <= 3.0 and entries_blocked_pct >= 0.80 and max_drawdown_pct < 0.08
+        passed = (
+            regime_detection_latency_min <= 3.0
+            and entries_blocked_pct >= 0.80
+            and max_drawdown_pct < 0.08
+        )
         res = CognitionValidationResult(
             campaign_name=campaign_name,
             regime_detection_latency_min=regime_detection_latency_min,
@@ -429,5 +480,7 @@ class RegimeValidator:
             max_drawdown_contained_pct=max_drawdown_pct,
             passed=passed,
         )
-        logger.info(f"[COGNITION_VALIDATED] Campaign={campaign_name}, DetectionLatency={regime_detection_latency_min:.1f}m, Passed={passed}")
+        logger.info(
+            f"[COGNITION_VALIDATED] Campaign={campaign_name}, DetectionLatency={regime_detection_latency_min:.1f}m, Passed={passed}"
+        )
         return res

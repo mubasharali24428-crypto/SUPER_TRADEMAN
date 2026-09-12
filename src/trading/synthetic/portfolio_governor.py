@@ -4,7 +4,8 @@ import time
 from typing import Dict, Optional
 
 from trading.observability.logger import get_logger
-from trading.synthetic.oms_engine import OMSActorEngine, OMSEventTier, OrderStatus
+from trading.synthetic.oms_engine import (OMSActorEngine, OMSEventTier,
+                                          OrderStatus)
 
 __all__ = ["PortfolioGovernor"]
 
@@ -58,7 +59,9 @@ class PortfolioGovernor:
     @property
     def is_throttled(self) -> bool:
         """True once aggregate throughput crosses throttle_threshold_pct of the hard cap."""
-        return self.aggregate_message_rate >= (self.max_messages_per_sec * self.throttle_threshold_pct)
+        return self.aggregate_message_rate >= (
+            self.max_messages_per_sec * self.throttle_threshold_pct
+        )
 
     def allow_event(self, tier: OMSEventTier) -> bool:
         """Governs whether an event of the given tier may dispatch right now. Tier 0 always bypasses."""

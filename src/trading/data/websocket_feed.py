@@ -40,7 +40,7 @@ def compute_backoff(attempt: int, start_s: float, max_s: float) -> float:
     """Exponential backoff for ``attempt`` (0-based): min(start * 2**attempt, cap)."""
     if attempt < 0:
         attempt = 0
-    return min(start_s * (2 ** attempt), max_s)
+    return min(start_s * (2**attempt), max_s)
 
 
 class HeartbeatBuffer:
@@ -53,7 +53,10 @@ class HeartbeatBuffer:
     def push(self, candle: Any) -> None:
         if len(self._buf) == self._buf.maxlen:
             self.dropped += 1
-            logger.warning("heartbeat buffer full; dropping oldest candle (%d dropped)", self.dropped)
+            logger.warning(
+                "heartbeat buffer full; dropping oldest candle (%d dropped)",
+                self.dropped,
+            )
         self._buf.append(candle)
 
     def extend(self, candles) -> None:
@@ -92,9 +95,14 @@ async def watch_ohlcv_loop(
     """
     stop_event = stop_event or asyncio.Event()
     if not hasattr(exchange, "watch_ohlcv"):
-        logger.info("%s lacks watch_ohlcv; using polling fallback", type(exchange).__name__)
+        logger.info(
+            "%s lacks watch_ohlcv; using polling fallback", type(exchange).__name__
+        )
         await poll_ohlcv_loop(
-            exchange, symbol, timeframe, buffer,
+            exchange,
+            symbol,
+            timeframe,
+            buffer,
             stop_event=stop_event,
             poll_interval_s=poll_interval_s,
             recv_timeout_s=recv_timeout_s,
@@ -119,7 +127,12 @@ async def watch_ohlcv_loop(
             attempt += 1
             logger.warning(
                 "watch_ohlcv %s %s failed (%s: %s); reconnect in %.1fs (attempt %d)",
-                symbol, timeframe, type(exc).__name__, exc, delay, attempt,
+                symbol,
+                timeframe,
+                type(exc).__name__,
+                exc,
+                delay,
+                attempt,
             )
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=delay)
@@ -165,7 +178,12 @@ async def poll_ohlcv_loop(
             attempt += 1
             logger.warning(
                 "fetch_ohlcv %s %s failed (%s: %s); retry in %.1fs (attempt %d)",
-                symbol, timeframe, type(exc).__name__, exc, delay, attempt,
+                symbol,
+                timeframe,
+                type(exc).__name__,
+                exc,
+                delay,
+                attempt,
             )
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=delay)

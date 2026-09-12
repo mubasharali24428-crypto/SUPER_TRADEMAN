@@ -27,6 +27,8 @@ dev = [
     # VC-030: `make coverage` runs pytest --cov; without this declared dep the
     # gate (fail_under = 60) is unenforceable on a fresh clone.
     "pytest-cov>=5",
+    # Local mypy runs need redis stubs (pre-commit hook also declares them).
+    "types-redis>=4.6",
 ]
 
 [project.optional-dependencies]
@@ -64,6 +66,19 @@ branch = true
 [tool.coverage.report]
 fail_under = 60
 show_missing = true
+
+[tool.mypy]
+# Batch-1 item: resolve the scripts/ dual-module-name error mypy raised
+# ("Source file found twice under different module names"). With the src
+# layout + root scripts/, mypy needs explicit package bases and a path that
+# makes `trading.*` importable while scripts stay top-level modules.
+mypy_path = "src"
+explicit_package_bases = true
+namespace_packages = true
+# Runtime deps typed via stubs; keep the list in sync with [project].dependencies.
+# types-redis is now a dev dependency for local runs; the pre-commit hook also
+# declares it in additional_dependencies.
+ignore_missing_imports = false
 
 [build-system]
 requires = ["hatchling"]

@@ -3,18 +3,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from trading.backtest.engine import (
-    BacktestConfig,
-    _apply_slippage,
-    _binomial_sf,
-    _check_exit_with_open,
-    _unrealized_pnl,
-    _wilson_ci,
-    bootstrap_trade_returns,
-    run_backtest,
-    slice_for_purge_embargo,
-    split_train_test,
-)
+from trading.backtest.engine import (BacktestConfig, _apply_slippage,
+                                     _binomial_sf, _check_exit_with_open,
+                                     _unrealized_pnl, _wilson_ci,
+                                     bootstrap_trade_returns, run_backtest,
+                                     slice_for_purge_embargo, split_train_test)
 from trading.risk.engine import RiskEngine
 from trading.risk.models import AccountState, Side, Signal
 from trading.strategy.crypto import generate_signal
@@ -41,18 +34,30 @@ def make_synthetic_candles(n=260, base=100.0, spike=25.0, spike_every=20):
 
 def test_slippage_direction_is_always_unfavorable():
     cfg = BacktestConfig(slippage_pct=0.01, commission_pct=0.0)
-    assert _apply_slippage(100.0, Side.LONG, entering=True, config=cfg) == pytest.approx(101.0)
-    assert _apply_slippage(100.0, Side.LONG, entering=False, config=cfg) == pytest.approx(99.0)
-    assert _apply_slippage(100.0, Side.SHORT, entering=True, config=cfg) == pytest.approx(99.0)
-    assert _apply_slippage(100.0, Side.SHORT, entering=False, config=cfg) == pytest.approx(101.0)
+    assert _apply_slippage(
+        100.0, Side.LONG, entering=True, config=cfg
+    ) == pytest.approx(101.0)
+    assert _apply_slippage(
+        100.0, Side.LONG, entering=False, config=cfg
+    ) == pytest.approx(99.0)
+    assert _apply_slippage(
+        100.0, Side.SHORT, entering=True, config=cfg
+    ) == pytest.approx(99.0)
+    assert _apply_slippage(
+        100.0, Side.SHORT, entering=False, config=cfg
+    ) == pytest.approx(101.0)
 
 
-def test_backtest_runs_and_produces_trades_on_synthetic_mean_reverting_data(account_state):
+def test_backtest_runs_and_produces_trades_on_synthetic_mean_reverting_data(
+    account_state,
+):
     candles = make_synthetic_candles()
     account = account_state(equity=100_000.0)
     result = run_backtest(candles, "BTC/USDT", generate_signal, RiskEngine(), account)
 
-    assert len(result.equity_curve) == len(candles) + 1  # seeded with starting equity before bar 0
+    assert (
+        len(result.equity_curve) == len(candles) + 1
+    )  # seeded with starting equity before bar 0
     assert result.report.num_trades > 0
     assert result.report.num_trades == len(result.trades)
     assert 0.0 <= result.report.win_rate <= 1.0
@@ -136,9 +141,15 @@ def test_backtest_report_includes_statistical_fields(account_state):
 def test_bootstrap_trade_returns_is_deterministic_with_a_seed():
     from types import SimpleNamespace
 
-    trades = [SimpleNamespace(net_pnl=pnl) for pnl in [500, -200, 300, -400, 600, -100, 250]]
-    a = bootstrap_trade_returns(trades, start_equity=100_000.0, n_iterations=500, seed=42)
-    b = bootstrap_trade_returns(trades, start_equity=100_000.0, n_iterations=500, seed=42)
+    trades = [
+        SimpleNamespace(net_pnl=pnl) for pnl in [500, -200, 300, -400, 600, -100, 250]
+    ]
+    a = bootstrap_trade_returns(
+        trades, start_equity=100_000.0, n_iterations=500, seed=42
+    )
+    b = bootstrap_trade_returns(
+        trades, start_equity=100_000.0, n_iterations=500, seed=42
+    )
     assert a == b
     assert a["p5"] <= a["p50"] <= a["p95"]
 
@@ -153,7 +164,9 @@ def test_train_and_test_windows_both_report_full_metrics(account_state):
     train, test = split_train_test(candles, train_frac=0.7)
     account = account_state(equity=100_000.0)
 
-    train_result = run_backtest(train, "BTC/USDT", generate_signal, RiskEngine(), account)
+    train_result = run_backtest(
+        train, "BTC/USDT", generate_signal, RiskEngine(), account
+    )
     test_result = run_backtest(test, "BTC/USDT", generate_signal, RiskEngine(), account)
 
     for result in (train_result, test_result):
@@ -194,7 +207,9 @@ def _fires_once_at(bar_index, entry, stop, target):
 def _ramp_then_drop():
     """20 flat bars at 100, signal on bar 20, climb to 140, then fall back."""
     start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    closes = [100.0] * 21 + [100.0 + 2 * i for i in range(1, 21)] + [138.0, 120.0, 110.0]
+    closes = (
+        [100.0] * 21 + [100.0 + 2 * i for i in range(1, 21)] + [138.0, 120.0, 110.0]
+    )
     return [
         [int((start + timedelta(hours=i)).timestamp() * 1000), c, c + 1, c - 1, c, 1.0]
         for i, c in enumerate(closes)
@@ -259,7 +274,9 @@ def test_r_multiple_is_measured_against_entry_risk_not_the_trailed_stop(account_
         config=replace(NO_COST, trail_atr_mult=1.0),
     )
     trade = result.trades[0]
-    entry_risk = trade.position_size * abs(trade.entry_fill - 98.0)  # 98.0 = the ORIGINAL stop
+    entry_risk = trade.position_size * abs(
+        trade.entry_fill - 98.0
+    )  # 98.0 = the ORIGINAL stop
     assert trade.r_multiple == pytest.approx(trade.net_pnl / entry_risk)
     # and it must NOT match the figure you'd get from the trailed stop
     trailed_risk = trade.position_size * abs(trade.entry_fill - trade.stop_price)
@@ -291,14 +308,21 @@ def test_breakeven_win_rate_falls_back_when_a_side_is_missing():
     from trading.backtest.engine import _breakeven_win_rate
 
     assert _breakeven_win_rate([]) == pytest.approx(1 / 3)
-    assert _breakeven_win_rate([SimpleNamespace(net_pnl=1, r_multiple=2.0)]) == pytest.approx(1 / 3)
+    assert _breakeven_win_rate(
+        [SimpleNamespace(net_pnl=1, r_multiple=2.0)]
+    ) == pytest.approx(1 / 3)
 
 
 # --- EX5: pessimistic gap fills (F-0032) -------------------------------------
 
 
 def _candle(start_hour, o, h, l, c, volume=1.0):
-    ts = int((datetime(2024, 1, 1, tzinfo=timezone.utc) + timedelta(hours=start_hour)).timestamp() * 1000)
+    ts = int(
+        (
+            datetime(2024, 1, 1, tzinfo=timezone.utc) + timedelta(hours=start_hour)
+        ).timestamp()
+        * 1000
+    )
     return [ts, o, h, l, c, volume]
 
 
@@ -314,8 +338,12 @@ def test_gap_open_through_stop_long_fills_at_open_not_stop():
     candles.append(_candle(21, 90.0, 91.0, 89.0, 90.5))
 
     result = run_backtest(
-        candles, "BTC/USDT", _fires_once_at(20, entry=100.0, stop=98.0, target=200.0),
-        RiskEngine(), AccountState(equity=100_000.0, peak_equity=100_000.0), config=NO_COST,
+        candles,
+        "BTC/USDT",
+        _fires_once_at(20, entry=100.0, stop=98.0, target=200.0),
+        RiskEngine(),
+        AccountState(equity=100_000.0, peak_equity=100_000.0),
+        config=NO_COST,
     )
     assert len(result.trades) == 1
     trade = result.trades[0]
@@ -337,9 +365,15 @@ def test_gap_open_through_stop_short_fills_at_open_not_stop():
         if len(candles_) - 1 == 20 and not fired:
             fired.append(True)
             return Signal(
-                asset=asset, asset_class="crypto", side=Side.SHORT,
-                entry_price=100.0, confidence=1.0, timestamp=ts,
-                rationale="test stub", suggested_stop=102.0, suggested_target=95.0,
+                asset=asset,
+                asset_class="crypto",
+                side=Side.SHORT,
+                entry_price=100.0,
+                confidence=1.0,
+                timestamp=ts,
+                rationale="test stub",
+                suggested_stop=102.0,
+                suggested_target=95.0,
             )
         return None
 
@@ -347,22 +381,34 @@ def test_gap_open_through_stop_short_fills_at_open_not_stop():
     candles.append(_candle(21, 110.0, 111.0, 109.0, 110.5))  # up-gap through stop
 
     result = run_backtest(
-        candles, "BTC/USDT", short_fn,
-        RiskEngine(), AccountState(equity=100_000.0, peak_equity=100_000.0), config=NO_COST,
+        candles,
+        "BTC/USDT",
+        short_fn,
+        RiskEngine(),
+        AccountState(equity=100_000.0, peak_equity=100_000.0),
+        config=NO_COST,
     )
     trade = result.trades[0]
     assert trade.exit_reason == "stop"
-    assert trade.exit_fill == pytest.approx(110.0), "short gap-stop fills at open, not 102"
+    assert trade.exit_fill == pytest.approx(
+        110.0
+    ), "short gap-stop fills at open, not 102"
 
 
 def test_intrabar_stop_still_fills_at_stop_when_no_gap():
     """No gap through the stop => classic touch-fill at the stop level."""
     candles = _flat_prefix()
-    candles.append(_candle(21, 99.0, 99.5, 97.5, 98.2))  # dips below stop, opens above it
+    candles.append(
+        _candle(21, 99.0, 99.5, 97.5, 98.2)
+    )  # dips below stop, opens above it
 
     result = run_backtest(
-        candles, "BTC/USDT", _fires_once_at(20, entry=100.0, stop=98.0, target=200.0),
-        RiskEngine(), AccountState(equity=100_000.0, peak_equity=100_000.0), config=NO_COST,
+        candles,
+        "BTC/USDT",
+        _fires_once_at(20, entry=100.0, stop=98.0, target=200.0),
+        RiskEngine(),
+        AccountState(equity=100_000.0, peak_equity=100_000.0),
+        config=NO_COST,
     )
     trade = result.trades[0]
     assert trade.exit_reason == "stop"
@@ -377,8 +423,12 @@ def test_same_bar_stop_and_target_still_resolves_to_stop():
     candles.append(_candle(21, 150.0, 205.0, 90.0, 160.0))
 
     result = run_backtest(
-        candles, "BTC/USDT", _fires_once_at(20, entry=100.0, stop=98.0, target=200.0),
-        RiskEngine(), AccountState(equity=100_000.0, peak_equity=100_000.0), config=NO_COST,
+        candles,
+        "BTC/USDT",
+        _fires_once_at(20, entry=100.0, stop=98.0, target=200.0),
+        RiskEngine(),
+        AccountState(equity=100_000.0, peak_equity=100_000.0),
+        config=NO_COST,
     )
     trade = result.trades[0]
     assert trade.exit_reason == "stop"
@@ -389,13 +439,28 @@ def test_same_bar_stop_and_target_still_resolves_to_stop():
 
 def test_check_exit_with_open_unit_behavior():
     # long, gapped through stop
-    assert _check_exit_with_open(Side.LONG, 98.0, 200.0, 90.0, 105.0, 89.0) == (90.0, "stop")
+    assert _check_exit_with_open(Side.LONG, 98.0, 200.0, 90.0, 105.0, 89.0) == (
+        90.0,
+        "stop",
+    )
     # short, gapped through stop
-    assert _check_exit_with_open(Side.SHORT, 102.0, 95.0, 110.0, 111.0, 96.0) == (110.0, "stop")
+    assert _check_exit_with_open(Side.SHORT, 102.0, 95.0, 110.0, 111.0, 96.0) == (
+        110.0,
+        "stop",
+    )
     # no gap: delegates to intrabar logic (stop-first on ambiguity)
-    assert _check_exit_with_open(Side.LONG, 98.0, 200.0, 100.0, 205.0, 97.0) == (98.0, "stop")
-    assert _check_exit_with_open(Side.LONG, 98.0, 200.0, 100.0, 201.0, 100.5) == (200.0, "target")
-    assert _check_exit_with_open(Side.LONG, 98.0, 200.0, 100.0, 101.0, 100.5) == (None, None)
+    assert _check_exit_with_open(Side.LONG, 98.0, 200.0, 100.0, 205.0, 97.0) == (
+        98.0,
+        "stop",
+    )
+    assert _check_exit_with_open(Side.LONG, 98.0, 200.0, 100.0, 201.0, 100.5) == (
+        200.0,
+        "target",
+    )
+    assert _check_exit_with_open(Side.LONG, 98.0, 200.0, 100.0, 101.0, 100.5) == (
+        None,
+        None,
+    )
 
 
 # --- EX5: mark-to-market equity curve (F-0053) --------------------------------
@@ -415,11 +480,14 @@ def test_equity_curve_marks_open_position_at_each_bar_close():
     candles += [
         _candle(21, 100.0, 100.5, 99.5, 104.0),  # bar A: close 104 -> mark +4/qty
         _candle(22, 104.0, 104.5, 103.5, 92.0),  # bar B: close 92 -> deep adverse mark
-        _candle(23, 92.0, 92.5, 91.5, 99.0),     # bar C
+        _candle(23, 92.0, 92.5, 91.5, 99.0),  # bar C
     ]
     result = run_backtest(
-        candles, "BTC/USDT", _fires_once_at(20, entry=100.0, stop=80.0, target=200.0),
-        RiskEngine(), AccountState(equity=100_000.0, peak_equity=100_000.0),
+        candles,
+        "BTC/USDT",
+        _fires_once_at(20, entry=100.0, stop=80.0, target=200.0),
+        RiskEngine(),
+        AccountState(equity=100_000.0, peak_equity=100_000.0),
         config=replace(NO_COST, max_hold_bars=10),
     )
     curve = result.equity_curve
@@ -440,11 +508,14 @@ def test_marked_curve_diverges_from_realized_until_close():
     """The MtM point mid-trade differs from realized equity; after the position
     closes, points return to realized equity."""
     candles = _flat_prefix()
-    candles.append(_candle(21, 100.0, 100.5, 99.5, 120.0))   # favorable mark
+    candles.append(_candle(21, 100.0, 100.5, 99.5, 120.0))  # favorable mark
     candles.append(_candle(22, 120.0, 121.0, 119.0, 118.0))  # time-stop exit bar
     result = run_backtest(
-        candles, "BTC/USDT", _fires_once_at(20, entry=100.0, stop=50.0, target=300.0),
-        RiskEngine(), AccountState(equity=100_000.0, peak_equity=100_000.0),
+        candles,
+        "BTC/USDT",
+        _fires_once_at(20, entry=100.0, stop=50.0, target=300.0),
+        RiskEngine(),
+        AccountState(equity=100_000.0, peak_equity=100_000.0),
         config=replace(NO_COST, max_hold_bars=2),
     )
     curve = result.equity_curve
@@ -466,13 +537,15 @@ HOUR_MS = 3_600_000
 
 def test_slice_for_purge_embargo_trims_leading_and_trailing_days():
     start = int(datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
-    frame = [[start + i * HOUR_MS, 1, 1, 1, 1, 1] for i in range(24 * 10)]  # 10 days hourly
+    frame = [
+        [start + i * HOUR_MS, 1, 1, 1, 1, 1] for i in range(24 * 10)
+    ]  # 10 days hourly
     out = slice_for_purge_embargo(frame, purge_days=2, embargo_days=3)
 
     first_ts = datetime.fromtimestamp(out[0][0] / 1000, tz=timezone.utc)
     last_ts = datetime.fromtimestamp(out[-1][0] / 1000, tz=timezone.utc)
     assert first_ts.day == 3  # two full leading days purged
-    assert last_ts.day == 7   # three trailing days embargoed
+    assert last_ts.day == 7  # three trailing days embargoed
     assert len(out) == 24 * 5
     assert all(frame[0][0] <= c[0] <= frame[-1][0] for c in out)
 

@@ -7,14 +7,11 @@
 
 import pytest
 
-from trading.execution.oms import (
-    OrderManagementSystem,
-    UnknownOrderFillError,
-)
+from trading.execution.oms import OrderManagementSystem, UnknownOrderFillError
 from trading.execution.outbox import generate_client_order_id
 from trading.execution.state_machine import IllegalTransitionError, OrderState
 from trading.execution.venue_adapter import MockVenueAdapter
-from trading.risk.models import ApprovedOrder, Side, _ISSUER
+from trading.risk.models import _ISSUER, ApprovedOrder, Side
 
 
 def _make_order(side=Side.LONG, size=10.0):
@@ -36,6 +33,7 @@ async def _submit_long(oms, cid, size=10.0):
 
 
 # --- F-0030: unknown-id fill rejection ---------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_fill_for_unknown_client_order_id_raises_and_never_moves_position():
@@ -88,6 +86,7 @@ async def test_short_side_fill_delta_is_negative():
 
 # --- F-0031: partial-fill-then-cancel ----------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_cancel_after_partial_fill_is_canceled_with_filled_qty_preserved():
     oms = OrderManagementSystem(venue_adapter=MockVenueAdapter())
@@ -101,7 +100,9 @@ async def test_cancel_after_partial_fill_is_canceled_with_filled_qty_preserved()
     # NEVER FILLED -- the 70% remainder is gone, not silently executed.
     assert new_state == OrderState.CANCELED
     assert oms.active_orders[cid] == OrderState.CANCELED
-    assert oms.get_filled_qty(cid) == pytest.approx(3.0), "filled_qty must survive cancel"
+    assert oms.get_filled_qty(cid) == pytest.approx(
+        3.0
+    ), "filled_qty must survive cancel"
     assert oms.positions["BTC"] == pytest.approx(3.0)
 
 
@@ -141,6 +142,7 @@ async def test_cancel_of_unknown_order_raises_keyerror():
 
 
 # --- F-0138: full-uuid client order ids --------------------------------------
+
 
 def test_client_order_id_carries_full_uuid_entropy():
     for _ in range(25):

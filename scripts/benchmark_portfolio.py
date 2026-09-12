@@ -2,10 +2,11 @@ import argparse
 import time
 from pathlib import Path
 
+from trading.backtest.engine import BacktestConfig
 from trading.backtest.portfolio import run_portfolio_backtest
 from trading.risk.engine import RiskEngine
-from trading.risk.models import RiskConfig, AccountState, Signal, Side
-from trading.backtest.engine import BacktestConfig
+from trading.risk.models import AccountState, RiskConfig, Side, Signal
+
 
 def generate_candles(num_bars: int, start_price: float = 100.0) -> list[list[float]]:
     """Generate flat OHLCV candles for simplicity.
@@ -20,11 +21,13 @@ def generate_candles(num_bars: int, start_price: float = 100.0) -> list[list[flo
         candles.append([ts, o, h, l, c, v])
     return candles
 
+
 def fixed_signal_strategy(fire_map):
     """Factory returning a strategy function that fires signals according to fire_map.
     fire_map: dict[asset] -> dict[bar_index] -> (Side, entry, stop, target)
     """
     fired = set()
+
     def fn(candles, asset, ts):
         idx = len(candles) - 1
         spec = fire_map.get(asset, {}).get(idx)
@@ -43,7 +46,9 @@ def fixed_signal_strategy(fire_map):
             suggested_stop=stop,
             suggested_target=target,
         )
+
     return fn
+
 
 def benchmark(num_assets: int, bars_per_asset: int, repetitions: int):
     # Build candle dict
@@ -53,7 +58,9 @@ def benchmark(num_assets: int, bars_per_asset: int, repetitions: int):
     }
     # Fire a LONG entry at the last bar for each asset
     fire_map = {
-        f"ASSET{i}/USDT": {bars_per_asset - 1: (Side.LONG, 100.0 + i, 95.0 + i, 110.0 + i)}
+        f"ASSET{i}/USDT": {
+            bars_per_asset - 1: (Side.LONG, 100.0 + i, 95.0 + i, 110.0 + i)
+        }
         for i in range(num_assets)
     }
     strategy_fn = fixed_signal_strategy(fire_map)
@@ -74,17 +81,25 @@ def benchmark(num_assets: int, bars_per_asset: int, repetitions: int):
         elapsed = time.perf_counter() - start
         times.append(elapsed)
     avg_time = sum(times) / repetitions
-    print(f"Benchmark results for {num_assets} assets, {bars_per_asset} bars each, {repetitions} repetitions:")
+    print(
+        f"Benchmark results for {num_assets} assets, {bars_per_asset} bars each, {repetitions} repetitions:"
+    )
     print(f"  Avg execution time: {avg_time:.4f} s")
     print(f"  Min: {min(times):.4f}s, Max: {max(times):.4f}s")
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Benchmark portfolio backtest performance.")
-    parser.add_argument("--assets", type=int, default=5, help="Number of assets in the portfolio.")
+    parser = argparse.ArgumentParser(
+        description="Benchmark portfolio backtest performance."
+    )
+    parser.add_argument(
+        "--assets", type=int, default=5, help="Number of assets in the portfolio."
+    )
     parser.add_argument("--bars", type=int, default=1000, help="Candles per asset.")
     parser.add_argument("--reps", type=int, default=5, help="Number of repetitions.")
     args = parser.parse_args()
     benchmark(args.assets, args.bars, args.reps)
+
 
 if __name__ == "__main__":
     main()

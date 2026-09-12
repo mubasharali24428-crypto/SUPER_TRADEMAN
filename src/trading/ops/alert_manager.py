@@ -83,7 +83,9 @@ class AlertManagerConfig:
     http_timeout_sec: float = 5.0
     emergency_max_retries: int = 2  # two retries => up to 3 attempts total
     retry_backoff_sec: float = 2.0
-    dispatch_interval: float = 60.0  # minimum seconds between webhook batches (dedup window)
+    dispatch_interval: float = (
+        60.0  # minimum seconds between webhook batches (dedup window)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -115,17 +117,22 @@ class FileCooldownStore:
             if self.state_path.exists():
                 data = json.loads(self.state_path.read_text(encoding="utf-8"))
                 last_alert_time = {
-                    str(k): float(v) for k, v in (data.get("last_alert_time") or {}).items()
+                    str(k): float(v)
+                    for k, v in (data.get("last_alert_time") or {}).items()
                 }
                 alert_counts = {
                     str(k): int(v) for k, v in (data.get("alert_counts") or {}).items()
                 }
                 return last_alert_time, alert_counts
         except (OSError, ValueError, TypeError) as exc:
-            logger.warning(f"[ALERT_STATE_LOAD_FAILED] {exc}; starting with empty dedup state.")
+            logger.warning(
+                f"[ALERT_STATE_LOAD_FAILED] {exc}; starting with empty dedup state."
+            )
         return {}, {}
 
-    def persist_snapshot(self, last_alert_time: Dict[str, float], alert_counts: Dict[str, int]) -> None:
+    def persist_snapshot(
+        self, last_alert_time: Dict[str, float], alert_counts: Dict[str, int]
+    ) -> None:
         """Atomically write the manager's current dedup/escalation dicts."""
         payload = {
             "last_alert_time": dict(last_alert_time),
@@ -186,7 +193,7 @@ class RedisCooldownStore:
             pattern = f"{self.prefix}:*"
             plen = len(self.prefix)
             for key in self.client.scan_iter(match=pattern):
-                body = str(key)[plen + 1:]  # strip "<prefix>:"
+                body = str(key)[plen + 1 :]  # strip "<prefix>:"
                 rule_part, _, severity_part = body.rpartition(":")
                 if not rule_part:
                     continue  # defensive: malformed key
@@ -194,22 +201,30 @@ class RedisCooldownStore:
                 if raw is not None:
                     try:
                         rule = unquote(rule_part)
-                        last_alert_time[rule] = max(last_alert_time.get(rule, 0.0), float(raw))
+                        last_alert_time[rule] = max(
+                            last_alert_time.get(rule, 0.0), float(raw)
+                        )
                     except (TypeError, ValueError):
                         continue
             raw_counts = self.client.hgetall(self.escalation_hash)
             alert_counts = {str(k): int(v) for k, v in (raw_counts or {}).items()}
-        except Exception as exc:  # noqa: BLE001 — state introspection must not page anyone
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — state introspection must not page anyone
             logger.warning(f"[ALERT_STATE_REDIS_SCAN_FAILED] {exc}")
         return last_alert_time, alert_counts
 
-    def should_suppress(self, rule_name: str, severity: str, now_ts: float, cooldown_sec: float) -> bool:
+    def should_suppress(
+        self, rule_name: str, severity: str, now_ts: float, cooldown_sec: float
+    ) -> bool:
         del now_ts  # expiry enforced by Redis TTL, not wall-clock arithmetic
         ttl_ms = max(1, int(round(max(cooldown_sec, 0.001) * 1000)))
         key = self._window_key(rule_name, severity)
         try:
             acquired = bool(self.client.set(key, time.time(), nx=True, px=ttl_ms))
-        except Exception as exc:  # noqa: BLE001 — fail-open: never block alerting on state-store loss
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — fail-open: never block alerting on state-store loss
             logger.warning(f"[ALERT_STATE_REDIS_ERROR] {exc}; allowing alert through.")
             return False
         return not acquired
@@ -222,7 +237,9 @@ class RedisCooldownStore:
             return 0
 
 
-def select_cooldown_store(state_path: "str | Path | None" = None, redis_client: Any = None):
+def select_cooldown_store(
+    state_path: "str | Path | None" = None, redis_client: Any = None
+):
     """File store by default; Redis only when explicitly injected or REDIS_URL set."""
     if redis_client is not None:
         logger.info("[ALERT_STATE_BACKEND] redis (injected client)")
@@ -231,8 +248,14 @@ def select_cooldown_store(state_path: "str | Path | None" = None, redis_client: 
     if redis_url:
         logger.info(f"[ALERT_STATE_BACKEND] redis (REDIS_URL)")
         return RedisCooldownStore(redis_url=redis_url)
-    resolved = Path(state_path) if state_path else Path(os.getenv("OPS_ALERT_STATE_PATH", "ops_alert_state.json"))
-    logger.info(f"[ALERT_STATE_BACKEND] file {resolved} (DEGRADED: single-process cooldowns)")
+    resolved = (
+        Path(state_path)
+        if state_path
+        else Path(os.getenv("OPS_ALERT_STATE_PATH", "ops_alert_state.json"))
+    )
+    logger.info(
+        f"[ALERT_STATE_BACKEND] file {resolved} (DEGRADED: single-process cooldowns)"
+    )
     return FileCooldownStore(resolved)
 
 
@@ -271,11 +294,25 @@ class AlertManager:
         self.last_alert_time: Dict[str, float] = {}
         self.alert_counts: Dict[str, int] = {}
         self.rules: List[AlertRule] = [
-            AlertRule("High Latency", "latency_p95_ms", 500.0, ">", AlertSeverity.WARNING),
-            AlertRule("Stale Market Data", "stale_data_sec", 10.0, ">", AlertSeverity.CRITICAL),
-            AlertRule("Portfolio Drawdown", "drawdown_pct", 0.02, ">", AlertSeverity.CRITICAL),
-            AlertRule("Reconciliation Mismatch", "reconciliation_mismatch", 0.0, ">", AlertSeverity.EMERGENCY),
-            AlertRule("Drill Failure", "drill_failure", 0.0, ">", AlertSeverity.CRITICAL),
+            AlertRule(
+                "High Latency", "latency_p95_ms", 500.0, ">", AlertSeverity.WARNING
+            ),
+            AlertRule(
+                "Stale Market Data", "stale_data_sec", 10.0, ">", AlertSeverity.CRITICAL
+            ),
+            AlertRule(
+                "Portfolio Drawdown", "drawdown_pct", 0.02, ">", AlertSeverity.CRITICAL
+            ),
+            AlertRule(
+                "Reconciliation Mismatch",
+                "reconciliation_mismatch",
+                0.0,
+                ">",
+                AlertSeverity.EMERGENCY,
+            ),
+            AlertRule(
+                "Drill Failure", "drill_failure", 0.0, ">", AlertSeverity.CRITICAL
+            ),
         ]
         self._load_state()
 
@@ -306,19 +343,23 @@ class AlertManager:
         """
         redis_suppress = getattr(self.cooldown_store, "should_suppress", None)
         if callable(redis_suppress):
-            return bool(redis_suppress(rule_name, AlertSeverity.WARNING, now_ts, self.cooldown_sec))
+            return bool(
+                redis_suppress(
+                    rule_name, AlertSeverity.WARNING, now_ts, self.cooldown_sec
+                )
+            )
         last_t = self.last_alert_time.get(rule_name, 0.0)
         return (now_ts - last_t) < self.cooldown_sec
 
-    def should_suppress_for_severity(self, rule_name: str, severity: str, now_ts: float) -> bool:
+    def should_suppress_for_severity(
+        self, rule_name: str, severity: str, now_ts: float
+    ) -> bool:
         """Severity-aware suppression: EMERGENCY always pages, others respect cooldown."""
         if severity == AlertSeverity.EMERGENCY:
             return False
         redis_suppress = getattr(self.cooldown_store, "should_suppress", None)
         if callable(redis_suppress):
-            return bool(
-                redis_suppress(rule_name, severity, now_ts, self.cooldown_sec)
-            )
+            return bool(redis_suppress(rule_name, severity, now_ts, self.cooldown_sec))
         last_t = self.last_alert_time.get(rule_name, 0.0)
         return (now_ts - last_t) < self.cooldown_sec
 
@@ -326,7 +367,9 @@ class AlertManager:
         """Escalates severity if triggered repeatedly within a short window."""
         record_escalation = getattr(self.cooldown_store, "record_escalation", None)
         if callable(record_escalation):
-            count = int(cast(Callable[[str], int], record_escalation)(rule_name))  # HINCRBY — atomic cross-process
+            count = int(
+                cast(Callable[[str], int], record_escalation)(rule_name)
+            )  # HINCRBY — atomic cross-process
         else:
             count = self.alert_counts.get(rule_name, 0) + 1
             self.alert_counts[rule_name] = count
@@ -340,13 +383,18 @@ class AlertManager:
     # Real webhook dispatch
     # ------------------------------------------------------------------
     @staticmethod
-    def _post_json(url: str, payload: Dict[str, Any], timeout_sec: float) -> Tuple[bool, Optional[int], str]:
+    def _post_json(
+        url: str, payload: Dict[str, Any], timeout_sec: float
+    ) -> Tuple[bool, Optional[int], str]:
         """Single HTTP POST of a JSON body via urllib. Returns (ok, status_code, error)."""
         body = json.dumps(payload).encode("utf-8")
         request = urllib.request.Request(
             url,
             data=body,
-            headers={"Content-Type": "application/json", "User-Agent": "super_trademan-alerts/1.0"},
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "super_trademan-alerts/1.0",
+            },
             method="POST",
         )
         try:
@@ -364,7 +412,9 @@ class AlertManager:
         except (TimeoutError, OSError) as exc:
             return False, None, f"transport error: {exc}"
 
-    def _dispatch_with_retries(self, channel: str, url: str, payload: Dict[str, Any], emergency: bool) -> WebhookDispatchResult:
+    def _dispatch_with_retries(
+        self, channel: str, url: str, payload: Dict[str, Any], emergency: bool
+    ) -> WebhookDispatchResult:
         """Deliver a payload to one webhook URL with EMERGENCY-grade retry policy."""
         timeout = self.config.http_timeout_sec
         max_attempts = (1 + self.config.emergency_max_retries) if emergency else 1
@@ -380,7 +430,9 @@ class AlertManager:
                 logger.info(
                     f"[WEBHOOK_DISPATCH_OK] channel={channel} attempts={attempts} status={status}"
                 )
-                return WebhookDispatchResult(channel=channel, ok=True, attempts=attempts, status_code=status)
+                return WebhookDispatchResult(
+                    channel=channel, ok=True, attempts=attempts, status_code=status
+                )
             logger.warning(
                 f"[WEBHOOK_DISPATCH_FAIL] channel={channel} attempt={attempts}/{max_attempts} "
                 f"status={status} error={err}"
@@ -388,7 +440,13 @@ class AlertManager:
             if attempts < max_attempts:
                 time.sleep(self.config.retry_backoff_sec * attempts)
 
-        return WebhookDispatchResult(channel=channel, ok=False, attempts=attempts, status_code=last_status, error=last_error)
+        return WebhookDispatchResult(
+            channel=channel,
+            ok=False,
+            attempts=attempts,
+            status_code=last_status,
+            error=last_error,
+        )
 
     def send_alert_channels(self, alert_record: AlertRecord) -> List[str]:
         """Dispatches an alert over every configured channel via real HTTP POSTs.
@@ -403,7 +461,8 @@ class AlertManager:
         # Primary ops webhook (generic JSON sink, e.g. gateway relay).
         if self.webhook_url:
             result = self._dispatch_with_retries(
-                "webhook", self.webhook_url,
+                "webhook",
+                self.webhook_url,
                 {
                     "alert_id": alert_record.alert_id,
                     "alert_name": alert_record.alert_name,
@@ -434,7 +493,9 @@ class AlertManager:
                     "payload": {
                         "summary": summary[:1024],
                         "source": "super_trademan",
-                        "severity": "critical" if alert_record.severity == AlertSeverity.CRITICAL else "error",
+                        "severity": "critical"
+                        if alert_record.severity == AlertSeverity.CRITICAL
+                        else "error",
                         "custom_details": {
                             "alert_id": alert_record.alert_id,
                             "message": alert_record.message,
@@ -442,7 +503,10 @@ class AlertManager:
                     },
                 }
                 result = self._dispatch_with_retries(
-                    "pagerduty", "https://events.pagerduty.com/v2/enqueue", pd_payload, emergency=emergency
+                    "pagerduty",
+                    "https://events.pagerduty.com/v2/enqueue",
+                    pd_payload,
+                    emergency=emergency,
                 )
                 channels_sent.append("pagerduty" if result.ok else "pagerduty:failed")
 
@@ -451,7 +515,9 @@ class AlertManager:
     # ------------------------------------------------------------------
     # Metric evaluation
     # ------------------------------------------------------------------
-    def evaluate_metric(self, metric_name: str, value: float, custom_message: str = "") -> Optional[AlertRecord]:
+    def evaluate_metric(
+        self, metric_name: str, value: float, custom_message: str = ""
+    ) -> Optional[AlertRecord]:
         """Evaluates a single metric value against registered rules and dispatches on trigger.
 
         Suppression is severity-aware: an EMERGENCY alert (including any alert
@@ -478,17 +544,26 @@ class AlertManager:
                 # Severity-aware suppression (F-0376/G-111): EMERGENCY rules
                 # always page — cooldown never suppresses them. Other severities
                 # respect the persisted cooldown window.
-                if self.should_suppress_for_severity(rule.rule_name, rule.severity, now_ts):
-                    logger.debug(f"[ALERT_SUPPRESSED] {rule.rule_name} suppressed by cooldown.")
+                if self.should_suppress_for_severity(
+                    rule.rule_name, rule.severity, now_ts
+                ):
+                    logger.debug(
+                        f"[ALERT_SUPPRESSED] {rule.rule_name} suppressed by cooldown."
+                    )
                     return None
 
-                escalated_severity = self.escalate_severity(rule.rule_name, rule.severity)
+                escalated_severity = self.escalate_severity(
+                    rule.rule_name, rule.severity
+                )
                 self.last_alert_time[rule.rule_name] = now_ts
                 # Persist AFTER mutating both cooldown and escalation counters so
                 # the snapshot always includes the current event.
                 self._persist_state()
 
-                msg = custom_message or f"{rule.rule_name} triggered: {metric_name}={value} {rule.comparator} {rule.threshold}"
+                msg = (
+                    custom_message
+                    or f"{rule.rule_name} triggered: {metric_name}={value} {rule.comparator} {rule.threshold}"
+                )
                 rec = AlertRecord(
                     alert_id=f"alt_{uuid.uuid4().hex[:8]}",
                     alert_name=rule.rule_name,

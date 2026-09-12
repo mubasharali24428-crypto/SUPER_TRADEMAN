@@ -11,13 +11,9 @@ from decimal import Decimal
 
 import pytest
 
-from trading.core import (
-    check_min_notional,
-    decimal_from_float,
-    quantize_to_step,
-)
+from trading.core import (check_min_notional, decimal_from_float,
+                          quantize_to_step)
 from trading.risk.metrics import intended_r, realized_r
-
 
 # --------------------------------------------------------------------------
 # quantize_to_step — step rounding edge cases

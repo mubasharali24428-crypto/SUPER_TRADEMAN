@@ -5,11 +5,10 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 from trading.observability.logger import get_logger
-from trading.observability.shadow_metrics import (
-    daily_z_score,
-    lower_tail_breach,
-)
-from trading.ops.deployment_metrics import DeploymentMetricRecord, DeploymentMetricsStore
+from trading.observability.shadow_metrics import (daily_z_score,
+                                                  lower_tail_breach)
+from trading.ops.deployment_metrics import (DeploymentMetricRecord,
+                                            DeploymentMetricsStore)
 
 __all__ = [
     "ShadowCampaignSummary",
@@ -68,7 +67,9 @@ class ShadowCampaign:
 
         days_count = len(self.daily_records)
         cum_pnl = sum(r.shadow_pnl_pct for r in self.daily_records)
-        avg_slippage = sum(r.avg_shadow_slippage_bps for r in self.daily_records) / days_count
+        avg_slippage = (
+            sum(r.avg_shadow_slippage_bps for r in self.daily_records) / days_count
+        )
         p99_lat = max(r.p99_signal_to_fill_latency_ms for r in self.daily_records)
 
         # Campaign-level z-score: cumulative pnl vs campaign expectation, scaled by
@@ -107,12 +108,16 @@ class ShadowCampaign:
 
         failures = []
         if self.consecutive_breaches >= 3:
-            failures.append(f"HARD_STOP_TRIGGERED: {self.consecutive_breaches} consecutive days exceeding variance thresholds.")
+            failures.append(
+                f"HARD_STOP_TRIGGERED: {self.consecutive_breaches} consecutive days exceeding variance thresholds."
+            )
 
         # Gate-1 z-test is also one-sided (lower tail): underperformance fails the gate;
         # outperformance does not. `expected_daily_pnl`/`daily_std` kept consistent above.
         if z_score < -self.max_z_score_threshold:
-            failures.append(f"Z_SCORE_EXCEEDED: Tracking error z-score {z_score:.2f} < -{self.max_z_score_threshold}")
+            failures.append(
+                f"Z_SCORE_EXCEEDED: Tracking error z-score {z_score:.2f} < -{self.max_z_score_threshold}"
+            )
 
         if days_count >= 20 and len(failures) == 0:
             status = "GATE_1_PASS"

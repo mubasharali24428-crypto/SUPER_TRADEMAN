@@ -2,16 +2,11 @@
 
 import pytest
 
-from trading.synthetic.event_ingestor import (
-    CrossMarketCorrelationEngine,
-    NewsEvent,
-)
+from trading.synthetic.event_ingestor import (CrossMarketCorrelationEngine,
+                                              NewsEvent)
 from trading.synthetic.forex_engine import ForexEngine
-from trading.synthetic.oms_engine import (
-    OMSActorEngine,
-    OMSEventTier,
-    OrderStatus,
-)
+from trading.synthetic.oms_engine import (OMSActorEngine, OMSEventTier,
+                                          OrderStatus)
 from trading.synthetic.polymarket_engine import PolymarketEngine
 from trading.synthetic.stocks_engine import StocksEngine
 
@@ -35,7 +30,9 @@ def test_cpi_release_cross_asset_reaction():
 
     engine.subscribe(_on_macro)
 
-    news = NewsEvent("BREAKING: CPI DATA RELEASE SURPASSES EXPECTATIONS", source="BLOOMBERG")
+    news = NewsEvent(
+        "BREAKING: CPI DATA RELEASE SURPASSES EXPECTATIONS", source="BLOOMBERG"
+    )
     engine.process_news_event(news)
 
     # Verify simultaneous cross-asset adaptation
@@ -77,7 +74,12 @@ def test_oms_priority_across_assets():
     shared_oms.enqueue_event(
         tier=OMSEventTier.TIER_2_EXECUTION,
         event_type="SNIPER_ENTRY",
-        payload={"order_id": "stock_sniper_01", "side": "BUY", "price": 150.0, "qty": 100.0},
+        payload={
+            "order_id": "stock_sniper_01",
+            "side": "BUY",
+            "price": 150.0,
+            "qty": 100.0,
+        },
     )
 
     # 2. Enqueue Tier 0 FOREX Stale Quote Emergency Cancel
@@ -103,8 +105,16 @@ def test_oms_priority_across_assets():
 def test_portfolio_level_risk_multi_asset():
     """Prove the Portfolio Governor aggregates risk across FOREX, Polymarket, and Stocks simultaneously."""
     positions = {
-        "EUR/USD": {"asset_class": "FOREX", "notional_usd": 500_000.0, "var_99": 5_000.0},
-        "US_CPI_OCT": {"asset_class": "POLYMARKET", "notional_usd": 50_000.0, "var_99": 2_500.0},
+        "EUR/USD": {
+            "asset_class": "FOREX",
+            "notional_usd": 500_000.0,
+            "var_99": 5_000.0,
+        },
+        "US_CPI_OCT": {
+            "asset_class": "POLYMARKET",
+            "notional_usd": 50_000.0,
+            "var_99": 2_500.0,
+        },
         "AAPL": {"asset_class": "STOCKS", "notional_usd": 250_000.0, "var_99": 7_500.0},
     }
 

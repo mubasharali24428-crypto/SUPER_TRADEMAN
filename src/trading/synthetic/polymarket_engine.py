@@ -24,10 +24,16 @@ class ProbabilityVelocityTracker:
     """Tracks probability rate of change (Delta P / Delta t) for binary outcome contracts."""
 
     def __init__(self, velocity_threshold: float = 0.10):
-        self.velocity_threshold = velocity_threshold  # 10 cents per second triggers regime shift
-        self.history: Deque[Tuple[float, float]] = collections.deque(maxlen=1000)  # (timestamp_ms, price)
+        self.velocity_threshold = (
+            velocity_threshold  # 10 cents per second triggers regime shift
+        )
+        self.history: Deque[Tuple[float, float]] = collections.deque(
+            maxlen=1000
+        )  # (timestamp_ms, price)
 
-    def update_price(self, price: float, timestamp_ms: Optional[float] = None) -> Tuple[float, bool]:
+    def update_price(
+        self, price: float, timestamp_ms: Optional[float] = None
+    ) -> Tuple[float, bool]:
         """Returns (velocity_per_sec, is_regime_shift)."""
         now_ms = timestamp_ms if timestamp_ms is not None else time.time() * 1000.0
         self.history.append((now_ms, price))
@@ -56,9 +62,15 @@ class AMMSlippageCalculator:
     def __init__(self, default_pool_liquidity: float = 100000.0):
         self.default_pool_liquidity = default_pool_liquidity
 
-    def calculate_slippage(self, trade_size: float, pool_liquidity: Optional[float] = None) -> float:
+    def calculate_slippage(
+        self, trade_size: float, pool_liquidity: Optional[float] = None
+    ) -> float:
         """Slippage = trade_size / pool_liquidity (CPMM linear approximation for delta P)."""
-        liq = pool_liquidity if pool_liquidity is not None else self.default_pool_liquidity
+        liq = (
+            pool_liquidity
+            if pool_liquidity is not None
+            else self.default_pool_liquidity
+        )
         if liq <= 0:
             return 1.0
         return min(1.0, trade_size / liq)
@@ -67,20 +79,30 @@ class AMMSlippageCalculator:
 class MEVTaxCalculator:
     """Tracks 24h rolling historical MEV extraction rates and calculates total transaction MEV Tax."""
 
-    def __init__(self, historical_mev_rate: float = 0.02, pool_liquidity: float = 100000.0):
+    def __init__(
+        self, historical_mev_rate: float = 0.02, pool_liquidity: float = 100000.0
+    ):
         self.historical_mev_rate = historical_mev_rate
-        self.slippage_calc = AMMSlippageCalculator(default_pool_liquidity=pool_liquidity)
+        self.slippage_calc = AMMSlippageCalculator(
+            default_pool_liquidity=pool_liquidity
+        )
         self.recent_mev_extractions: Deque[float] = collections.deque(maxlen=1000)
 
     def record_mev_observation(self, rate: float) -> None:
         self.recent_mev_extractions.append(rate)
         if len(self.recent_mev_extractions) > 10:
-            self.historical_mev_rate = sum(self.recent_mev_extractions) / len(self.recent_mev_extractions)
+            self.historical_mev_rate = sum(self.recent_mev_extractions) / len(
+                self.recent_mev_extractions
+            )
 
-    def calculate_mev_tax(self, trade_size: float, pool_liquidity: Optional[float] = None) -> float:
+    def calculate_mev_tax(
+        self, trade_size: float, pool_liquidity: Optional[float] = None
+    ) -> float:
         """MEV Tax = Slippage + (Historical MEV Rate * Trade Size / Reference Size)."""
         slippage = self.slippage_calc.calculate_slippage(trade_size, pool_liquidity)
-        extraction_cost = self.historical_mev_rate * (trade_size / max(1000.0, trade_size))
+        extraction_cost = self.historical_mev_rate * (
+            trade_size / max(1000.0, trade_size)
+        )
         total_mev_tax = slippage + extraction_cost
         return round(total_mev_tax, 4)
 
@@ -91,7 +113,12 @@ class EdgeAfterMEVValidator:
     def __init__(self, mev_calculator: MEVTaxCalculator):
         self.mev_calc = mev_calculator
 
-    def validate_edge(self, expected_edge: float, trade_size: float, pool_liquidity: Optional[float] = None) -> Tuple[bool, float]:
+    def validate_edge(
+        self,
+        expected_edge: float,
+        trade_size: float,
+        pool_liquidity: Optional[float] = None,
+    ) -> Tuple[bool, float]:
         """Returns (can_execute, mev_tax)."""
         mev_tax = self.mev_calc.calculate_mev_tax(trade_size, pool_liquidity)
         net_edge = expected_edge - mev_tax
@@ -127,7 +154,9 @@ class PrivateMempoolRouter:
             "payload": tx_payload,
         }
         self.routed_transactions.append(result)
-        logger.info(f"[FLASHBOTS_PROTECT_ROUTED] Tx {tx_hash} submitted via {self.rpc_endpoint}.")
+        logger.info(
+            f"[FLASHBOTS_PROTECT_ROUTED] Tx {tx_hash} submitted via {self.rpc_endpoint}."
+        )
         return result
 
 
@@ -147,8 +176,14 @@ class AtomicBatchExecutor:
     ) -> Dict[str, Any]:
         """Bundles ERC20 approval and swap call in one atomic transaction."""
         calls = [
-            {"target": "ERC20_COLLATERAL", "call_data": f"approve({market_id}, {token_amount})"},
-            {"target": "CTF_EXCHANGE", "call_data": f"buy({outcome}, {token_amount}, {target_price})"},
+            {
+                "target": "ERC20_COLLATERAL",
+                "call_data": f"approve({market_id}, {token_amount})",
+            },
+            {
+                "target": "CTF_EXCHANGE",
+                "call_data": f"buy({outcome}, {token_amount}, {target_price})",
+            },
         ]
         bundle = {
             "market_id": market_id,
@@ -164,11 +199,15 @@ class AtomicBatchExecutor:
 class PolymarketEngine:
     """Institutional Polymarket Prediction Market Microstructure & MEV Defense Engine."""
 
-    def __init__(self, market_id: str = "US_CPI_OCT_2026", pool_liquidity: float = 100000.0):
+    def __init__(
+        self, market_id: str = "US_CPI_OCT_2026", pool_liquidity: float = 100000.0
+    ):
         self.market_id = market_id
         self.pool_liquidity = pool_liquidity
         self.velocity_tracker = ProbabilityVelocityTracker()
-        self.slippage_calc = AMMSlippageCalculator(default_pool_liquidity=pool_liquidity)
+        self.slippage_calc = AMMSlippageCalculator(
+            default_pool_liquidity=pool_liquidity
+        )
         self.mev_calc = MEVTaxCalculator(pool_liquidity=pool_liquidity)
         self.edge_validator = EdgeAfterMEVValidator(self.mev_calc)
         self.private_router = PrivateMempoolRouter()
@@ -178,7 +217,9 @@ class PolymarketEngine:
     def arm_sniper_on_macro(self) -> None:
         """Arms prediction market sniper for macro contracts upon news trigger."""
         self.sniper_armed = True
-        logger.info(f"[POLYMARKET_SNIPER_ARMED] Sniper armed for contract {self.market_id} upon macro event.")
+        logger.info(
+            f"[POLYMARKET_SNIPER_ARMED] Sniper armed for contract {self.market_id} upon macro event."
+        )
 
     def evaluate_oracle_latency_arbitrage(
         self,

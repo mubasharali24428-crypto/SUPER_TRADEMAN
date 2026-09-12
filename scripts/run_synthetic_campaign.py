@@ -3,7 +3,7 @@
 
 import argparse
 import sys
-from typing import Dict, Any
+from typing import Any, Dict
 
 from trading.synthetic.agents.orchestrator import AgentOrchestrator
 from trading.synthetic.chaos_injector import ChaosInjector
@@ -21,7 +21,9 @@ def run_simulation_campaign(
     injector = ChaosInjector(lob=lob)
     validator = RegimeValidator()
 
-    print(f"[SIMULATION_STARTED] Duration={duration_steps} steps, Mode={chaos_mode}, Seed={seed}")
+    print(
+        f"[SIMULATION_STARTED] Duration={duration_steps} steps, Mode={chaos_mode}, Seed={seed}"
+    )
 
     total_orders = 0
     for step in range(1, duration_steps + 1):
@@ -36,10 +38,19 @@ def run_simulation_campaign(
         elif chaos_mode in ("cascading", "mixed") and step == 70:
             injector.execute_spoof_and_dump_stage(4)
 
-    reflex_res = validator.validate_reflex("Flash Crash 15%", execution_latency_ms=120.0)
-    cognition_res = validator.validate_cognition("Spoof-and-Dump", regime_detection_latency_min=2.1, entries_blocked_pct=0.85, max_drawdown_pct=0.04)
+    reflex_res = validator.validate_reflex(
+        "Flash Crash 15%", execution_latency_ms=120.0
+    )
+    cognition_res = validator.validate_cognition(
+        "Spoof-and-Dump",
+        regime_detection_latency_min=2.1,
+        entries_blocked_pct=0.85,
+        max_drawdown_pct=0.04,
+    )
 
-    print(f"[SIMULATION_COMPLETED] Orders Generated={total_orders}, Reflex Pass={reflex_res.passed}, Cognition Pass={cognition_res.passed}")
+    print(
+        f"[SIMULATION_COMPLETED] Orders Generated={total_orders}, Reflex Pass={reflex_res.passed}, Cognition Pass={cognition_res.passed}"
+    )
     return {
         "duration_steps": duration_steps,
         "chaos_mode": chaos_mode,
@@ -50,13 +61,26 @@ def run_simulation_campaign(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run SUPER_TRADEMAN Synthetic Multi-Agent Campaign")
-    parser.add_argument("--duration", type=int, default=100, help="Simulation duration in steps")
-    parser.add_argument("--chaos_mode", type=str, default="mixed", help="Chaos mode: instantaneous, cascading, or mixed")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser = argparse.ArgumentParser(
+        description="Run SUPER_TRADEMAN Synthetic Multi-Agent Campaign"
+    )
+    parser.add_argument(
+        "--duration", type=int, default=100, help="Simulation duration in steps"
+    )
+    parser.add_argument(
+        "--chaos_mode",
+        type=str,
+        default="mixed",
+        help="Chaos mode: instantaneous, cascading, or mixed",
+    )
+    parser.add_argument(
+        "--seed", type=int, default=42, help="Random seed for reproducibility"
+    )
     args = parser.parse_args()
 
-    run_simulation_campaign(duration_steps=args.duration, chaos_mode=args.chaos_mode, seed=args.seed)
+    run_simulation_campaign(
+        duration_steps=args.duration, chaos_mode=args.chaos_mode, seed=args.seed
+    )
 
 
 if __name__ == "__main__":

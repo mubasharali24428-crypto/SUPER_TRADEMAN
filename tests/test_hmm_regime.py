@@ -66,12 +66,15 @@ def test_hmm_state_probabilities_and_transition_matrix():
 # Sub-06 rigor: convergence checks, causal live posterior, honest warm-up #
 # --------------------------------------------------------------------- #
 
+
 def test_model_fit_reports_provenance_and_convergence():
     np.random.seed(7)
-    returns = np.concatenate([
-        np.random.normal(0.0001, 0.002, 60),
-        np.random.normal(0.02, 0.005, 60),
-    ])
+    returns = np.concatenate(
+        [
+            np.random.normal(0.0001, 0.002, 60),
+            np.random.normal(0.02, 0.005, 60),
+        ]
+    )
     clf = HMMRegimeClassifier(min_history_length=30)
     res = clf.fit_predict(returns, is_returns=True)
     assert res.provenance == "model"
@@ -84,10 +87,12 @@ def test_forward_posterior_matches_prefix_score_samples():
     forward-backward evaluated on growing prefixes: at the LAST step of any
     prefix, the smoothed posterior equals the filtered one."""
     np.random.seed(11)
-    returns = np.concatenate([
-        np.random.normal(-0.02, 0.05, 80),
-        np.random.normal(0.01, 0.004, 80),
-    ])
+    returns = np.concatenate(
+        [
+            np.random.normal(-0.02, 0.05, 80),
+            np.random.normal(0.01, 0.004, 80),
+        ]
+    )
     clf = HMMRegimeClassifier(min_history_length=30)
     X = clf._build_features(returns)
     model, converged = clf._fit_with_convergence_check(X)
@@ -113,11 +118,18 @@ def test_features_drop_warmup_instead_of_seeding():
 
 class _StubGaussianHMM:
     """Deterministic stand-in: fails EM convergence on its first fit only."""
+
     fits = 0
     random_states_used = []
 
-    def __init__(self, n_components=3, covariance_type="diag", n_iter=100,
-                 random_state=42, init_params="stmc"):
+    def __init__(
+        self,
+        n_components=3,
+        covariance_type="diag",
+        n_iter=100,
+        random_state=42,
+        init_params="stmc",
+    ):
         _StubGaussianHMM.random_states_used.append(random_state)
         self.n_components = n_components
         # Wave-6 RECT-ALPHA (VB-032): spread the state means/variances to a
@@ -126,11 +138,13 @@ class _StubGaussianHMM:
         # observation into a single state — a degenerate posterior that the new
         # sanity gate rightly refuses; these stubs exist to exercise the
         # convergence-retry machinery, not to certify degenerate fits.
-        self.means_ = np.array([
-            [0.020, 0.010],
-            [-0.020, 0.012],
-            [0.001, 0.008],
-        ])
+        self.means_ = np.array(
+            [
+                [0.020, 0.010],
+                [-0.020, 0.012],
+                [0.001, 0.008],
+            ]
+        )
         self.covars_ = np.full((3, 2), 1e-4)
         self.transmat_ = np.full((3, 3), 1.0 / 3.0)
         self.startprob_ = np.full(3, 1.0 / 3.0)
@@ -158,8 +172,10 @@ def test_nonconvergence_retries_once_then_recovers(monkeypatch):
 
     # Exactly two attempts, second with a different random_state.
     assert len(_StubGaussianHMM.random_states_used) == 2
-    assert _StubGaussianHMM.random_states_used[1] == \
-        _StubGaussianHMM.random_states_used[0] + 1
+    assert (
+        _StubGaussianHMM.random_states_used[1]
+        == _StubGaussianHMM.random_states_used[0] + 1
+    )
     assert res.converged is True
     assert res.provenance == "model"
 
@@ -207,6 +223,7 @@ def test_short_history_fallback_is_flagged():
 # Wave-6 RECT-ALPHA                                                     #
 # --------------------------------------------------------------------- #
 
+
 def test_vb013_align_states_refuses_non_canonical_component_count():
     clf = HMMRegimeClassifier(n_components=4)
     with pytest.raises(ValueError, match="n_components"):
@@ -218,11 +235,13 @@ def test_vb013_high_vol_positive_return_state_must_not_steal_bear_slot():
     a high-vol MILDLY-POSITIVE-return state outrank the deeply-negative
     low-vol state for the bear slot once vol units dwarf return units."""
     clf = HMMRegimeClassifier(n_components=3)
-    means = np.array([
-        [0.001, 0.95],   # X: near-zero return, huge vol (chop candidate)
-        [0.060, 0.50],   # Z: highest return -> bull
-        [-0.040, 0.90],  # Y: deeply negative return -> true bear
-    ])
+    means = np.array(
+        [
+            [0.001, 0.95],  # X: near-zero return, huge vol (chop candidate)
+            [0.060, 0.50],  # Z: highest return -> bull
+            [-0.040, 0.90],  # Y: deeply negative return -> true bear
+        ]
+    )
     mapping = clf._align_states(means)
     assert mapping == {1: 0, 2: 1, 0: 2}
     # Bijection onto canonical slots.
@@ -232,13 +251,15 @@ def test_vb013_high_vol_positive_return_state_must_not_steal_bear_slot():
 def test_vb013_bear_scoring_scale_invariant_across_feature_units():
     clf = HMMRegimeClassifier(n_components=3)
     rng = np.random.default_rng(31)
-    means = np.column_stack([
-        rng.normal(0, 0.02, 3),      # mean returns
-        rng.uniform(0.005, 0.05, 3),  # rolling vols
-    ])
+    means = np.column_stack(
+        [
+            rng.normal(0, 0.02, 3),  # mean returns
+            rng.uniform(0.005, 0.05, 3),  # rolling vols
+        ]
+    )
     base = clf._align_states(means)
     inflated = means.copy()
-    inflated[:, 1] *= 1000.0          # same states, vol quoted in other units
+    inflated[:, 1] *= 1000.0  # same states, vol quoted in other units
     assert clf._align_states(inflated) == base
 
 
@@ -255,11 +276,13 @@ class _DegenerateCollapse(_AlwaysConverges):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.means_ = np.array([
-            [0.001, 0.01],   # matches typical sample scale
-            [50.0, 50.0],    # impossibly far in return dimension
-            [-50.0, 50.0],
-        ])
+        self.means_ = np.array(
+            [
+                [0.001, 0.01],  # matches typical sample scale
+                [50.0, 50.0],  # impossibly far in return dimension
+                [-50.0, 50.0],
+            ]
+        )
 
 
 def test_vb032_degenerate_one_state_posterior_gates_to_fallback(monkeypatch):
@@ -298,7 +321,7 @@ def test_vb015_cache_avoids_refit_on_append_only_history(monkeypatch):
     # Append-only growth: prefix of returns unchanged -> cached fit reused.
     more = np.exp(np.cumsum(rng.normal(0.001, 0.01, 10))) * prices[-1]
     r2 = clf.fit_predict(prices + list(more))
-    assert fits["n"] == 1                      # NO refit
+    assert fits["n"] == 1  # NO refit
     assert r2.provenance == "model"
 
     # Diverging history (mutated price) invalidates the prefix -> refit.
@@ -351,10 +374,12 @@ def test_vb081_forward_posterior_finite_and_exact_at_long_horizon():
     even at heartbeat-buffer length (T~600), proving the shared-offset
     subtraction keeps ratios safe at long horizons."""
     np.random.seed(29)
-    returns = np.concatenate([
-        np.random.normal(-0.02, 0.05, 300),
-        np.random.normal(0.01, 0.004, 300),
-    ])
+    returns = np.concatenate(
+        [
+            np.random.normal(-0.02, 0.05, 300),
+            np.random.normal(0.01, 0.004, 300),
+        ]
+    )
     clf = HMMRegimeClassifier(min_history_length=30)
     X = clf._build_features(returns)
     model, converged = clf._fit_with_convergence_check(X)

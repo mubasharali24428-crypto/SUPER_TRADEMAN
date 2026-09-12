@@ -11,15 +11,16 @@ logger = logging.getLogger("trading.risk.garch")
 @dataclass(frozen=True)
 class GARCHForecastResult:
     """Output of a GARCH volatility estimation and forecast."""
+
     conditional_volatility: float  # 1-period ahead forecast sigma_{t+1} (in % scale or decimal scale)
-    annualized_volatility: float   # Annualized conditional volatility
-    omega: float                   # Constant variance term
-    alpha: float                   # ARCH parameter (reaction to recent shocks)
-    beta: float                    # GARCH parameter (volatility persistence)
-    persistence: float             # alpha + beta
-    unconditional_volatility: float # Long-run average volatility sqrt(omega / (1 - alpha - beta))
-    is_high_volatility: bool       # High volatility regime indicator flag
-    volatility_scale_factor: float # Scaling factor to adjust base position risk pct
+    annualized_volatility: float  # Annualized conditional volatility
+    omega: float  # Constant variance term
+    alpha: float  # ARCH parameter (reaction to recent shocks)
+    beta: float  # GARCH parameter (volatility persistence)
+    persistence: float  # alpha + beta
+    unconditional_volatility: float  # Long-run average volatility sqrt(omega / (1 - alpha - beta))
+    is_high_volatility: bool  # High volatility regime indicator flag
+    volatility_scale_factor: float  # Scaling factor to adjust base position risk pct
 
 
 class GARCHVolatilityModel:
@@ -32,7 +33,7 @@ class GARCHVolatilityModel:
     def __init__(
         self,
         target_annual_vol: float = 0.40,  # 40% annual target volatility for crypto
-        high_vol_threshold_ann: float = 0.65, # 65% annual vol triggers high_volatility flag
+        high_vol_threshold_ann: float = 0.65,  # 65% annual vol triggers high_volatility flag
         min_history_length: int = 30,
         periods_per_year: float = 365.0,  # 365 for crypto 24/7 markets
     ):
@@ -41,7 +42,9 @@ class GARCHVolatilityModel:
         self.min_history_length = min_history_length
         self.periods_per_year = periods_per_year
 
-    def fit_forecast(self, prices_or_returns: Sequence[float], is_returns: bool = False) -> GARCHForecastResult:
+    def fit_forecast(
+        self, prices_or_returns: Sequence[float], is_returns: bool = False
+    ) -> GARCHForecastResult:
         """Fits GARCH(1,1) model and computes 1-period ahead conditional volatility forecast.
 
         Args:
@@ -68,7 +71,9 @@ class GARCHVolatilityModel:
             from arch import arch_model
 
             # Fit standard GARCH(1, 1) model
-            am = arch_model(returns, vol="Garch", p=1, q=1, dist="normal", rescale=False)
+            am = arch_model(
+                returns, vol="Garch", p=1, q=1, dist="normal", rescale=False
+            )
             res = am.fit(disp="off", show_warning=False)
 
             # Extract estimated parameters
@@ -91,7 +96,9 @@ class GARCHVolatilityModel:
             # Unconditional long-run variance
             if persistence < 1.0 and (1.0 - persistence) > 1e-6:
                 uncond_var = omega / (1.0 - persistence)
-                uncond_vol = (math.sqrt(uncond_var) / 100.0) * math.sqrt(self.periods_per_year)
+                uncond_vol = (math.sqrt(uncond_var) / 100.0) * math.sqrt(
+                    self.periods_per_year
+                )
             else:
                 uncond_vol = ann_vol
 
@@ -115,10 +122,14 @@ class GARCHVolatilityModel:
             )
 
         except Exception as exc:
-            logger.warning("GARCH fitting failed (%s). Using fallback volatility estimation.", exc)
+            logger.warning(
+                "GARCH fitting failed (%s). Using fallback volatility estimation.", exc
+            )
             return self._fallback_forecast(arr, is_returns=is_returns)
 
-    def _fallback_forecast(self, arr: np.ndarray, is_returns: bool) -> GARCHForecastResult:
+    def _fallback_forecast(
+        self, arr: np.ndarray, is_returns: bool
+    ) -> GARCHForecastResult:
         """Fallback exponential moving average / standard deviation volatility estimate."""
         if len(arr) < 2:
             return GARCHForecastResult(
@@ -140,7 +151,9 @@ class GARCHVolatilityModel:
 
         std_dev = float(np.std(returns)) if len(returns) > 1 else 0.02
         ann_vol = std_dev * math.sqrt(self.periods_per_year)
-        vol_scale = float(np.clip(self.target_annual_vol / max(ann_vol, 1e-4), 0.25, 1.50))
+        vol_scale = float(
+            np.clip(self.target_annual_vol / max(ann_vol, 1e-4), 0.25, 1.50)
+        )
 
         return GARCHForecastResult(
             conditional_volatility=std_dev,

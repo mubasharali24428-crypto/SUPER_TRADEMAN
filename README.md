@@ -8,13 +8,17 @@ money at risk. `config/deployment_config.yml` defines paper, shadow, and restric
 nothing runs against a real venue.
 
 ```bash
+# compose reads POSTGRES_USER/POSTGRES_PASSWORD from your shell env (NOT .env):
+export POSTGRES_USER=stm_dev POSTGRES_PASSWORD=$(openssl rand -base64 24) POSTGRES_DB=super_trademan
 docker compose up -d   # Postgres 16 + Redis 7
 uv sync
 cp .env.example .env
-uv run pytest          # 354 passed, 2 skipped
+# then set POSTGRES_URL/REDIS_URL in .env to match the credentials above
+uv run pytest          # 839 passed, 7 skipped (live-DB tests skip without a reachable Postgres)
 ```
 
-Two tests require Postgres and are skipped without it.
+Live-DB tests require a reachable Postgres with credentials matching `.env`; they skip
+(fail-closed) otherwise. CI runs the full suite without Docker — those tests skip there too.
 
 ## Design
 

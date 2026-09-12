@@ -7,8 +7,8 @@ the server is unreachable. Schema itself comes from Alembic migrations
 
 import os
 
-import pytest
 import asyncpg
+import pytest
 
 from trading.config import Settings
 from trading.db.postgres import get_pool, resolve_postgres_url
@@ -69,7 +69,9 @@ async def test_redis_connects():
 
 async def test_journal_store_decisions_is_idempotent_on_decision_id():
     from datetime import datetime, timezone
-    from trading.journal import DecisionRecord, decision_id_for, store_decisions
+
+    from trading.journal import (DecisionRecord, decision_id_for,
+                                 store_decisions)
 
     pool = FakePool()
     rec = DecisionRecord(
@@ -105,6 +107,7 @@ async def test_outbox_has_no_runtime_ensure_schema():
 
 async def test_outbox_save_intent_uses_conflict_do_nothing():
     from datetime import datetime, timezone
+
     from trading.execution.outbox import OrderIntent, OutboxStore
     from trading.execution.state_machine import OrderState
 

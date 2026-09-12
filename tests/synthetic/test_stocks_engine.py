@@ -2,16 +2,12 @@
 
 import pytest
 
-from trading.synthetic.stocks_engine import (
-    DarkPoolRouter,
-    DirectFeedQuote,
-    LULDStateMachine,
-    RegNMSTradeThroughGuard,
-    ShortSaleRestrictionTracker,
-    SIPDirectFeedReconciler,
-    SIPNBBO,
-    StocksEngine,
-)
+from trading.synthetic.stocks_engine import (SIPNBBO, DarkPoolRouter,
+                                             DirectFeedQuote, LULDStateMachine,
+                                             RegNMSTradeThroughGuard,
+                                             ShortSaleRestrictionTracker,
+                                             SIPDirectFeedReconciler,
+                                             StocksEngine)
 
 
 def test_sip_direct_feed_discrepancy_detection():
@@ -20,7 +16,9 @@ def test_sip_direct_feed_discrepancy_detection():
     reconciler.update_sip(SIPNBBO("AAPL", bid_price=150.00, ask_price=150.05))
 
     # Direct feed has ask lower than SIP bid (crossed venue)
-    crossed_direct = DirectFeedQuote("AAPL", "DIRECT_EDGX", bid_price=149.95, ask_price=149.98)
+    crossed_direct = DirectFeedQuote(
+        "AAPL", "DIRECT_EDGX", bid_price=149.95, ask_price=149.98
+    )
     is_discrepancy = reconciler.update_direct(crossed_direct)
 
     assert is_discrepancy
@@ -29,19 +27,33 @@ def test_sip_direct_feed_discrepancy_detection():
 
 def test_dual_speed_ewma_regime_annealing():
     """Prove that a persistent shift in infrastructure latency triggers Dual-Speed regime annealing."""
-    reconciler = SIPDirectFeedReconciler(symbol="AAPL", lambda_fast=0.30, lambda_slow=0.01, regime_shift_ticks=5)
-    
+    reconciler = SIPDirectFeedReconciler(
+        symbol="AAPL", lambda_fast=0.30, lambda_slow=0.01, regime_shift_ticks=5
+    )
+
     # 1. Warm up baseline at 1.0ms latency
     for i in range(20):
         t_sip = 1000.0 + i * 10.0
-        reconciler.update_sip(SIPNBBO("AAPL", bid_price=150.00, ask_price=150.05, timestamp_ms=t_sip))
-        reconciler.evaluate_feed_anomaly(DirectFeedQuote("AAPL", "DIRECT_NASDAQ", 150.00, 150.05, timestamp_ms=t_sip + 1.0))
+        reconciler.update_sip(
+            SIPNBBO("AAPL", bid_price=150.00, ask_price=150.05, timestamp_ms=t_sip)
+        )
+        reconciler.evaluate_feed_anomaly(
+            DirectFeedQuote(
+                "AAPL", "DIRECT_NASDAQ", 150.00, 150.05, timestamp_ms=t_sip + 1.0
+            )
+        )
 
     # 2. Sudden permanent jump to 50ms latency (infrastructure route shift)
     for i in range(20):
         t_sip = 2000.0 + i * 10.0
-        reconciler.update_sip(SIPNBBO("AAPL", bid_price=150.00, ask_price=150.05, timestamp_ms=t_sip))
-        reconciler.evaluate_feed_anomaly(DirectFeedQuote("AAPL", "DIRECT_NASDAQ", 150.00, 150.05, timestamp_ms=t_sip + 50.0))
+        reconciler.update_sip(
+            SIPNBBO("AAPL", bid_price=150.00, ask_price=150.05, timestamp_ms=t_sip)
+        )
+        reconciler.evaluate_feed_anomaly(
+            DirectFeedQuote(
+                "AAPL", "DIRECT_NASDAQ", 150.00, 150.05, timestamp_ms=t_sip + 50.0
+            )
+        )
 
     assert reconciler.regime_annealing_count > 0
 
@@ -49,17 +61,25 @@ def test_dual_speed_ewma_regime_annealing():
 def test_asymmetric_side_specific_defensive_pull():
     """Prove that a bid dislocation only triggers PULL_BIDS, protecting bids while preserving asks."""
     reconciler = SIPDirectFeedReconciler(symbol="AAPL", z_threshold=2.0)
-    
+
     # Warm up baseline at 1.0ms
     for i in range(10):
         t = 1000.0 + i * 10.0
-        reconciler.update_sip(SIPNBBO("AAPL", bid_price=150.00, ask_price=150.05, timestamp_ms=t))
-        reconciler.evaluate_feed_anomaly(DirectFeedQuote("AAPL", "DIRECT_ARCA", 150.00, 150.05, timestamp_ms=t + 1.0))
+        reconciler.update_sip(
+            SIPNBBO("AAPL", bid_price=150.00, ask_price=150.05, timestamp_ms=t)
+        )
+        reconciler.evaluate_feed_anomaly(
+            DirectFeedQuote("AAPL", "DIRECT_ARCA", 150.00, 150.05, timestamp_ms=t + 1.0)
+        )
 
     # Direct Bid is 150.15 (crossing SIP Ask 150.05 by 2x spread), Ask is normal at 150.20
     # Lag jumps to 20ms (elevated latency Z > 2.0)
-    reconciler.update_sip(SIPNBBO("AAPL", bid_price=150.00, ask_price=150.05, timestamp_ms=2000.0))
-    direct_bid_dislocated = DirectFeedQuote("AAPL", "DIRECT_ARCA", bid_price=150.15, ask_price=150.20, timestamp_ms=2020.0)
+    reconciler.update_sip(
+        SIPNBBO("AAPL", bid_price=150.00, ask_price=150.05, timestamp_ms=2000.0)
+    )
+    direct_bid_dislocated = DirectFeedQuote(
+        "AAPL", "DIRECT_ARCA", bid_price=150.15, ask_price=150.20, timestamp_ms=2020.0
+    )
     state, action, z = reconciler.evaluate_feed_anomaly(direct_bid_dislocated)
 
     assert state == "STALE_SIP_DISLOCATION"
@@ -70,25 +90,47 @@ def test_sniper_iso_freshness_and_depth_gating():
     """Prove Sniper ISO aborts on stale direct quotes (>50us) or odd-lot depth (<100 shares)."""
     engine = StocksEngine(symbol="MSFT")
     reconciler = engine.sip_reconciler
-    reconciler.update_sip(SIPNBBO("MSFT", bid_price=300.00, ask_price=300.05, timestamp_ms=1000.0))
+    reconciler.update_sip(
+        SIPNBBO("MSFT", bid_price=300.00, ask_price=300.05, timestamp_ms=1000.0)
+    )
 
     # 1. Fresh quote (20us old) with 500 shares depth -> ALLOWED
-    q_fresh = DirectFeedQuote("MSFT", "DIRECT_BATS", bid_price=300.00, ask_price=300.04, ask_qty=500.0, timestamp_ms=1000.00)
+    q_fresh = DirectFeedQuote(
+        "MSFT",
+        "DIRECT_BATS",
+        bid_price=300.00,
+        ask_price=300.04,
+        ask_qty=500.0,
+        timestamp_ms=1000.00,
+    )
     reconciler.direct_quotes["DIRECT_BATS"] = q_fresh
 
-    ok, reason = engine.evaluate_sniper_iso("DIRECT_BATS", "BUY", 300.04, 500.0, current_time_ms=1000.02)
+    ok, reason = engine.evaluate_sniper_iso(
+        "DIRECT_BATS", "BUY", 300.04, 500.0, current_time_ms=1000.02
+    )
     assert ok
     assert reason == "DISPATCH_ISO_IOC"
 
     # 2. Stale quote (100us old > 50us) -> ABORTED_STALE_QUOTE
-    ok_stale, reason_stale = engine.evaluate_sniper_iso("DIRECT_BATS", "BUY", 300.04, 500.0, current_time_ms=1000.10)
+    ok_stale, reason_stale = engine.evaluate_sniper_iso(
+        "DIRECT_BATS", "BUY", 300.04, 500.0, current_time_ms=1000.10
+    )
     assert not ok_stale
     assert reason_stale == "ABORTED_STALE_QUOTE"
 
     # 3. Odd-lot quote (40 shares < 100 min) -> ABORTED_INSUFFICIENT_DEPTH
-    q_oddlot = DirectFeedQuote("MSFT", "DIRECT_BATS", bid_price=300.00, ask_price=300.04, ask_qty=40.0, timestamp_ms=1000.00)
+    q_oddlot = DirectFeedQuote(
+        "MSFT",
+        "DIRECT_BATS",
+        bid_price=300.00,
+        ask_price=300.04,
+        ask_qty=40.0,
+        timestamp_ms=1000.00,
+    )
     reconciler.direct_quotes["DIRECT_BATS"] = q_oddlot
-    ok_depth, reason_depth = engine.evaluate_sniper_iso("DIRECT_BATS", "BUY", 300.04, 40.0, current_time_ms=1000.01)
+    ok_depth, reason_depth = engine.evaluate_sniper_iso(
+        "DIRECT_BATS", "BUY", 300.04, 40.0, current_time_ms=1000.01
+    )
     assert not ok_depth
     assert reason_depth == "ABORTED_INSUFFICIENT_DEPTH"
 
@@ -99,7 +141,9 @@ def test_reg_nms_trade_through_prevention():
     nbbo = SIPNBBO("AAPL", bid_price=150.00, ask_price=150.05)
 
     # Buy order at 150.02 (below protected ask 150.05)
-    allowed, action = guard.evaluate_order("BUY", price=150.02, nbbo=nbbo, allow_non_displayed=False)
+    allowed, action = guard.evaluate_order(
+        "BUY", price=150.02, nbbo=nbbo, allow_non_displayed=False
+    )
     assert not allowed
     assert action == "TRADE_THROUGH_VIOLATION_CANCELLED"
 
@@ -109,14 +153,18 @@ def test_reg_nms_non_displayed_routing():
     guard = RegNMSTradeThroughGuard()
     nbbo = SIPNBBO("AAPL", bid_price=150.00, ask_price=150.05)
 
-    allowed, action = guard.evaluate_order("BUY", price=150.02, nbbo=nbbo, allow_non_displayed=True)
+    allowed, action = guard.evaluate_order(
+        "BUY", price=150.02, nbbo=nbbo, allow_non_displayed=True
+    )
     assert allowed
     assert action == "ROUTED_NON_DISPLAYED"
 
 
 def test_luld_proximity_quote_pull():
     """Verify all quotes are pulled when stock is within 0.5% of lower LULD band."""
-    luld = LULDStateMachine(reference_price=100.0, band_pct=0.05, proximity_threshold=0.005)
+    luld = LULDStateMachine(
+        reference_price=100.0, band_pct=0.05, proximity_threshold=0.005
+    )
     # Lower band = 95.00. 0.5% proximity = 95.50
     pull_quotes, is_halted = luld.update_price(95.40)
     assert pull_quotes
@@ -146,7 +194,9 @@ def test_short_sale_restriction_uptick_rule():
     assert reason == "BLOCKED_RULE_201"
 
     # Short order priced above best bid 89.05 -> ALLOWED
-    allowed_uptick, reason_uptick = ssr.validate_short_order(order_price=89.05, best_bid=89.00)
+    allowed_uptick, reason_uptick = ssr.validate_short_order(
+        order_price=89.05, best_bid=89.00
+    )
     assert allowed_uptick
     assert reason_uptick == "ALLOWED_UPTICK"
 

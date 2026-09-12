@@ -36,11 +36,17 @@ class MetricsAuthMiddleware:
     ):
         global _CRITICAL_EMITTED
 
-        configured = bearer_token if bearer_token else os.getenv("METRICS_BEARER_TOKEN") or ""
+        configured = (
+            bearer_token if bearer_token else os.getenv("METRICS_BEARER_TOKEN") or ""
+        )
         self.bearer_token = configured.strip()
         self.enabled = bool(self.bearer_token)
 
-        self.allowed_ips = list(allowed_ips) if allowed_ips is not None else ["127.0.0.1", "localhost", "::1"]
+        self.allowed_ips = (
+            list(allowed_ips)
+            if allowed_ips is not None
+            else ["127.0.0.1", "localhost", "::1"]
+        )
 
         if not self.enabled and not _CRITICAL_EMITTED:
             # F-0016: previously fell back to a hardcoded public default token.
@@ -65,19 +71,28 @@ class MetricsAuthMiddleware:
         """
         # 0. Fail closed when unconfigured (deny-all).
         if not self.enabled:
-            logger.warning("[METRICS_AUTH_FAILED] Middleware disabled: METRICS_BEARER_TOKEN not set.")
+            logger.warning(
+                "[METRICS_AUTH_FAILED] Middleware disabled: METRICS_BEARER_TOKEN not set."
+            )
             return False, "AUTH_UNCONFIGURED"
 
         # 1. Check IP Whitelist
         if client_ip not in self.allowed_ips and "*" not in self.allowed_ips:
-            logger.warning(f"[METRICS_AUTH_FAILED] Client IP {client_ip} not in allowed IP list.")
+            logger.warning(
+                f"[METRICS_AUTH_FAILED] Client IP {client_ip} not in allowed IP list."
+            )
             return False, "FORBIDDEN_IP"
 
         # 2. Check Bearer Token — timing-safe comparison.
         #    Accepted forms: "Bearer <token>" (canonical) or the bare token.
         if not token or not (
-            hmac.compare_digest(str(token).encode("utf-8"), f"Bearer {self.bearer_token}".encode("utf-8"))
-            or hmac.compare_digest(str(token).encode("utf-8"), self.bearer_token.encode("utf-8"))
+            hmac.compare_digest(
+                str(token).encode("utf-8"),
+                f"Bearer {self.bearer_token}".encode("utf-8"),
+            )
+            or hmac.compare_digest(
+                str(token).encode("utf-8"), self.bearer_token.encode("utf-8")
+            )
         ):
             logger.warning("[METRICS_AUTH_FAILED] Invalid or missing bearer token.")
             return False, "UNAUTHORIZED_TOKEN"

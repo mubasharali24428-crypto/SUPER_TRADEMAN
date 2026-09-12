@@ -1,8 +1,10 @@
-import pytest
 from datetime import datetime, timezone
 
-from trading.risk.models import AccountState, Signal, Side
-from trading.daemon.heartbeat import TradingHeartbeatDaemon, HeartbeatCycleResult
+import pytest
+
+from trading.daemon.heartbeat import (HeartbeatCycleResult,
+                                      TradingHeartbeatDaemon)
+from trading.risk.models import AccountState, Side, Signal
 
 
 def test_heartbeat_single_tick_cycle(account_state):
@@ -62,6 +64,7 @@ def test_heartbeat_post_trade_reflection():
 # WAVE4 EX1b additions: data-sufficiency guard + survival entry gating
 # ---------------------------------------------------------------------------
 
+
 def _signal_gen(confidence: float = 0.95):
     def gen(symbol: str, strat: str, price: float) -> Signal:
         return Signal(
@@ -75,10 +78,13 @@ def _signal_gen(confidence: float = 0.95):
             suggested_stop=price * 0.99,
             suggested_target=price * 1.03,
         )
+
     return gen
 
 
-def test_wave4_short_buffer_skips_evaluation_no_fabricated_history(caplog, account_state):
+def test_wave4_short_buffer_skips_evaluation_no_fabricated_history(
+    caplog, account_state
+):
     """Short candle buffer => models are NOT fit and NO orders are produced.
 
     The old behavior fabricated a synthetic 40-point price seed; it must stay dead.
@@ -99,8 +105,8 @@ def test_wave4_short_buffer_skips_evaluation_no_fabricated_history(caplog, accou
     with caplog.at_level("WARNING", logger="trading.daemon.heartbeat"):
         res = daemon.tick_cycle(account, signal_generator_fn=_signal_gen())
 
-    assert calls["garch"] == 0                    # evaluation skipped entirely
-    assert res.garch_forecast is None             # no fabricated model output
+    assert calls["garch"] == 0  # evaluation skipped entirely
+    assert res.garch_forecast is None  # no fabricated model output
     assert res.hmm_regime is None
     assert res.evt_tail_risk is None
     assert res.approved_orders == []
@@ -134,14 +140,14 @@ def test_wave4_entry_blocked_in_survival_tier(caplog):
     daemon.feed_market_data("BTC/USDT", [100.0 + i for i in range(20)])  # enough data
 
     with caplog.at_level("WARNING", logger="trading.daemon.heartbeat"):
-        res = daemon.tick_cycle(account, signal_generator_fn=_signal_gen(confidence=0.99))
+        res = daemon.tick_cycle(
+            account, signal_generator_fn=_signal_gen(confidence=0.99)
+        )
 
     assert res.survival_status.tier.value == "survival"
     assert res.survival_status.allow_new_entries is False
     assert res.approved_orders == []
-    assert any(
-        "ENTRY_BLOCKED tier=survival" in r.getMessage() for r in caplog.records
-    )
+    assert any("ENTRY_BLOCKED tier=survival" in r.getMessage() for r in caplog.records)
 
 
 def test_wave4_async_loop_blocks_and_logs_transitions(caplog):
@@ -155,9 +161,10 @@ def test_wave4_async_loop_blocks_and_logs_transitions(caplog):
         # Start healthy with data so cycle 1 runs the full path.
         daemon.feed_market_data("BTC/USDT", [100.0 + i for i in range(15)])
         states = [
-            AccountState(equity=10000.0, peak_equity=10000.0),          # NORMAL
-            AccountState(equity=9000.0, peak_equity=10000.0,
-                         daily_pnl_pct=-0.03),                          # -> SURVIVAL
+            AccountState(equity=10000.0, peak_equity=10000.0),  # NORMAL
+            AccountState(
+                equity=9000.0, peak_equity=10000.0, daily_pnl_pct=-0.03
+            ),  # -> SURVIVAL
         ]
         holder = {"i": 0}
 
@@ -168,11 +175,13 @@ def test_wave4_async_loop_blocks_and_logs_transitions(caplog):
 
         with caplog.at_level("INFO", logger="trading.daemon.heartbeat"):
             await asyncio.wait_for(
-                daemon.run_async_loop(provider, signal_generator_fn=_signal_gen(), max_cycles=2),
+                daemon.run_async_loop(
+                    provider, signal_generator_fn=_signal_gen(), max_cycles=2
+                ),
                 timeout=5.0,
             )
 
     asyncio.run(run())
     msgs = [r.getMessage() for r in caplog.records]
-    assert any("normal -> survival" in m for m in msgs)     # transition telemetry
+    assert any("normal -> survival" in m for m in msgs)  # transition telemetry
     assert any(m.startswith("ENTRY_BLOCKED tier=") for m in msgs)

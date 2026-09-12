@@ -70,14 +70,18 @@ def generate_gate1_markdown_report(
 
     # VA-063: load expected pnl/stddev from args when provided, not magic numbers.
     summary = campaign.evaluate_campaign_status(
-        backtest_expected_pnl_pct=backtest_expected_pnl_pct if backtest_expected_pnl_pct is not None else 0.06,
+        backtest_expected_pnl_pct=backtest_expected_pnl_pct
+        if backtest_expected_pnl_pct is not None
+        else 0.06,
         backtest_std_dev=backtest_std_dev if backtest_std_dev is not None else 0.02,
     )
 
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     raw_sig_data = f"{summary.campaign_status}|{summary.days_evaluated}|{summary.shadow_pnl_pct}|{now_str}"
     # VA-033: self-reported digest, prefix to make provenance explicit
-    digital_signature = "sha256-self:" + hashlib.sha256(raw_sig_data.encode("utf-8")).hexdigest()
+    digital_signature = (
+        "sha256-self:" + hashlib.sha256(raw_sig_data.encode("utf-8")).hexdigest()
+    )
 
     md = f"""# Gate 1 Validation & Mode Promotion Report — SUPER_TRADEMAN
 
@@ -119,13 +123,25 @@ def generate_gate1_markdown_report(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate SUPER_TRADEMAN Gate 1 Markdown Report")
+    parser = argparse.ArgumentParser(
+        description="Generate SUPER_TRADEMAN Gate 1 Markdown Report"
+    )
     parser.add_argument("--days", type=int, default=30, help="Campaign evaluation days")
-    parser.add_argument("--output", type=str, default="", help="Optional output file path")
-    parser.add_argument("--expected-pnl-pct", type=float, default=None,
-                        help="Backtest expected PnL %% for Gate-1 tracking-error z-score")
-    parser.add_argument("--expected-std-dev", type=float, default=None,
-                        help="Backtest std dev for Gate-1 tracking-error z-score")
+    parser.add_argument(
+        "--output", type=str, default="", help="Optional output file path"
+    )
+    parser.add_argument(
+        "--expected-pnl-pct",
+        type=float,
+        default=None,
+        help="Backtest expected PnL %% for Gate-1 tracking-error z-score",
+    )
+    parser.add_argument(
+        "--expected-std-dev",
+        type=float,
+        default=None,
+        help="Backtest std dev for Gate-1 tracking-error z-score",
+    )
     args = parser.parse_args()
 
     try:

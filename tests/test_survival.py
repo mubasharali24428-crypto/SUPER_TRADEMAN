@@ -1,11 +1,11 @@
 import pytest
 
-from trading.risk.models import AccountState, RiskConfig
-from trading.risk.survival import SurvivalEngine, SurvivalTier
+from trading.risk.evt import EVTRiskResult
 from trading.risk.garch import GARCHForecastResult
 from trading.risk.hmm_regime import HMMRegimeResult
-from trading.risk.evt import EVTRiskResult
-from trading.risk.tier_state import TierState, save_state, load_state
+from trading.risk.models import AccountState, RiskConfig
+from trading.risk.survival import SurvivalEngine, SurvivalTier
+from trading.risk.tier_state import TierState, load_state, save_state
 
 
 def test_survival_normal_tier():
@@ -61,6 +61,7 @@ def test_survival_cooldown_on_kill_switch_or_max_dd():
 # WAVE4 EX1b additions: NORMAL cap, hysteresis automaton, tier persistence
 # ---------------------------------------------------------------------------
 
+
 def _garch(scale: float = 1.0, high_vol: bool = False) -> GARCHForecastResult:
     return GARCHForecastResult(
         conditional_volatility=0.02 * scale,
@@ -79,7 +80,7 @@ def test_wave4_normal_multiplier_never_exceeds_one():
     """NORMAL tier must never amplify risk above base capacity (was 1.25x)."""
     engine = SurvivalEngine()
     account = AccountState(equity=10000.0, peak_equity=10000.0)
-    hot_garch = _garch(scale=1.4)   # would push raw multiplier to 1.25x pre-fix
+    hot_garch = _garch(scale=1.4)  # would push raw multiplier to 1.25x pre-fix
     status = engine.evaluate_survival_status(account, garch_res=hot_garch)
 
     assert status.tier == SurvivalTier.NORMAL
@@ -107,8 +108,8 @@ def test_wave4_deescalation_requires_dwell_cycles():
     engine = SurvivalEngine(min_dwell_cycles=3)
     healthy = AccountState(equity=10000.0, peak_equity=10000.0)
 
-    engine.evaluate_survival_status(healthy)                       # NORMAL
-    engine.evaluate_survival_status(_caution_account()).tier       # -> CAUTION instant
+    engine.evaluate_survival_status(healthy)  # NORMAL
+    engine.evaluate_survival_status(_caution_account()).tier  # -> CAUTION instant
     assert engine._current_tier() is SurvivalTier.CAUTION
 
     # Healthy cycles below CAUTION: dwell counter climbs, tier holds.
@@ -122,7 +123,9 @@ def test_wave4_deescalation_requires_dwell_cycles():
 
 
 def _caution_account() -> AccountState:
-    return AccountState(equity=9500.0, peak_equity=10000.0, consecutive_losses={"crypto": 2})
+    return AccountState(
+        equity=9500.0, peak_equity=10000.0, consecutive_losses={"crypto": 2}
+    )
 
 
 def test_wave4_dwell_counter_resets_on_rebreach():
@@ -130,9 +133,9 @@ def test_wave4_dwell_counter_resets_on_rebreach():
     engine = SurvivalEngine(min_dwell_cycles=3)
     healthy = AccountState(equity=10000.0, peak_equity=10000.0)
 
-    engine.evaluate_survival_status(_caution_account())            # -> CAUTION
-    engine.evaluate_survival_status(healthy)                       # below_count=1
-    engine.evaluate_survival_status(_caution_account())            # re-breach: hold + reset
+    engine.evaluate_survival_status(_caution_account())  # -> CAUTION
+    engine.evaluate_survival_status(healthy)  # below_count=1
+    engine.evaluate_survival_status(_caution_account())  # re-breach: hold + reset
     assert engine._current_tier() is SurvivalTier.CAUTION
     assert engine.tier_state.below_count == 0
     assert engine.evaluate_survival_status(healthy).tier is SurvivalTier.CAUTION
@@ -152,7 +155,9 @@ def test_wave4_restart_mid_cooldown_restores_tier(tmp_path):
     path = str(tmp_path / "tier.json")
 
     first = SurvivalEngine(state_path=path)
-    first.evaluate_survival_status(AccountState(equity=8000.0, peak_equity=10000.0))  # COOLDOWN
+    first.evaluate_survival_status(
+        AccountState(equity=8000.0, peak_equity=10000.0)
+    )  # COOLDOWN
     assert first._current_tier() is SurvivalTier.COOLDOWN
     assert load_state(path).tier == "cooldown"
 
@@ -188,7 +193,8 @@ def test_wave4_missing_state_file_is_silent_default(tmp_path):
 import logging  # noqa: E402
 from decimal import Decimal  # noqa: E402
 
-from trading.risk.survival import _epsilon_flips, _log_epsilon_flips  # noqa: E402
+from trading.risk.survival import (_epsilon_flips,  # noqa: E402
+                                   _log_epsilon_flips)
 
 
 def test_epsilon_flip_detector_flags_true_decimal_breach_float_miss():
@@ -255,7 +261,8 @@ def test_epsilon_flip_logged_via_engine_without_changing_tier(caplog):
     flips = [
         r
         for r in caplog.records
-        if r.getMessage().startswith("DRAWDOWN_EPSILON_FLIP") and "[drawdown]" in r.getMessage()
+        if r.getMessage().startswith("DRAWDOWN_EPSILON_FLIP")
+        and "[drawdown]" in r.getMessage()
     ]
     assert flips, "expected a logged DRAWDOWN_EPSILON_FLIP event"
     msg = flips[0].getMessage()
@@ -283,7 +290,11 @@ def test_epsilon_flip_log_helper_formats_both_values(caplog):
                 }
             ]
         )
-    msgs = [r.getMessage() for r in caplog.records if r.getMessage().startswith("DRAWDOWN_EPSILON_FLIP")]
+    msgs = [
+        r.getMessage()
+        for r in caplog.records
+        if r.getMessage().startswith("DRAWDOWN_EPSILON_FLIP")
+    ]
     assert len(msgs) == 1
     assert "0.17499999999999996" in msgs[0]
     assert "0.175" in msgs[0]

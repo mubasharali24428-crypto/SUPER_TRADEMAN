@@ -21,11 +21,8 @@ from typing import Any, Optional
 
 import asyncpg
 
-from trading.data.crypto import (
-    SchemaMissingError,
-    _schema_missing_guidance,
-    _translate_missing_table,
-)
+from trading.data.crypto import (SchemaMissingError, _schema_missing_guidance,
+                                 _translate_missing_table)
 
 __all__ = [
     "TIMEFRAME_MS",
@@ -95,7 +92,20 @@ def _to_rows(exchange_id, symbol, asset_class, timeframe, candles) -> list[tuple
     rows = []
     for c in candles:
         ts = datetime.fromtimestamp(c[0] / 1000, tz=timezone.utc)
-        rows.append((exchange_id, symbol, asset_class, timeframe, ts, c[1], c[2], c[3], c[4], c[5]))
+        rows.append(
+            (
+                exchange_id,
+                symbol,
+                asset_class,
+                timeframe,
+                ts,
+                c[1],
+                c[2],
+                c[3],
+                c[4],
+                c[5],
+            )
+        )
     return rows
 
 
@@ -165,28 +175,38 @@ async def fetch_and_store_ohlcv(
 
         if fresh:
             stored = await _translate_missing_table(
-                pool.executemany(_UPSERT_SQL, _to_rows(exchange_id, symbol, asset_class, timeframe, fresh))
+                pool.executemany(
+                    _UPSERT_SQL,
+                    _to_rows(exchange_id, symbol, asset_class, timeframe, fresh),
+                )
             )
             stored_total += stored or 0
 
         if len(page or []) < page_limit:
             break  # short page => end of available range
         if max_pages is not None and pages >= max_pages:
-            logger.warning("max_pages=%d reached for %s %s", max_pages, symbol, timeframe)
+            logger.warning(
+                "max_pages=%d reached for %s %s", max_pages, symbol, timeframe
+            )
             break
         if not fresh and page:
             # Fully-overlapping page: advance cursor past it to guarantee progress.
             cursor = all_timestamps[-1] if all_timestamps else cursor
         else:
-            cursor = all_timestamps[-1] if all_timestamps else (
-                (cursor or since) + page_limit * cadence
+            cursor = (
+                all_timestamps[-1]
+                if all_timestamps
+                else ((cursor or since) + page_limit * cadence)
             )
 
-    gaps = [g for g in detect_gaps(all_timestamps, cadence) if not _in_maintenance(g[0])]
+    gaps = [
+        g for g in detect_gaps(all_timestamps, cadence) if not _in_maintenance(g[0])
+    ]
     for gap_start, gap_end in gaps:
         logger.warning(
             "OHLCV GAP %s %s: missing candles between %s and %s (%d ms)",
-            symbol, timeframe,
+            symbol,
+            timeframe,
             datetime.fromtimestamp(gap_start / 1000, tz=timezone.utc).isoformat(),
             datetime.fromtimestamp(gap_end / 1000, tz=timezone.utc).isoformat(),
             gap_end - gap_start,
@@ -194,7 +214,12 @@ async def fetch_and_store_ohlcv(
 
     logger.info(
         "fetch_and_store_ohlcv %s %s: %d pages, %d candles seen, %d rows stored, %d gaps",
-        symbol, timeframe, pages, len(all_timestamps), stored_total, len(gaps),
+        symbol,
+        timeframe,
+        pages,
+        len(all_timestamps),
+        stored_total,
+        len(gaps),
     )
     return stored_total
 

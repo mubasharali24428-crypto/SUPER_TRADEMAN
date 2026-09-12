@@ -2,14 +2,10 @@
 
 import pytest
 
-from trading.synthetic.forex_engine import (
-    ForexEngine,
-    ForexSOR,
-    LastLookFilter,
-    LPQuote,
-    LPReputationTracker,
-    VirtualConsolidatedBook,
-)
+from trading.synthetic.forex_engine import (ForexEngine, ForexSOR,
+                                            LastLookFilter, LPQuote,
+                                            LPReputationTracker,
+                                            VirtualConsolidatedBook)
 
 
 def test_virtual_consolidated_book_nbbo():
@@ -43,7 +39,9 @@ def test_last_look_self_cancel():
     last_look = LastLookFilter(pip_value=0.0001, max_rejection_prob=0.70)
 
     # Initial order at 1.0850, micro-price drifts up to 1.0853 (3.0 pips adverse drift for BUY against LP)
-    should_send, prob = last_look.evaluate_order(initial_price=1.0850, current_micro_price=1.0853, side="BUY")
+    should_send, prob = last_look.evaluate_order(
+        initial_price=1.0850, current_micro_price=1.0853, side="BUY"
+    )
     assert not should_send
     assert prob > 0.70
 
@@ -53,7 +51,9 @@ def test_last_look_acceptance():
     last_look = LastLookFilter(pip_value=0.0001, max_rejection_prob=0.70)
 
     # Stable price (0.2 pips drift)
-    should_send, prob = last_look.evaluate_order(initial_price=1.0850, current_micro_price=1.08502, side="BUY")
+    should_send, prob = last_look.evaluate_order(
+        initial_price=1.0850, current_micro_price=1.08502, side="BUY"
+    )
     assert should_send
     assert prob < 0.20
 

@@ -38,10 +38,12 @@ class LiquidityBaselineTracker:
         self.depth_samples: Deque[Dict[str, float]] = collections.deque(maxlen=3000)
 
     def record_depth(self, timestamp_ms: float, bid_qty: float, ask_qty: float) -> None:
-        self.depth_samples.append({
-            "ts": timestamp_ms,
-            "depth": bid_qty + ask_qty,
-        })
+        self.depth_samples.append(
+            {
+                "ts": timestamp_ms,
+                "depth": bid_qty + ask_qty,
+            }
+        )
 
     def get_baseline_depth(self, current_ts: float) -> float:
         valid = [
@@ -92,13 +94,17 @@ class ReactiveMarketMakerAgent(BaseEcologyAgent):
         if event.depletion_ratio > self.herd_sensitivity:
             widening_factor = 1.0 + (event.depletion_ratio * 2.0)
             self.current_spread_bps = self.base_spread_bps * widening_factor
-            actions.append({
-                "action": "WIDEN_SPREAD",
-                "agent_id": self.agent_id,
-                "new_spread_bps": self.current_spread_bps,
-                "widening_factor": widening_factor,
-            })
-            logger.debug(f"[{self.agent_id}] Liquidity depleted ({event.depletion_ratio:.2f}). Widened spread to {self.current_spread_bps:.2f} bps.")
+            actions.append(
+                {
+                    "action": "WIDEN_SPREAD",
+                    "agent_id": self.agent_id,
+                    "new_spread_bps": self.current_spread_bps,
+                    "widening_factor": widening_factor,
+                }
+            )
+            logger.debug(
+                f"[{self.agent_id}] Liquidity depleted ({event.depletion_ratio:.2f}). Widened spread to {self.current_spread_bps:.2f} bps."
+            )
         else:
             self.current_spread_bps = self.base_spread_bps
         return actions
@@ -134,14 +140,18 @@ class ToxicFlowPredatorAgent(BaseEcologyAgent):
             self.is_hunting = True
             sweep_qty = min(event.current_depth * 0.80, self.max_sweep_size)
             if sweep_qty > 0:
-                actions.append({
-                    "action": "IOC_SWEEP",
-                    "agent_id": self.agent_id,
-                    "side": self.direction,
-                    "qty": round(sweep_qty, 4),
-                    "tif": "IOC",
-                })
-                logger.info(f"[{self.agent_id}] Thin book detected ({event.depletion_ratio:.2f}). Fired IOC sweep for {sweep_qty:.2f} units.")
+                actions.append(
+                    {
+                        "action": "IOC_SWEEP",
+                        "agent_id": self.agent_id,
+                        "side": self.direction,
+                        "qty": round(sweep_qty, 4),
+                        "tif": "IOC",
+                    }
+                )
+                logger.info(
+                    f"[{self.agent_id}] Thin book detected ({event.depletion_ratio:.2f}). Fired IOC sweep for {sweep_qty:.2f} units."
+                )
         else:
             self.is_hunting = False
         return actions
@@ -155,7 +165,9 @@ class SyntheticAgentRegistry:
 
     def __init__(self, baseline_window_s: int = 300):
         self.agents: Dict[str, BaseEcologyAgent] = {}
-        self.baseline_tracker = LiquidityBaselineTracker(window_seconds=baseline_window_s)
+        self.baseline_tracker = LiquidityBaselineTracker(
+            window_seconds=baseline_window_s
+        )
         self.liquidity_cascade_threshold = 0.40
 
     def register_agent(self, agent_id: str, agent: BaseEcologyAgent) -> None:

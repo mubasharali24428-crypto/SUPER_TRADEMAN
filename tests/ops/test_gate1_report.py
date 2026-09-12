@@ -8,15 +8,13 @@ persisted daily records.
 import pytest
 
 from scripts import generate_gate1_report as mod
-from scripts.generate_gate1_report import (
-    EXIT_EVAL_FAIL,
-    EXIT_INSUFFICIENT_DATA,
-    EXIT_REPORT_FAIL,
-    EXIT_REPORT_PASS,
-    InsufficientDataError,
-    generate_gate1_markdown_report,
-)
-from trading.ops.deployment_metrics import DeploymentMetricRecord, DeploymentMetricsStore
+from scripts.generate_gate1_report import (EXIT_EVAL_FAIL,
+                                           EXIT_INSUFFICIENT_DATA,
+                                           EXIT_REPORT_FAIL, EXIT_REPORT_PASS,
+                                           InsufficientDataError,
+                                           generate_gate1_markdown_report)
+from trading.ops.deployment_metrics import (DeploymentMetricRecord,
+                                            DeploymentMetricsStore)
 
 
 def _make_record(day: int, pnl_pct: float = 0.003) -> DeploymentMetricRecord:

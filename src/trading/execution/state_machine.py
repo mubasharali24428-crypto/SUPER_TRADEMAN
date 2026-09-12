@@ -164,7 +164,9 @@ def transition_order_state(
     contract).
     """
     if not isinstance(current_state, OrderState):
-        raise TypeError(f"current_state must be OrderState, got {type(current_state)!r}")
+        raise TypeError(
+            f"current_state must be OrderState, got {type(current_state)!r}"
+        )
 
     allowed = LEGAL_TRANSITIONS.get(current_state)
     if allowed is None:
@@ -175,7 +177,9 @@ def transition_order_state(
         if fill_qty is not None and intended_qty:
             cumulative = fill_qty + (prev_filled_qty or 0.0)
             return (
-                OrderState.PARTIALLY_FILLED if cumulative < intended_qty else OrderState.FILLED
+                OrderState.PARTIALLY_FILLED
+                if cumulative < intended_qty
+                else OrderState.FILLED
             )
         # No quantity context: legacy single-shot fills land in FILLED.
         return OrderState.FILLED

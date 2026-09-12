@@ -11,7 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from trading.risk.engine import RiskEngine  # noqa: E402
 from trading.risk.models import AccountState  # noqa: E402
 from trading.walkforward.report import render_tearsheet  # noqa: E402
-from trading.walkforward.validator import WalkForwardConfig, run_walk_forward  # noqa: E402
+from trading.walkforward.validator import (WalkForwardConfig,  # noqa: E402
+                                           run_walk_forward)
 
 
 def _synthetic_candles(days: int, seed: int = 42) -> list[list[float]]:
@@ -35,8 +36,9 @@ def _strategy_fn(candles, account):  # pragma: no cover — demo strategy hook
 def _account_factory() -> "AccountState":
     from trading.risk.models import Position
 
-    return AccountState(equity=10_000.0, peak_equity=10_000.0,
-                        open_positions=[], correlations={})
+    return AccountState(
+        equity=10_000.0, peak_equity=10_000.0, open_positions=[], correlations={}
+    )
 
 
 def main() -> int:
@@ -46,12 +48,16 @@ def main() -> int:
     parser.add_argument("--train", type=int, default=180)
     parser.add_argument("--validate", type=int, default=60)
     parser.add_argument("--step", type=int, default=30)
-    parser.add_argument("--days", type=int, default=400, help="total synthetic history length")
+    parser.add_argument(
+        "--days", type=int, default=400, help="total synthetic history length"
+    )
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
     candles = _synthetic_candles(args.days, seed=args.seed)
-    cfg = WalkForwardConfig(train_days=args.train, validate_days=args.validate, step_days=args.step)
+    cfg = WalkForwardConfig(
+        train_days=args.train, validate_days=args.validate, step_days=args.step
+    )
     folds = run_walk_forward(
         candles_by_asset={args.symbol: candles},
         strategy_fn=_strategy_fn,
@@ -59,8 +65,16 @@ def main() -> int:
         account_factory=_account_factory,  # fresh 10k demo account per fold
         cfg=cfg,
     )
-    print(render_tearsheet(folds, meta={"symbol": args.symbol, "timeframe": args.timeframe,
-                                        "config": vars(args)}))
+    print(
+        render_tearsheet(
+            folds,
+            meta={
+                "symbol": args.symbol,
+                "timeframe": args.timeframe,
+                "config": vars(args),
+            },
+        )
+    )
     return 0
 
 

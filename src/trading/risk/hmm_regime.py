@@ -11,13 +11,14 @@ logger = logging.getLogger("trading.risk.hmm")
 @dataclass(frozen=True)
 class HMMRegimeResult:
     """Output of HMM market regime classification."""
-    current_regime: str           # "trending_bull" | "volatile_bear" | "choppy_sideways"
-    regime_id: int                # 0, 1, or 2
-    state_probabilities: list[float] # Posterior probabilities [p_bull, p_bear, p_chop]
-    transition_matrix: list[list[float]] # Estimated 3x3 state transition matrix
+
+    current_regime: str  # "trending_bull" | "volatile_bear" | "choppy_sideways"
+    regime_id: int  # 0, 1, or 2
+    state_probabilities: list[float]  # Posterior probabilities [p_bull, p_bear, p_chop]
+    transition_matrix: list[list[float]]  # Estimated 3x3 state transition matrix
     is_trending: bool
     is_high_volatility: bool
-    confidence: float             # Probability of the most likely state
+    confidence: float  # Probability of the most likely state
     # --- Sub-06 rigor additions (additive, defaulted for backward compat) ---
     # "model": fitted HMM converged; probabilities are causal filtered posteriors.
     # "fallback": convergence failed / insufficient data / fit error -> last-known
@@ -87,10 +88,10 @@ class HMMRegimeClassifier:
         rolling_std = np.empty(n, dtype=float)
         for i in range(n):
             lo = i - window + 1
-            seg = returns[max(0, lo): i + 1]
+            seg = returns[max(0, lo) : i + 1]
             rolling_std[i] = np.std(seg)
         # Honest samples start where a full window exists (index window-1).
-        X = np.column_stack([returns, rolling_std])[window - 1:]
+        X = np.column_stack([returns, rolling_std])[window - 1 :]
         if not np.isfinite(X).all():
             raise ValueError("Non-finite values in HMM feature matrix")
         return X
@@ -125,7 +126,9 @@ class HMMRegimeClassifier:
             converged = bool(getattr(candidate.monitor_, "converged", False))
             logger.info(
                 "HMM fit attempt (random_state=%s): converged=%s (%d iterations)",
-                rs, converged, candidate.monitor_.iter,
+                rs,
+                converged,
+                candidate.monitor_.iter,
             )
             if converged:
                 return candidate, True
@@ -133,7 +136,8 @@ class HMMRegimeClassifier:
                 logger.warning(
                     "HMM EM failed to converge (random_state=%s); retrying once "
                     "with random_state=%s.",
-                    rs, self.random_state + 1,
+                    rs,
+                    self.random_state + 1,
                 )
             model = candidate
         return model, False
@@ -145,17 +149,17 @@ class HMMRegimeClassifier:
     @staticmethod
     def _observation_log_likelihood(model, X: np.ndarray) -> np.ndarray:
         """Per-state diagonal-Gaussian log densities, shape (T, K)."""
-        means = np.asarray(model.means_, dtype=float)              # (K, D)
+        means = np.asarray(model.means_, dtype=float)  # (K, D)
         covars_raw = np.asarray(model.covars_, dtype=float)
         if covars_raw.ndim == 3:
             # Some hmmlearn versions store (K, D, D) even for 'diag';
             # extract each state's diagonal variances.
             covars = np.diagonal(covars_raw, axis1=1, axis2=2)
         else:
-            covars = covars_raw                                    # (K, D)
+            covars = covars_raw  # (K, D)
         covars = np.maximum(np.squeeze(covars), 1e-12)
-        diff = X[:, None, :] - means[None, :, :]                   # (T, K, D)
-        mahal = np.sum(diff * diff / covars[None, :, :], axis=2)   # (T, K)
+        diff = X[:, None, :] - means[None, :, :]  # (T, K, D)
+        mahal = np.sum(diff * diff / covars[None, :, :], axis=2)  # (T, K)
         _, D = means.shape
         log_norm = -0.5 * (
             D * np.log(2.0 * np.pi) + np.sum(np.log(covars), axis=1)[None, :]
@@ -171,8 +175,12 @@ class HMMRegimeClassifier:
         growing prefix and keeping only its FINAL-step posterior — computed
         here in a single O(T*K^2) pass. The last row is the live posterior.
         """
-        log_start = np.log(np.clip(np.asarray(model.startprob_, dtype=float), 1e-300, None))
-        log_trans = np.log(np.clip(np.asarray(model.transmat_, dtype=float), 1e-300, None))
+        log_start = np.log(
+            np.clip(np.asarray(model.startprob_, dtype=float), 1e-300, None)
+        )
+        log_trans = np.log(
+            np.clip(np.asarray(model.transmat_, dtype=float), 1e-300, None)
+        )
         emit_ll = cls._observation_log_likelihood(model, X)
 
         K = log_start.shape[0]
@@ -227,7 +235,9 @@ class HMMRegimeClassifier:
     # Public API                                                          #
     # ------------------------------------------------------------------ #
 
-    def fit_predict(self, prices_or_returns: Sequence[float] | np.ndarray, is_returns: bool = False) -> HMMRegimeResult:
+    def fit_predict(
+        self, prices_or_returns: Sequence[float] | np.ndarray, is_returns: bool = False
+    ) -> HMMRegimeResult:
         """Fits Gaussian HMM on observation sequence and returns state probabilities & current regime.
 
         Args:
@@ -268,11 +278,14 @@ class HMMRegimeClassifier:
             # fit can never stick in the cache.
             if self._cache_matches(X):
                 model = self._cached_model
-                assert self._cached_feature_rows is not None  # guaranteed by _cache_matches
+                assert (
+                    self._cached_feature_rows is not None
+                )  # guaranteed by _cache_matches
                 converged = True
                 logger.info(
                     "HMM: reusing cached fit (%d cached feature rows; %d now).",
-                    len(self._cached_feature_rows), len(X),
+                    len(self._cached_feature_rows),
+                    len(X),
                 )
             else:
                 model, converged = self._fit_with_convergence_check(X)
@@ -281,7 +294,8 @@ class HMMRegimeClassifier:
                         "HMM EM did not converge after initial fit and one retry "
                         "(random_states %s/%s). Returning last-known regime flagged "
                         "provenance='fallback'.",
-                        self.random_state, self.random_state + 1,
+                        self.random_state,
+                        self.random_state + 1,
                     )
                     return self._last_known_fallback()
                 if model is None:  # defensive: cannot happen when converged
@@ -309,7 +323,8 @@ class HMMRegimeClassifier:
                 logger.warning(
                     "HMM fit produced a degenerate posterior (%d/%d active "
                     "states over %d samples); treating as fallback.",
-                    int(active.sum()), len(weights),
+                    int(active.sum()),
+                    len(weights),
                     len(X),
                 )
                 return self._last_known_fallback()
@@ -354,7 +369,9 @@ class HMMRegimeClassifier:
             return result
 
         except Exception as exc:
-            logger.warning("HMM fitting failed (%s). Using fallback regime heuristic.", exc)
+            logger.warning(
+                "HMM fitting failed (%s). Using fallback regime heuristic.", exc
+            )
             return self._fallback_regime(arr, is_returns=is_returns)
 
     def _align_states(self, means: np.ndarray) -> dict[int, int]:
@@ -402,7 +419,9 @@ class HMMRegimeClassifier:
             bear_scores[bull_idx] = -np.inf
             bear_idx = int(np.argmax(bear_scores))
 
-        remaining = [i for i in range(self.n_components) if i not in (bull_idx, bear_idx)]
+        remaining = [
+            i for i in range(self.n_components) if i not in (bull_idx, bear_idx)
+        ]
         chop_idx = remaining[0]
 
         return {bull_idx: 0, bear_idx: 1, chop_idx: 2}
@@ -455,7 +474,11 @@ class HMMRegimeClassifier:
         else:
             returns = arr
 
-        recent_return = float(np.sum(returns[-10:])) if len(returns) >= 10 else float(np.sum(returns))
+        recent_return = (
+            float(np.sum(returns[-10:]))
+            if len(returns) >= 10
+            else float(np.sum(returns))
+        )
         vol = float(np.std(returns)) if len(returns) > 1 else 0.02
 
         if recent_return > 0.02 and vol < 0.04:

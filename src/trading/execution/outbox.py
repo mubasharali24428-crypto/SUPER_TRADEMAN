@@ -1,9 +1,9 @@
 """Outbox pattern for idempotent order intent persistence."""
 
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
-import uuid
 
 import asyncpg
 
@@ -93,7 +93,12 @@ class OutboxStore:
             for r in rows
         ]
 
-    async def update_status(self, client_order_id: str, status: OrderState, exchange_order_id: Optional[str] = None) -> None:
+    async def update_status(
+        self,
+        client_order_id: str,
+        status: OrderState,
+        exchange_order_id: Optional[str] = None,
+    ) -> None:
         await self.pool.execute(
             """
             UPDATE order_intent

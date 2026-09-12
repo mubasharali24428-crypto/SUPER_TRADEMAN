@@ -1,7 +1,8 @@
 """Tests for Shadow Mode Interceptor (The Ghost Protocol)."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from trading.config import ExecutionMode
 from trading.execution.oms import OrderManagementSystem
@@ -9,7 +10,7 @@ from trading.execution.shadow import L2OrderBookSnapshot, ShadowInterceptor
 from trading.execution.state_machine import OrderState
 from trading.execution.venue_adapter import MockVenueAdapter
 from trading.observability.shadow_metrics import ShadowMetricsTracker
-from trading.risk.models import ApprovedOrder, Side, _ISSUER
+from trading.risk.models import _ISSUER, ApprovedOrder, Side
 
 
 @pytest.mark.asyncio
@@ -79,7 +80,9 @@ async def test_shadow_mode_liquidity_deficit_flash_crash():
         issuer=_ISSUER,
     )
 
-    res = await shadow_interceptor.execute_shadow_fill(order, "cid_shallow", shallow_book)
+    res = await shadow_interceptor.execute_shadow_fill(
+        order, "cid_shallow", shallow_book
+    )
     assert res.filled_qty == 0.5
     assert res.was_capped
     assert res.reason == "LIQUIDITY_DEFICIT_SHADOW_FILL"
@@ -87,8 +90,12 @@ async def test_shadow_mode_liquidity_deficit_flash_crash():
 
 def test_shadow_metrics_tracker():
     tracker = ShadowMetricsTracker()
-    tracker.record_shadow_trade(signal_price=50000.0, shadow_fill_price=50100.0, latency_ms=15.0)
-    tracker.record_shadow_trade(signal_price=50000.0, shadow_fill_price=50200.0, latency_ms=25.0)
+    tracker.record_shadow_trade(
+        signal_price=50000.0, shadow_fill_price=50100.0, latency_ms=15.0
+    )
+    tracker.record_shadow_trade(
+        signal_price=50000.0, shadow_fill_price=50200.0, latency_ms=25.0
+    )
 
     summary = tracker.get_summary()
     assert summary["total_shadow_trades"] == 2

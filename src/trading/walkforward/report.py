@@ -12,7 +12,9 @@ def folds_to_json(folds: list[FoldResult]) -> list[dict[str, Any]]:
     return [asdict(f) for f in folds]
 
 
-def render_tearsheet(folds: list[FoldResult], meta: dict[str, Any] | None = None) -> str:
+def render_tearsheet(
+    folds: list[FoldResult], meta: dict[str, Any] | None = None
+) -> str:
     meta = meta or {}
     counts: dict[str, int] = {}
     for f in folds:
@@ -39,7 +41,9 @@ def render_tearsheet(folds: list[FoldResult], meta: dict[str, Any] | None = None
     lines.append("")
     lines.append("## Per-fold detail")
     lines.append("")
-    lines.append("| Fold | Train | Validate | Sharpe | DSR | PBO | Trades | Verdict | Reason |")
+    lines.append(
+        "| Fold | Train | Validate | Sharpe | DSR | PBO | Trades | Verdict | Reason |"
+    )
     lines.append("|---|---|---|---|---|---|---|---|---|")
     for f in folds:
         sharpe = f"{f.sharpe:.3f}" if f.sharpe is not None else "—"
@@ -53,15 +57,20 @@ def render_tearsheet(folds: list[FoldResult], meta: dict[str, Any] | None = None
         )
 
     lines.append("")
-    lines.append("*Verdicts are CSCV/DSR-corrected (see stats stack). FAIL means the edge "
-                 "did not survive out-of-sample validation — treat as suggestive-only.*")
+    lines.append(
+        "*Verdicts are CSCV/DSR-corrected (see stats stack). FAIL means the edge "
+        "did not survive out-of-sample validation — treat as suggestive-only.*"
+    )
     return "\n".join(lines)
 
 
 def to_json_report(folds: list[FoldResult], meta: dict[str, Any] | None = None) -> str:
     """JSON persistence format for evidence artifacts."""
-    payload = {"meta": meta or {}, "folds": folds_to_json(folds),
-               "verdict_counts": _verdict_counts(folds)}
+    payload = {
+        "meta": meta or {},
+        "folds": folds_to_json(folds),
+        "verdict_counts": _verdict_counts(folds),
+    }
     return json.dumps(payload, indent=2, default=str)
 
 

@@ -57,7 +57,9 @@ def _verdict(proc: subprocess.CompletedProcess) -> str:
     return ""
 
 
-def _run_contender(store_url: str, lock_name: str, node_id: str, hold_sec: float = 0.0) -> str:
+def _run_contender(
+    store_url: str, lock_name: str, node_id: str, hold_sec: float = 0.0
+) -> str:
     """Spawn one contender process; return its first verdict line."""
     proc = subprocess.run(
         [sys.executable, str(CONTENDER), store_url, lock_name, node_id, str(hold_sec)],
@@ -66,9 +68,9 @@ def _run_contender(store_url: str, lock_name: str, node_id: str, hold_sec: float
         timeout=30,
         cwd=str(REPO_ROOT),
     )
-    assert proc.returncode == 0, (
-        f"contender crashed rc={proc.returncode}\nstdout={proc.stdout}\nstderr={proc.stderr[-2000:]}"
-    )
+    assert (
+        proc.returncode == 0
+    ), f"contender crashed rc={proc.returncode}\nstdout={proc.stdout}\nstderr={proc.stderr[-2000:]}"
     verdict = _verdict(proc)
     assert verdict, f"contender produced no verdict line: {proc.stdout!r}"
     return verdict
@@ -100,20 +102,27 @@ def test_two_process_lock_real_redis_denied_then_acquired():
     """Subprocess contender FAILS while parent holds; succeeds after release."""
     import time as _time
 
-    from trading.infrastructure.ha_lock import ActivePassiveManager, RedisLockBackend
+    from trading.infrastructure.ha_lock import (ActivePassiveManager,
+                                                RedisLockBackend)
 
     lock_name = "test:two_process_lock:real"
-    backend = RedisLockBackend(lock_name=lock_name, node_id="parent", ttl_sec=5.0, redis_url=REAL_REDIS_URL)
+    backend = RedisLockBackend(
+        lock_name=lock_name, node_id="parent", ttl_sec=5.0, redis_url=REAL_REDIS_URL
+    )
     parent = ActivePassiveManager(node_id="parent", ttl_sec=5.0, backend=backend)
 
     try:
         assert parent.acquire_lock() is True
         verdict = _run_contender(REAL_REDIS_URL, lock_name, "child_a")
-        assert verdict == "DENIED", "second process MUST fail while first holds the lock"
+        assert (
+            verdict == "DENIED"
+        ), "second process MUST fail while first holds the lock"
 
         parent.release_lock()
         verdict_after = _run_contender(REAL_REDIS_URL, lock_name, "child_b")
-        assert verdict_after == "ACQUIRED", "same contender class must win after release"
+        assert (
+            verdict_after == "ACQUIRED"
+        ), "same contender class must win after release"
     finally:
         parent.release_lock()
 
@@ -121,10 +130,13 @@ def test_two_process_lock_real_redis_denied_then_acquired():
 @requires_real_redis
 def test_two_process_holder_holds_until_ttl_or_release():
     """Holder keeps the lock across heartbeats; contender stays denied."""
-    from trading.infrastructure.ha_lock import ActivePassiveManager, RedisLockBackend
+    from trading.infrastructure.ha_lock import (ActivePassiveManager,
+                                                RedisLockBackend)
 
     lock_name = "test:two_process_hold:real"
-    backend = RedisLockBackend(lock_name=lock_name, node_id="holder", ttl_sec=5.0, redis_url=REAL_REDIS_URL)
+    backend = RedisLockBackend(
+        lock_name=lock_name, node_id="holder", ttl_sec=5.0, redis_url=REAL_REDIS_URL
+    )
     holder = ActivePassiveManager(node_id="holder", ttl_sec=5.0, backend=backend)
 
     try:
@@ -162,13 +174,16 @@ def test_two_process_exclusion_deterministic_memory_channel():
         store_url = f"memory://127.0.0.1:{port}"
         proxy = memory_store_server.connect_store(("127.0.0.1", port))
 
-        from trading.infrastructure.ha_lock import ActivePassiveManager, RedisLockBackend
+        from trading.infrastructure.ha_lock import (ActivePassiveManager,
+                                                    RedisLockBackend)
 
         lock_name = "test:two_process_lock:mem"
         parent = ActivePassiveManager(
             node_id="parent",
             ttl_sec=10.0,
-            backend=RedisLockBackend(lock_name=lock_name, node_id="parent", ttl_sec=10.0, client=proxy),
+            backend=RedisLockBackend(
+                lock_name=lock_name, node_id="parent", ttl_sec=10.0, client=proxy
+            ),
         )
 
         # Parent acquires IN THIS process; contenders run in OTHER processes.
@@ -176,17 +191,17 @@ def test_two_process_exclusion_deterministic_memory_channel():
         assert isinstance(parent.backend, RedisLockBackend)
         assert proxy.get(lock_name) == parent.backend.token  # state truly shared
         try:
-            assert _run_contender(store_url, lock_name, "child_a") == "DENIED", (
-                "second process must FAIL while first holds the lock"
-            )
+            assert (
+                _run_contender(store_url, lock_name, "child_a") == "DENIED"
+            ), "second process must FAIL while first holds the lock"
             assert _run_contender(store_url, lock_name, "child_b") == "DENIED"
         finally:
             parent.release_lock()
 
         # After release, a fresh contender process must WIN.
-        assert _run_contender(store_url, lock_name, "child_c") == "ACQUIRED", (
-            "contender must succeed after release"
-        )
+        assert (
+            _run_contender(store_url, lock_name, "child_c") == "ACQUIRED"
+        ), "contender must succeed after release"
 
         # Re-exclusion: whoever holds again denies everyone else cross-process.
         assert parent.acquire_lock() is True

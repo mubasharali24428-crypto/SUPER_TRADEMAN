@@ -3,9 +3,10 @@
 from datetime import datetime, timezone
 
 from trading.backtest.engine import BacktestConfig
-from trading.backtest.portfolio import FoldBoundaryAction, run_portfolio_backtest
+from trading.backtest.portfolio import (FoldBoundaryAction,
+                                        run_portfolio_backtest)
 from trading.risk.engine import RiskEngine
-from trading.risk.models import AccountState, RiskConfig, Signal, Side
+from trading.risk.models import AccountState, RiskConfig, Side, Signal
 
 
 def test_portfolio_backtest_force_close():

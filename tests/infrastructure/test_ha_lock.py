@@ -13,19 +13,15 @@ Genuine multi-process contention lives in tests/test_two_process_lock.py.
 import sys
 from pathlib import Path
 
-import pytest
-
-from trading.infrastructure.ha_lock import (
-    ActivePassiveManager,
-    InProcessLockBackend,
-    RedisLockBackend,
-    select_lock_backend,
-)
-
 # The in-memory Redis stand-in ships next to this test file; pytest's default
 # import mode puts this directory on sys.path already.
 import fake_redis_stub  # noqa: E402
+import pytest
 
+from trading.infrastructure.ha_lock import (ActivePassiveManager,
+                                            InProcessLockBackend,
+                                            RedisLockBackend,
+                                            select_lock_backend)
 
 LOCK_NAME = "test:ha:primary"
 
@@ -34,12 +30,16 @@ def _make_pair(client, ttl_sec=5.0, lock_name=LOCK_NAME):
     node_a = ActivePassiveManager(
         node_id="node_a",
         ttl_sec=ttl_sec,
-        backend=RedisLockBackend(lock_name=lock_name, node_id="node_a", ttl_sec=ttl_sec, client=client),
+        backend=RedisLockBackend(
+            lock_name=lock_name, node_id="node_a", ttl_sec=ttl_sec, client=client
+        ),
     )
     node_b = ActivePassiveManager(
         node_id="node_b",
         ttl_sec=ttl_sec,
-        backend=RedisLockBackend(lock_name=lock_name, node_id="node_b", ttl_sec=ttl_sec, client=client),
+        backend=RedisLockBackend(
+            lock_name=lock_name, node_id="node_b", ttl_sec=ttl_sec, client=client
+        ),
     )
     return node_a, node_b
 
@@ -79,7 +79,9 @@ def test_public_api_preserved(memory_client):
     """acquire_lock / release_lock / is_primary behave identically to legacy API."""
     mgr = ActivePassiveManager(
         node_id="solo",
-        backend=RedisLockBackend(lock_name=LOCK_NAME, node_id="solo", ttl_sec=5.0, client=memory_client),
+        backend=RedisLockBackend(
+            lock_name=LOCK_NAME, node_id="solo", ttl_sec=5.0, client=memory_client
+        ),
     )
     assert mgr.is_primary is False
     assert mgr.acquire_lock() is True
@@ -180,7 +182,9 @@ def test_shutdown_handler_releases_redis_lock(memory_client):
 
     mgr = ActivePassiveManager(
         node_id="node_x",
-        backend=RedisLockBackend(lock_name=LOCK_NAME, node_id="node_x", ttl_sec=5.0, client=memory_client),
+        backend=RedisLockBackend(
+            lock_name=LOCK_NAME, node_id="node_x", ttl_sec=5.0, client=memory_client
+        ),
     )
     assert mgr.acquire_lock() is True
     handler = GracefulShutdownHandler(ha_manager=mgr, audit_ledger=AuditLedger())

@@ -11,14 +11,15 @@ from trading.backtest.engine import BacktestConfig
 # SUB-09: trading.backtest.funding deleted (wire-or-delete adjudication — no src
 # consumer; wiring into engine fill path forbidden). See tests/test_wire_or_delete.md.
 from trading.backtest.impact import apply_market_impact
-from trading.backtest.portfolio import FoldBoundaryAction, run_portfolio_backtest
+from trading.backtest.portfolio import (FoldBoundaryAction,
+                                        run_portfolio_backtest)
 from trading.data.quality import validate_ohlcv
 from trading.execution.oms import OrderManagementSystem
 from trading.execution.outbox import generate_client_order_id
 from trading.execution.state_machine import OrderState
 from trading.execution.venue_adapter import MockVenueAdapter
 from trading.risk.engine import RiskEngine
-from trading.risk.models import AccountState, RiskConfig, Side, Signal, _ISSUER
+from trading.risk.models import _ISSUER, AccountState, RiskConfig, Side, Signal
 from trading.stats.cross_validation import CPCVConfig, generate_cpcv_splits
 from trading.stats.effective_trials import effective_trials
 from trading.stats.pbo import compute_pbo
@@ -43,13 +44,22 @@ async def test_full_pipeline_end_to_end():
     validate_ohlcv(df)
 
     # 3. CPCV split generation (Phase 1)
-    cfg = CPCVConfig(n_folds=5, purge_days=1, max_holding_days=1, min_train_size=10, min_test_size=5)
+    cfg = CPCVConfig(
+        n_folds=5, purge_days=1, max_holding_days=1, min_train_size=10, min_test_size=5
+    )
     splits = generate_cpcv_splits(df, cfg)
     assert len(splits) > 0
 
     # 4. Shared Portfolio Backtest with synthetic exit token (Phase 0 & 1)
     candles = [
-        [int(dates[i].timestamp() * 1000), df["open"].iloc[i], df["high"].iloc[i], df["low"].iloc[i], df["close"].iloc[i], df["volume"].iloc[i]]
+        [
+            int(dates[i].timestamp() * 1000),
+            df["open"].iloc[i],
+            df["high"].iloc[i],
+            df["low"].iloc[i],
+            df["close"].iloc[i],
+            df["volume"].iloc[i],
+        ]
         for i in range(len(df))
     ]
     candles_by_asset = {"BTC": candles}
@@ -85,7 +95,6 @@ async def test_full_pipeline_end_to_end():
     # SUB-09: funding-fee section (Phase 2) removed -- trading.backtest.funding
     # was deleted by wire-or-delete adjudication; see tests/test_wire_or_delete.md.
 
-
     # 6. Market Impact Model (Phase 5)
     impact_pct, exec_notional, was_capped = apply_market_impact(
         order_notional=5000.0,
@@ -104,6 +113,7 @@ async def test_full_pipeline_end_to_end():
     # Check invariant constructor token protection
     with pytest.raises(PermissionError):
         from trading.risk.models import ApprovedOrder
+
         ApprovedOrder(
             asset="BTC",
             asset_class="crypto",

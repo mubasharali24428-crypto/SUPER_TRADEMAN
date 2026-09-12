@@ -27,7 +27,9 @@ async def main():
         pnls = [t.net_pnl for t in subset]
         rs = [t.r_multiple for t in subset]
         wins = sum(1 for p in pnls if p > 0)
-        print(f"  {reason}: n={len(subset)} wins={wins} total_pnl={sum(pnls):.0f} avg_r={sum(rs) / len(rs):.2f}")
+        print(
+            f"  {reason}: n={len(subset)} wins={wins} total_pnl={sum(pnls):.0f} avg_r={sum(rs) / len(rs):.2f}"
+        )
 
     print()
     print("trade log (side, entry->exit, reason, R, pnl, running equity):")

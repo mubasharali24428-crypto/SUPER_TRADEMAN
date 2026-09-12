@@ -12,14 +12,15 @@ logger = logging.getLogger("trading.risk.copula")
 @dataclass(frozen=True)
 class CopulaDependencyResult:
     """Output of Copula multi-asset joint dependency analysis."""
+
     asset_pair: tuple[str, str]
-    linear_correlation: float      # Standard Pearson correlation
-    rank_correlation: float        # Spearman rank correlation
-    lower_tail_dependence: float   # Probability of joint extreme crash lambda_L
-    upper_tail_dependence: float   # Probability of joint extreme rally lambda_U
-    copula_type: str               # "clayton" | "gumbel" | "gaussian" | "student_t"
-    is_co_dependent_crash: bool    # True if lower tail dependence > threshold
-    recommended_cluster_cap: float # Max combined risk percentage allocated across this pair
+    linear_correlation: float  # Standard Pearson correlation
+    rank_correlation: float  # Spearman rank correlation
+    lower_tail_dependence: float  # Probability of joint extreme crash lambda_L
+    upper_tail_dependence: float  # Probability of joint extreme rally lambda_U
+    copula_type: str  # "clayton" | "gumbel" | "gaussian" | "student_t"
+    is_co_dependent_crash: bool  # True if lower tail dependence > threshold
+    recommended_cluster_cap: float  # Max combined risk percentage allocated across this pair
 
 
 class CopulaDependencyEngine:
@@ -31,7 +32,7 @@ class CopulaDependencyEngine:
 
     def __init__(
         self,
-        tail_dependence_threshold: float = 0.60, # lambda_L > 0.60 triggers joint crash clustering
+        tail_dependence_threshold: float = 0.60,  # lambda_L > 0.60 triggers joint crash clustering
         min_samples: int = 50,
     ):
         self.tail_dependence_threshold = tail_dependence_threshold
@@ -73,7 +74,9 @@ class CopulaDependencyEngine:
 
             # lambda_U = P(U >= 1-q, V >= 1-q) / q
             q_upper = 0.10
-            joint_upper = np.sum((u >= (1.0 - q_upper)) & (v >= (1.0 - q_upper))) / len(u)
+            joint_upper = np.sum((u >= (1.0 - q_upper)) & (v >= (1.0 - q_upper))) / len(
+                u
+            )
             lambda_upper = float(joint_upper / q_upper)
 
             # Bound between [0.0, 1.0]
@@ -84,9 +87,9 @@ class CopulaDependencyEngine:
             if lambda_lower > lambda_upper + 0.10:
                 copula_type = "clayton"  # Strong lower tail dependency (joint crashes)
             elif lambda_upper > lambda_lower + 0.10:
-                copula_type = "gumbel"   # Strong upper tail dependency (joint booms)
+                copula_type = "gumbel"  # Strong upper tail dependency (joint booms)
             elif abs(lambda_lower - lambda_upper) < 0.10 and lambda_lower > 0.30:
-                copula_type = "student_t" # Symmetric heavy tail dependency
+                copula_type = "student_t"  # Symmetric heavy tail dependency
             else:
                 copula_type = "gaussian"
 
@@ -106,7 +109,9 @@ class CopulaDependencyEngine:
             )
 
         except Exception as exc:
-            logger.warning("Copula dependency estimation failed (%s). Using linear fallback.", exc)
+            logger.warning(
+                "Copula dependency estimation failed (%s). Using linear fallback.", exc
+            )
             return self._fallback_dependency(asset_a, asset_b, ra, rb)
 
     def _fallback_dependency(

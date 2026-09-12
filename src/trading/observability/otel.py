@@ -55,7 +55,9 @@ class _NoopSpan:
 class _NoopTracer:
     """Drop-in stand-in for ``opentelemetry.trace.Tracer``."""
 
-    def start_as_current_span(self, name: str, attributes: Optional[Dict[str, Any]] = None, **_: Any) -> _NoopSpan:
+    def start_as_current_span(
+        self, name: str, attributes: Optional[Dict[str, Any]] = None, **_: Any
+    ) -> _NoopSpan:
         return _NoopSpan()
 
 
@@ -79,9 +81,8 @@ def setup_tracing(service_name: str) -> bool:
             return False
         try:  # lazy import — never at module load time
             from opentelemetry import trace as otel_trace
-            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
-                OTLPSpanExporter,
-            )
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import \
+                OTLPSpanExporter
             from opentelemetry.sdk.resources import Resource
             from opentelemetry.sdk.trace import TracerProvider
             from opentelemetry.sdk.trace.export import BatchSpanProcessor

@@ -9,12 +9,8 @@ import sys
 
 import ccxt
 
-from trading.backtest.engine import (
-    BacktestConfig,
-    bootstrap_trade_returns,
-    run_backtest,
-    split_train_test,
-)
+from trading.backtest.engine import (BacktestConfig, bootstrap_trade_returns,
+                                     run_backtest, split_train_test)
 from trading.data.crypto import fetch_ohlcv_range
 from trading.risk.engine import RiskEngine
 from trading.risk.models import AccountState, RiskConfig
@@ -63,15 +59,25 @@ def report(label, candles, strategy_fn, risk_engine, backtest_config):
     )
     r = result.report
     boot = bootstrap_trade_returns(result.trades, account.equity, seed=42)
-    edge = "YES" if r.win_rate > r.breakeven_win_rate and r.total_return_pct > 0 else "no"
+    edge = (
+        "YES" if r.win_rate > r.breakeven_win_rate and r.total_return_pct > 0 else "no"
+    )
     print(f"\n  {label}")
-    print(f"    return {r.total_return_pct:+7.2%}   maxDD {r.max_drawdown_pct:6.2%}   "
-          f"Sharpe/bar {r.sharpe_ratio:+.4f}")
-    print(f"    win rate {r.win_rate:6.2%} (CI {r.win_rate_ci_low:.1%}-{r.win_rate_ci_high:.1%})"
-          f"   vs breakeven {r.breakeven_win_rate:.2%}   p={r.win_rate_p_value:.3f}")
-    print(f"    avg R {r.avg_r_multiple:+.3f}   trades {r.num_trades}   [{r.sample_size_verdict}]")
-    print(f"    bootstrap p5 {boot['p5']:+.2%} / p50 {boot['p50']:+.2%} / p95 {boot['p95']:+.2%}"
-          f"     profitable edge: {edge}")
+    print(
+        f"    return {r.total_return_pct:+7.2%}   maxDD {r.max_drawdown_pct:6.2%}   "
+        f"Sharpe/bar {r.sharpe_ratio:+.4f}"
+    )
+    print(
+        f"    win rate {r.win_rate:6.2%} (CI {r.win_rate_ci_low:.1%}-{r.win_rate_ci_high:.1%})"
+        f"   vs breakeven {r.breakeven_win_rate:.2%}   p={r.win_rate_p_value:.3f}"
+    )
+    print(
+        f"    avg R {r.avg_r_multiple:+.3f}   trades {r.num_trades}   [{r.sample_size_verdict}]"
+    )
+    print(
+        f"    bootstrap p5 {boot['p5']:+.2%} / p50 {boot['p50']:+.2%} / p95 {boot['p95']:+.2%}"
+        f"     profitable edge: {edge}"
+    )
     return r
 
 
@@ -92,10 +98,34 @@ async def main():
     trend_config = BacktestConfig(max_hold_bars=500, trail_atr_mult=2.0)
 
     for name, data, fn, engine, cfg in [
-        ("MEAN REVERSION (repaired) 1h", candles_1h, generate_signal, mr_engine, mr_config),
-        ("TREND FOLLOWING 1h", candles_1h, generate_trend_signal, trend_engine, trend_config),
-        ("TREND FOLLOWING 4h", resample(candles_1h, 4), generate_trend_signal, trend_engine, trend_config),
-        ("TREND FOLLOWING 12h", resample(candles_1h, 12), generate_trend_signal, trend_engine, trend_config),
+        (
+            "MEAN REVERSION (repaired) 1h",
+            candles_1h,
+            generate_signal,
+            mr_engine,
+            mr_config,
+        ),
+        (
+            "TREND FOLLOWING 1h",
+            candles_1h,
+            generate_trend_signal,
+            trend_engine,
+            trend_config,
+        ),
+        (
+            "TREND FOLLOWING 4h",
+            resample(candles_1h, 4),
+            generate_trend_signal,
+            trend_engine,
+            trend_config,
+        ),
+        (
+            "TREND FOLLOWING 12h",
+            resample(candles_1h, 12),
+            generate_trend_signal,
+            trend_engine,
+            trend_config,
+        ),
     ]:
         train, test = split_train_test(data, train_frac=0.7)
         print(f"\n{'=' * 78}\n{name}  ({len(data)} bars)")

@@ -166,7 +166,7 @@ To transform the system into an institutional quant engine, we built five mathem
 
 ### Phase 6: High-Sample Statistical Benchmarking (10,000+ Trades)
 
-To verify the system's asymptotic stability and prevent sample-size deception, we created high-throughput synthetic benchmark suites (`benchmark_10k_trades.py` and `benchmark_performance.py`):
+To verify the system's asymptotic stability and prevent sample-size deception, we created high-throughput synthetic benchmark suites (`scripts/research/benchmark_10k_trades.py` and `scripts/research/benchmark_performance.py`):
 * Tested $120,000+$ candles per run generating $10,000+$ closed trades.
 * Verified that the `RiskEngine` and `SurvivalEngine` mathematically cap maximum drawdowns even during prolonged synthetic bear/chop regimes with high loss clustering.
 
@@ -193,8 +193,8 @@ algo-trading-system/
 ├── pyproject.toml                # Dependencies: pydantic-settings, asyncpg, redis, ccxt, arch, hmmlearn, copulas, scipy
 ├── docker-compose.yml            # Local PostgreSQL 16 & Redis 7 stack
 ├── server.py                     # Embedded HTTP server for Web UI cockpit (port 8080)
-├── benchmark_10k_trades.py       # 10,000+ trade statistical validity benchmark suite
-├── benchmark_performance.py      # System execution latency & memory benchmark suite
+├── scripts/research/benchmark_10k_trades.py  # 10,000+ trade statistical validity benchmark suite
+├── scripts/research/benchmark_performance.py  # System execution latency & memory benchmark suite
 ├── learning_graph.jsonl          # Persisted Bayesian trade decision/result graph
 │
 ├── src/trading/

@@ -20,14 +20,10 @@ import fake_redis_stub  # noqa: E402,F401 — deterministic stub
 from fake_redis_stub import MemoryRedis  # noqa: E402
 
 import trading.risk.tier_state as ts  # noqa: E402
-from trading.risk.tier_state import (
-    UNKNOWN_TIER,
-    TierState,
-    more_defensive,
-    RedisTierState,
-)
-from trading.risk.survival import SurvivalEngine, SurvivalTier, _epsilon_flips
 from trading.risk.models import AccountState
+from trading.risk.survival import SurvivalEngine, SurvivalTier, _epsilon_flips
+from trading.risk.tier_state import (UNKNOWN_TIER, RedisTierState, TierState,
+                                     more_defensive)
 
 
 class _DeadRedis:
@@ -55,7 +51,9 @@ def _clean_cache():
 
 def test_redis_load_failure_returns_cached_last_known_state():
     backend = RedisTierState(client=MemoryRedis(), key="t:v15", ttl_sec=60)
-    assert backend.save(TierState(tier="survival", entered_cycle=5, below_count=1)) is True
+    assert (
+        backend.save(TierState(tier="survival", entered_cycle=5, below_count=1)) is True
+    )
 
     outage = RedisTierState(client=_DeadRedis(), key="t:v15")
     st = outage.load()
@@ -71,8 +69,8 @@ def test_redis_load_failure_without_cache_returns_unknown_not_normal():
 
 def test_unknown_tier_consumed_as_caution_minimum_by_engine():
     engine = SurvivalEngine.__new__(SurvivalEngine)  # bypass __init__ state load
-    from trading.risk.survival import MIN_DWELL_CYCLES
     from trading.risk.models import RiskConfig
+    from trading.risk.survival import MIN_DWELL_CYCLES
 
     engine.config = RiskConfig()
     engine.min_dwell_cycles = MIN_DWELL_CYCLES
@@ -85,9 +83,9 @@ def test_unknown_tier_consumed_as_caution_minimum_by_engine():
     account = AccountState(equity=10000.0, peak_equity=10000.0)
     status = engine.evaluate_survival_status(account)
     assert status.tier is SurvivalTier.CAUTION
-    assert status.allow_new_entries is True          # CAUTION-minimum posture
+    assert status.allow_new_entries is True  # CAUTION-minimum posture
     assert status.effective_risk_multiplier <= 0.50  # never NORMAL's 1.0
-    assert engine.tier_state.tier == "caution"       # automaton now holds CAUTION
+    assert engine.tier_state.tier == "caution"  # automaton now holds CAUTION
 
 
 # ---------------------------------------------------------------------------
@@ -103,18 +101,23 @@ def test_scope_namespaces_key_with_global_legacy_default():
     assert per_symbol.key == "base:key:BTC/USDT"
 
     assert per_symbol.save(TierState(tier="caution")) is True
-    assert mem.get("base:key") is None               # global untouched
+    assert mem.get("base:key") is None  # global untouched
     assert mem.get("base:key:BTC/USDT") is not None
     assert legacy.load().tier == "normal"
 
 
 def test_load_state_and_save_state_thread_scope():
     mem = MemoryRedis()
-    assert ts.save_state(
-        TierState(tier="cooldown", entered_cycle=2), client=mem, scope="ETH/USDT"
-    ) is True
+    assert (
+        ts.save_state(
+            TierState(tier="cooldown", entered_cycle=2), client=mem, scope="ETH/USDT"
+        )
+        is True
+    )
     assert ts.load_state(client=mem, scope="ETH/USDT").tier == "cooldown"
-    assert ts.load_state(client=mem, scope="SOL/USDT").tier == "normal"  # separate bucket
+    assert (
+        ts.load_state(client=mem, scope="SOL/USDT").tier == "normal"
+    )  # separate bucket
 
 
 def test_survival_engine_threads_scope_into_backend(monkeypatch):
@@ -130,7 +133,11 @@ def test_survival_engine_threads_scope_into_backend(monkeypatch):
         def load(self):
             return TierState(tier="caution")
 
-    monkeypatch.setattr(ts, "_select_backend", lambda client=None, path=None, scope="global": _SpyBackend(scope))
+    monkeypatch.setattr(
+        ts,
+        "_select_backend",
+        lambda client=None, path=None, scope="global": _SpyBackend(scope),
+    )
     SurvivalEngine(state_path="/tmp/unused.json", scope="portfolio-9")
     assert seen["scope"] == "portfolio-9"
 
@@ -142,8 +149,10 @@ def test_survival_engine_threads_scope_into_backend(monkeypatch):
 
 def test_save_failure_still_caches_transition_write_behind():
     dead = RedisTierState(client=_DeadRedis(), key="t:wbehind")
-    assert dead.save(TierState(tier="cooldown", entered_cycle=7)) is False  # persist failed...
-    st = dead.load()                                                        # ...but not lost
+    assert (
+        dead.save(TierState(tier="cooldown", entered_cycle=7)) is False
+    )  # persist failed...
+    st = dead.load()  # ...but not lost
     assert st.tier == "cooldown"
     assert st.entered_cycle == 7
 
@@ -151,7 +160,11 @@ def test_save_failure_still_caches_transition_write_behind():
 def test_load_merges_memory_and_redis_taking_more_defensive(mem=None):
     mem = MemoryRedis()
     # Redis holds a stale NORMAL while this process cached a defended tier.
-    mem.setex("t:merge", 600, json.dumps({"tier": "normal", "entered_cycle": 0, "below_count": 0}))
+    mem.setex(
+        "t:merge",
+        600,
+        json.dumps({"tier": "normal", "entered_cycle": 0, "below_count": 0}),
+    )
     ts._cache_put("t:merge", TierState(tier="survival", entered_cycle=3, below_count=1))
 
     backend = RedisTierState(client=mem, key="t:merge")
@@ -160,9 +173,18 @@ def test_load_merges_memory_and_redis_taking_more_defensive(mem=None):
 
 
 def test_more_defensive_ranking():
-    assert more_defensive(TierState(tier="normal"), TierState(tier="caution")).tier == "caution"
-    assert more_defensive(TierState(tier="cooldown"), TierState(tier="caution")).tier == "cooldown"
-    assert more_defensive(TierState(tier="survival"), TierState(tier="survival")).tier == "survival"
+    assert (
+        more_defensive(TierState(tier="normal"), TierState(tier="caution")).tier
+        == "caution"
+    )
+    assert (
+        more_defensive(TierState(tier="cooldown"), TierState(tier="caution")).tier
+        == "cooldown"
+    )
+    assert (
+        more_defensive(TierState(tier="survival"), TierState(tier="survival")).tier
+        == "survival"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +206,9 @@ def test_epsilon_flip_uses_carried_anchor_when_day_anchor_is_none():
     # VB-046/VB-071: both float and Decimal sides are now recomputed from
     # (equity, denom) at the same instant, eliminating vintage-mismatch false
     # positives. With clean values like 95000/100000, both agree on -0.05.
-    flips = _epsilon_flips(account, max_drawdown=0.175, daily_loss_limit=0.05, fallback_anchor=100000.0)
+    flips = _epsilon_flips(
+        account, max_drawdown=0.175, daily_loss_limit=0.05, fallback_anchor=100000.0
+    )
     assert [f["kind"] for f in flips] == []
     # VB-046/VB-071: a true flip still fires when Decimal arithmetic diverges
     # from float at the boundary due to binary representation differences.
@@ -195,7 +219,12 @@ def test_epsilon_flip_uses_carried_anchor_when_day_anchor_is_none():
         equity=66666.66666666667,
         peak_equity=100000.0,
     )
-    flips_real = _epsilon_flips(account2, max_drawdown=0.175, daily_loss_limit=0.3333333333333333, fallback_anchor=100000.0)
+    flips_real = _epsilon_flips(
+        account2,
+        max_drawdown=0.175,
+        daily_loss_limit=0.3333333333333333,
+        fallback_anchor=100000.0,
+    )
     # A flip may or may not fire depending on the exact 1ulp rounding behavior
     # across Python versions. Both paths agreeing is also valid — the key
     # invariant is that we don't see false flips from vintage mismatch.
@@ -205,7 +234,9 @@ def test_epsilon_flip_uses_carried_anchor_when_day_anchor_is_none():
 def test_epsilon_flip_emits_anchor_unavailable_when_nothing_known(caplog):
     account = AccountState(equity=90000.0, peak_equity=100000.0, daily_pnl_pct=-0.20)
     with caplog.at_level(logging.INFO, logger="trading.risk.survival"):
-        flips = _epsilon_flips(account, max_drawdown=0.175, daily_loss_limit=0.05, fallback_anchor=None)
+        flips = _epsilon_flips(
+            account, max_drawdown=0.175, daily_loss_limit=0.05, fallback_anchor=None
+        )
     assert flips == []  # skipped, NOT a fabricated zero-PnL computation
     assert any("ANCHOR_UNAVAILABLE" in r.getMessage() for r in caplog.records)
 
@@ -226,6 +257,8 @@ def test_day_anchor_recorded_still_preferred_over_carried():
         day_start_settled_equity=100000.0,
         daily_pnl_pct=-0.10,
     )
-    flips = _epsilon_flips(recorded, max_drawdown=0.175, daily_loss_limit=0.05, fallback_anchor=999999.0)
+    flips = _epsilon_flips(
+        recorded, max_drawdown=0.175, daily_loss_limit=0.05, fallback_anchor=999999.0
+    )
     kinds = [f["kind"] for f in flips]
     assert kinds == []  # both paths agree (-10% < -5%) -> breach is NOT a flip

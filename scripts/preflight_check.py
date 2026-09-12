@@ -101,7 +101,11 @@ def run_preflight_checks(
     results: List[PreflightCheckResult] = []
 
     def add(name: str, passed: bool, details: str, severity: str = "BLOCKING") -> None:
-        results.append(PreflightCheckResult(name=name, severity=severity, passed=passed, details=details))
+        results.append(
+            PreflightCheckResult(
+                name=name, severity=severity, passed=passed, details=details
+            )
+        )
 
     # 1. Configuration Checks
     mode_str = mode.value if hasattr(mode, "value") else str(mode)
@@ -164,8 +168,14 @@ def run_preflight_checks(
         else "Missing REDIS_URL — trading.config.Settings requires it (no defaults).",
     )
 
-    candidate_urls = [u for u in (pg_url, os.getenv("POSTGRES_URL", ""), os.getenv("DATABASE_URL", "")) if u]
-    no_placeholder = all(not _is_legacy_placeholder_credential(u) for u in candidate_urls)
+    candidate_urls = [
+        u
+        for u in (pg_url, os.getenv("POSTGRES_URL", ""), os.getenv("DATABASE_URL", ""))
+        if u
+    ]
+    no_placeholder = all(
+        not _is_legacy_placeholder_credential(u) for u in candidate_urls
+    )
     add(
         "Secrets: No Legacy Placeholder Credentials",
         no_placeholder,
@@ -178,7 +188,9 @@ def run_preflight_checks(
     api_key = os.getenv("EXCHANGE_API_KEY", "")
     api_secret = os.getenv("EXCHANGE_API_SECRET", "")
     has_keys = (
-        bool(api_key and api_secret) if mode in (ExecutionMode.LIVE_RESTRICTED, ExecutionMode.LIVE_FULL) else True
+        bool(api_key and api_secret)
+        if mode in (ExecutionMode.LIVE_RESTRICTED, ExecutionMode.LIVE_FULL)
+        else True
     )
     add(
         "Security: Exchange API Credentials Loaded from Env",
@@ -211,21 +223,32 @@ def run_preflight_checks(
             "Skipped: no Postgres URL could be resolved (see secrets checks above).",
         )
 
-    blocking_failures = [r for r in results if r.severity == "BLOCKING" and not r.passed]
+    blocking_failures = [
+        r for r in results if r.severity == "BLOCKING" and not r.passed
+    ]
     overall_pass = len(blocking_failures) == 0
 
     return overall_pass, results
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run SUPER_TRADEMAN Deployment Preflight Check")
-    parser.add_argument("--mode", type=str, default="SHADOW", help="Target execution mode (e.g. SHADOW, LIVE_RESTRICTED)")
+    parser = argparse.ArgumentParser(
+        description="Run SUPER_TRADEMAN Deployment Preflight Check"
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="SHADOW",
+        help="Target execution mode (e.g. SHADOW, LIVE_RESTRICTED)",
+    )
     args = parser.parse_args()
 
     try:
         target_mode = ExecutionMode(args.mode.lower())
     except ValueError:
-        print(f"PREFLIGHT_STATUS: FAIL\n[BLOCKING] Invalid execution mode '{args.mode}'.")
+        print(
+            f"PREFLIGHT_STATUS: FAIL\n[BLOCKING] Invalid execution mode '{args.mode}'."
+        )
         sys.exit(1)
 
     overall_pass, results = run_preflight_checks(target_mode)
@@ -245,7 +268,9 @@ def main() -> None:
         sys.exit(0)
     else:
         print("PREFLIGHT_STATUS: FAIL")
-        print("Remediation: make setup && make migrate (alembic owns the schema; runtime DDL is gone).")
+        print(
+            "Remediation: make setup && make migrate (alembic owns the schema; runtime DDL is gone)."
+        )
         sys.exit(1)
 
 

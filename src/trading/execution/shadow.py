@@ -67,7 +67,9 @@ class ShadowInterceptor:
         levels = order_book.asks if order.side is Side.LONG else order_book.bids
 
         if not levels:
-            logger.error(f"[SHADOW_INTERCEPTOR] Empty order book for {order.asset}. Zero liquidity available.")
+            logger.error(
+                f"[SHADOW_INTERCEPTOR] Empty order book for {order.asset}. Zero liquidity available."
+            )
             res = ShadowFillResult(
                 client_order_id=client_order_id,
                 asset=order.asset,
@@ -95,7 +97,9 @@ class ShadowInterceptor:
             if remaining_qty <= 0:
                 break
 
-        vwap_price = accumulated_cost / filled_qty if filled_qty > 0 else order.entry_price
+        vwap_price = (
+            accumulated_cost / filled_qty if filled_qty > 0 else order.entry_price
+        )
         was_liquidity_capped = remaining_qty > 0
 
         if was_liquidity_capped:

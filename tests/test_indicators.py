@@ -7,7 +7,10 @@ DAY_MS = 86_400_000
 
 
 def test_atr_returns_none_without_enough_history(candle_row):
-    assert atr([candle_row(ts=i, o=10, h=11, l=9, c=10) for i in range(5)], period=14) is None
+    assert (
+        atr([candle_row(ts=i, o=10, h=11, l=9, c=10) for i in range(5)], period=14)
+        is None
+    )
 
 
 def test_atr_of_constant_range_bars_is_that_range(candle_row):
@@ -18,7 +21,12 @@ def test_atr_of_constant_range_bars_is_that_range(candle_row):
 def test_atr_accounts_for_gaps_beyond_the_bar_range(candle_row):
     # bar range is 1, but each bar gaps 10 above the previous close, so TR is driven
     # by |high - prev_close|, not high-low. A close-to-close measure would miss this.
-    candles = [candle_row(ts=i, o=100 + 10 * i, h=100.5 + 10 * i, l=99.5 + 10 * i, c=100 + 10 * i) for i in range(20)]
+    candles = [
+        candle_row(
+            ts=i, o=100 + 10 * i, h=100.5 + 10 * i, l=99.5 + 10 * i, c=100 + 10 * i
+        )
+        for i in range(20)
+    ]
     assert atr(candles, period=14) == 10.5
 
 
@@ -30,7 +38,12 @@ def test_donchian_returns_extremes_of_the_window(candle_row):
 
 
 def test_donchian_returns_none_when_history_is_shorter_than_lookback(candle_row):
-    assert donchian([candle_row(ts=i, o=10, h=11, l=9, c=10) for i in range(3)], lookback=5) is None
+    assert (
+        donchian(
+            [candle_row(ts=i, o=10, h=11, l=9, c=10) for i in range(3)], lookback=5
+        )
+        is None
+    )
 
 
 # --- log_return_correlation --------------------------------------------------
@@ -41,7 +54,9 @@ def test_log_return_correlation_of_perfectly_correlated_series_is_near_one(
 ):
     returns = list(rng.uniform(-0.03, 0.03, size=120))
     prices_a = prices_from_returns(returns, start_price=100.0)
-    prices_b = prices_from_returns([2.0 * r for r in returns], start_price=50.0)  # scaled, same sign
+    prices_b = prices_from_returns(
+        [2.0 * r for r in returns], start_price=50.0
+    )  # scaled, same sign
     candles_a = close_candles(prices_a)
     candles_b = close_candles(prices_b)
     as_of = candles_a[-1][0] + DAY_MS  # one bar past the end -> all bars visible
@@ -99,14 +114,22 @@ def test_log_return_correlation_does_not_use_bars_after_the_as_of_point(
     diverging_returns_a = list(rng.uniform(-0.02, 0.02, size=60))
     diverging_returns_b = [-r for r in diverging_returns_a]
 
-    prices_a = prices_from_returns(shared_returns + diverging_returns_a, start_price=100.0)
-    prices_b = prices_from_returns(shared_returns + diverging_returns_b, start_price=50.0)
+    prices_a = prices_from_returns(
+        shared_returns + diverging_returns_a, start_price=100.0
+    )
+    prices_b = prices_from_returns(
+        shared_returns + diverging_returns_b, start_price=50.0
+    )
     candles_a = close_candles(prices_a)
     candles_b = close_candles(prices_b)
 
     as_of = candles_a[60][0]  # cutoff right at the start of the diverging tail
-    corr = log_return_correlation(candles_a, candles_b, as_of, lookback=90, min_overlap=30)
-    assert corr == pytest.approx(1.0)  # only the shared, perfectly-correlated first half was used
+    corr = log_return_correlation(
+        candles_a, candles_b, as_of, lookback=90, min_overlap=30
+    )
+    assert corr == pytest.approx(
+        1.0
+    )  # only the shared, perfectly-correlated first half was used
 
 
 # --- candle_frame factory -----------------------------------------------------

@@ -9,21 +9,16 @@ its own file so the single-asset path and its tests are untouched.
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timezone
-
 from enum import Enum
 
-from trading.backtest.engine import (
-    BacktestConfig,
-    BacktestResult,
-    _apply_slippage,
-    _build_report,
-    _check_exit,
-    _close_trade,
-)
+from trading.backtest.engine import (BacktestConfig, BacktestResult,
+                                     _apply_slippage, _build_report,
+                                     _check_exit, _close_trade)
 from trading.indicators import atr, log_return_correlation
 from trading.risk.engine import RiskEngine
 from trading.risk.equity import marked_equity
-from trading.risk.models import AccountState, ApprovedExit, Position, Side, _ISSUER
+from trading.risk.models import (_ISSUER, AccountState, ApprovedExit, Position,
+                                 Side)
 
 
 class FoldBoundaryAction(Enum):
@@ -113,12 +108,18 @@ def run_portfolio_backtest(
         if open_trade is not None:
             open_trade["bars_held"] += 1
             exit_price, reason = _check_exit(
-                open_trade["side"], open_trade["stop_price"], open_trade["target_price"], high, low
+                open_trade["side"],
+                open_trade["stop_price"],
+                open_trade["target_price"],
+                high,
+                low,
             )
             if exit_price is None and open_trade["bars_held"] >= config.max_hold_bars:
                 exit_price, reason = close, "time_stop"
             if exit_price is not None:
-                trade, net_pnl = _close_trade(open_trade, exit_price, dt, reason, asset, config)
+                trade, net_pnl = _close_trade(
+                    open_trade, exit_price, dt, reason, asset, config
+                )
                 settled_equity += net_pnl
                 peak_equity = max(peak_equity, settled_equity)
                 trades.append(trade)
@@ -128,9 +129,13 @@ def run_portfolio_backtest(
                 if trail is not None:
                     distance = config.trail_atr_mult * trail
                     if open_trade["side"] is Side.LONG:
-                        open_trade["stop_price"] = max(open_trade["stop_price"], high - distance)
+                        open_trade["stop_price"] = max(
+                            open_trade["stop_price"], high - distance
+                        )
                     else:
-                        open_trade["stop_price"] = min(open_trade["stop_price"], low + distance)
+                        open_trade["stop_price"] = min(
+                            open_trade["stop_price"], low + distance
+                        )
             equity_curve.append(_curve_point())
             continue
 
@@ -149,7 +154,9 @@ def run_portfolio_backtest(
             ]
             correlations = {}
             for other_asset in open_trades:
-                corr = log_return_correlation(candles_by_asset[other_asset], asset_candles, ts)
+                corr = log_return_correlation(
+                    candles_by_asset[other_asset], asset_candles, ts
+                )
                 if corr is not None:
                     correlations[frozenset({other_asset, asset})] = corr
 
@@ -163,7 +170,9 @@ def run_portfolio_backtest(
             decision = risk_engine.evaluate(signal, snapshot)
             if decision.approved:
                 order = decision.approved_order
-                entry_fill = _apply_slippage(order.entry_price, order.side, entering=True, config=config)
+                entry_fill = _apply_slippage(
+                    order.entry_price, order.side, entering=True, config=config
+                )
                 open_trades[asset] = {
                     "entry_time": dt,
                     "side": order.side,
@@ -183,7 +192,7 @@ def run_portfolio_backtest(
     for asset, open_trade in list(open_trades.items()):
         last_ts, _o, _h, _l, exit_close, _v = candles_by_asset[asset][-1]
         exit_time = datetime.fromtimestamp(last_ts / 1000, tz=timezone.utc)
-        
+
         reason_str = "end_of_data"
         if boundary_action == FoldBoundaryAction.FORCE_CLOSE:
             reason_str = "cpcv_fold_force_close"
@@ -196,7 +205,9 @@ def run_portfolio_backtest(
             )
             assert approved_exit.issuer is _ISSUER
 
-        trade, net_pnl = _close_trade(open_trade, exit_close, exit_time, reason_str, asset, config)
+        trade, net_pnl = _close_trade(
+            open_trade, exit_close, exit_time, reason_str, asset, config
+        )
         settled_equity += net_pnl
         trades.append(trade)
         del open_trades[asset]
@@ -204,5 +215,7 @@ def run_portfolio_backtest(
     # ends exactly at report.final_equity -- one series, no reconciliation gap.
     equity_curve[-1] = settled_equity
 
-    report = _build_report(starting_account.equity, settled_equity, equity_curve, trades, breakeven_p)
+    report = _build_report(
+        starting_account.equity, settled_equity, equity_curve, trades, breakeven_p
+    )
     return BacktestResult(report=report, trades=trades, equity_curve=equity_curve)

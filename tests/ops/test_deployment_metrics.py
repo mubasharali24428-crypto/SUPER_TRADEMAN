@@ -5,14 +5,12 @@ from datetime import datetime, timezone
 
 import pytest
 
-from trading.ops.deployment_metrics import (
-    AlertRecord,
-    DeploymentMetricRecord,
-    DeploymentMetricsStore,
-    DrillResultRecord,
-    ReconciliationReportRecord,
-    UPSERT_DEPLOYMENT_METRICS_SQL,
-)
+from trading.ops.deployment_metrics import (UPSERT_DEPLOYMENT_METRICS_SQL,
+                                            AlertRecord,
+                                            DeploymentMetricRecord,
+                                            DeploymentMetricsStore,
+                                            DrillResultRecord,
+                                            ReconciliationReportRecord)
 
 
 class FakePool:
@@ -31,8 +29,11 @@ class FakePool:
 
 def _record(metric_date="2026-08-17", signals=10, **kw):
     return DeploymentMetricRecord(
-        metric_date=metric_date, execution_mode="shadow", symbols="BTC/USDT",
-        signals_generated=signals, **kw
+        metric_date=metric_date,
+        execution_mode="shadow",
+        symbols="BTC/USDT",
+        signals_generated=signals,
+        **kw,
     )
 
 
@@ -55,7 +56,9 @@ def test_deployment_metrics_store():
 def test_drill_and_reconciliation_records():
     store = DeploymentMetricsStore()
 
-    drill_rec = DrillResultRecord(drill_name="stale_data", execution_mode="shadow", status="PASS")
+    drill_rec = DrillResultRecord(
+        drill_name="stale_data", execution_mode="shadow", status="PASS"
+    )
     store.record_drill_result(drill_rec)
     assert len(store.drill_history) == 1
 
@@ -77,7 +80,10 @@ def test_memory_list_is_read_cache_and_upsert_sql_targets_daily_key():
     # Memory read-cache still updated synchronously.
     assert len(store.metrics_history) == 1
     # Upsert keyed by the table's UNIQUE (metric_date, execution_mode, symbols).
-    assert "ON CONFLICT (metric_date, execution_mode, symbols) DO UPDATE" in UPSERT_DEPLOYMENT_METRICS_SQL
+    assert (
+        "ON CONFLICT (metric_date, execution_mode, symbols) DO UPDATE"
+        in UPSERT_DEPLOYMENT_METRICS_SQL
+    )
 
 
 async def test_record_metrics_upserts_row_via_pool():
@@ -108,7 +114,9 @@ async def test_graceful_degradation_when_db_unavailable(caplog):
     assert len(store.metrics_history) == 1  # memory intact
     assert "deployment_metrics.upsert" in store._db_degraded
 
-    store.record_drill_result(DrillResultRecord(drill_name="d", execution_mode="shadow", status="PASS"))
+    store.record_drill_result(
+        DrillResultRecord(drill_name="d", execution_mode="shadow", status="PASS")
+    )
     await asyncio.sleep(0)
     assert len(store.drill_history) == 1
 
@@ -117,10 +125,16 @@ async def test_drill_and_reconciliation_persist_via_pool():
     pool = FakePool()
     store = DeploymentMetricsStore(pool=pool)
 
-    store.record_drill_result(DrillResultRecord(drill_name="kill_switch", execution_mode="shadow", status="PASS"))
+    store.record_drill_result(
+        DrillResultRecord(
+            drill_name="kill_switch", execution_mode="shadow", status="PASS"
+        )
+    )
     store.record_reconciliation_report(
         ReconciliationReportRecord(
-            reconciliation_id="rec_9", timestamp_utc=datetime.now(timezone.utc), execution_mode="shadow"
+            reconciliation_id="rec_9",
+            timestamp_utc=datetime.now(timezone.utc),
+            execution_mode="shadow",
         )
     )
     await asyncio.sleep(0)
@@ -136,7 +150,9 @@ async def test_persist_alert_inserts_alert_row():
     from trading.ops.deployment_metrics import persist_alert
 
     pool = FakePool()
-    alert = AlertRecord(alert_id="a-1", alert_name="n", severity="HIGH", message="m", channel="slack")
+    alert = AlertRecord(
+        alert_id="a-1", alert_name="n", severity="HIGH", message="m", channel="slack"
+    )
     await persist_alert(pool, alert)
 
     _, sql, args = pool.executed[0]

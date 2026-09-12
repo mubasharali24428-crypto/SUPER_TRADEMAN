@@ -21,7 +21,9 @@ class MemoryRedis:
 
     def __init__(self, clock: Optional[Callable[[], float]] = None):
         self.clock = clock or _now_ms
-        self._strings: Dict[str, Tuple[str, Optional[float]]] = {}  # key -> (value, expires_at_ms)
+        self._strings: Dict[
+            str, Tuple[str, Optional[float]]
+        ] = {}  # key -> (value, expires_at_ms)
         self._hashes: Dict[str, Dict[str, str]] = {}
 
     # -- internals ---------------------------------------------------------
@@ -36,7 +38,9 @@ class MemoryRedis:
         return True
 
     # -- strings -----------------------------------------------------------
-    def set(self, key: str, value: Any, nx: bool = False, px: Optional[int] = None) -> bool:
+    def set(
+        self, key: str, value: Any, nx: bool = False, px: Optional[int] = None
+    ) -> bool:
         if nx and self._alive(key):
             return False
         expires_at = self.clock() + int(px) if px else None
@@ -73,7 +77,11 @@ class MemoryRedis:
         if not self._alive(key):
             return -2
         expires_at = self._strings[key][1]
-        return -1 if expires_at is None else max(0, int(round((expires_at - self.clock()) / 1000.0)))
+        return (
+            -1
+            if expires_at is None
+            else max(0, int(round((expires_at - self.clock()) / 1000.0)))
+        )
 
     def incr(self, key: str) -> int:
         current = int(self.get(key) or 0)
@@ -92,7 +100,9 @@ class MemoryRedis:
                 self.delete(keys[0])
                 return 1
             return 0
-        raise ValueError(f"MemoryRedis.eval: unsupported script pattern: {script[:60]!r}")
+        raise ValueError(
+            f"MemoryRedis.eval: unsupported script pattern: {script[:60]!r}"
+        )
 
     # -- scans / hashes ----------------------------------------------------
     def scan_iter(self, match: Optional[str] = None):

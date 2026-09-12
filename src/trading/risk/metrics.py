@@ -54,7 +54,9 @@ def _side_sign(reference_price: Decimal, initial_stop: Number) -> int:
     return 1 if reference_price - _dec(initial_stop) >= _ZERO else -1
 
 
-def intended_r(arrival_price: Number, initial_stop: Number, exit_price: Number) -> Decimal:
+def intended_r(
+    arrival_price: Number, initial_stop: Number, exit_price: Number
+) -> Decimal:
     """Plan-level R multiple measured from ARRIVAL price, no costs.
 
     Side is inferred from the stop: stop below arrival => long

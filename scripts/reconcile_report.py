@@ -60,7 +60,9 @@ def generate_reconciliation_report(
     report = ReconciliationReportRecord(
         reconciliation_id=rec_id,
         timestamp_utc=now_utc,
-        execution_mode=execution_mode.value if hasattr(execution_mode, "value") else str(execution_mode),
+        execution_mode=execution_mode.value
+        if hasattr(execution_mode, "value")
+        else str(execution_mode),
         positions_match=positions_match,
         balances_match=balances_match,
         open_orders_match=open_orders_match,
@@ -82,9 +84,19 @@ def generate_reconciliation_report(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate SUPER_TRADEMAN Reconciliation Report")
-    parser.add_argument("--format", type=str, default="table", choices=["table", "json"], help="Output format")
-    parser.add_argument("--lookback-hours", type=int, default=24, help="Lookback window in hours")
+    parser = argparse.ArgumentParser(
+        description="Generate SUPER_TRADEMAN Reconciliation Report"
+    )
+    parser.add_argument(
+        "--format",
+        type=str,
+        default="table",
+        choices=["table", "json"],
+        help="Output format",
+    )
+    parser.add_argument(
+        "--lookback-hours", type=int, default=24, help="Lookback window in hours"
+    )
     args = parser.parse_args()
 
     report = generate_reconciliation_report()
@@ -111,7 +123,9 @@ def main() -> None:
         print(f"      SUPER_TRADEMAN RECONCILIATION REPORT")
         print("=======================================================\n")
         print(f"Reconciliation ID  : {report.reconciliation_id}")
-        print(f"Timestamp (UTC)    : {report.timestamp_utc.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        print(
+            f"Timestamp (UTC)    : {report.timestamp_utc.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+        )
         print(f"Execution Mode     : {report.execution_mode}")
         print(f"Positions Match    : {report.positions_match}")
         print(f"Balances Match     : {report.balances_match}")

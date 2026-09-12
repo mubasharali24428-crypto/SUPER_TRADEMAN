@@ -163,7 +163,10 @@ def make_candles(
 
     if not as_dicts:
         # ccxt-style positional rows used by indicators/backtest modules.
-        rows = [[r["timestamp"], r["open"], r["high"], r["low"], r["close"], r["volume"]] for r in rows]
+        rows = [
+            [r["timestamp"], r["open"], r["high"], r["low"], r["close"], r["volume"]]
+            for r in rows
+        ]
     return rows
 
 
@@ -187,7 +190,10 @@ def candles_from_closes(
     ]
     if as_dicts:
         return rows
-    return [[r["timestamp"], r["open"], r["high"], r["low"], r["close"], r["volume"]] for r in rows]
+    return [
+        [r["timestamp"], r["open"], r["high"], r["low"], r["close"], r["volume"]]
+        for r in rows
+    ]
 
 
 def returns_to_prices(returns, start_price: float = 100.0) -> list[float]:
@@ -208,8 +214,8 @@ def utc_now_iso(offset_days: int = 0) -> str:
 def candle_frame():
     """Fixture form of :func:`make_candles` (injectable into other fixtures/tests).
 
-        candles = candle_frame(n=20, warmup=14, rng=rng)
-        candles = candle_frame(n=5, as_dicts=True)
+    candles = candle_frame(n=20, warmup=14, rng=rng)
+    candles = candle_frame(n=5, as_dicts=True)
     """
     return make_candles
 
@@ -218,10 +224,17 @@ def candle_frame():
 def candle_row():
     """Single-row builder matching the ccxt candle convention.
 
-        row = candle_row(ts=i, o=10, h=11, l=9, c=10)
+    row = candle_row(ts=i, o=10, h=11, l=9, c=10)
     """
 
-    def _make(ts: int = 0, o: float = 0.0, h: float = 0.0, l: float = 0.0, c: float = 0.0, v: float = 1.0) -> list[float]:
+    def _make(
+        ts: int = 0,
+        o: float = 0.0,
+        h: float = 0.0,
+        l: float = 0.0,
+        c: float = 0.0,
+        v: float = 1.0,
+    ) -> list[float]:
         return [ts, o, h, l, c, v]
 
     return _make

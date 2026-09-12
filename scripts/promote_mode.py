@@ -48,7 +48,7 @@ def promote_execution_mode(
     reconciliation_clean: bool = False,
     drills_passed: bool = False,
     pbo_deflated_sharpe: float | None = None,  # VA-032
-    deflated_sharpe: float | None = None,       # VA-032
+    deflated_sharpe: float | None = None,  # VA-032
 ) -> Tuple[bool, str]:
     """Evaluates whether mode promotion from current_mode to target_mode is permitted.
 
@@ -69,7 +69,10 @@ def promote_execution_mode(
 
     allowed = valid_transitions.get(current_mode, [])
     if target_mode not in allowed:
-        return False, f"Invalid mode promotion jump: {current_mode.value.upper()} -> {target_mode.value.upper()}. Must follow sequential hierarchy."
+        return (
+            False,
+            f"Invalid mode promotion jump: {current_mode.value.upper()} -> {target_mode.value.upper()}. Must follow sequential hierarchy.",
+        )
 
     # Rule checks per target mode — evidence flags are fail-closed defaults.
     if target_mode == ExecutionMode.PAPER:
@@ -115,24 +118,68 @@ def promote_execution_mode(
         if pbo_deflated_sharpe is not None and deflated_sharpe is not None:
             logger.info(
                 "[VA-032] PBO-DSR gate: PBO-deflated Sharpe=%.3f, Deflated Sharpe=%.3f",
-                pbo_deflated_sharpe, deflated_sharpe,
+                pbo_deflated_sharpe,
+                deflated_sharpe,
             )
 
-    logger.info(f"[MODE_PROMOTION_SUCCESS] Promoted mode from {current_mode.value.upper()} to {target_mode.value.upper()}.")
+    logger.info(
+        f"[MODE_PROMOTION_SUCCESS] Promoted mode from {current_mode.value.upper()} to {target_mode.value.upper()}."
+    )
     return True, f"Successfully promoted mode to {target_mode.value.upper()}."
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Promote SUPER_TRADEMAN Execution Mode")
-    parser.add_argument("--from-mode", type=str, default="SHADOW", help="Current execution mode")
-    parser.add_argument("--to-mode", type=str, required=True, help="Target execution mode")
-    parser.add_argument("--confirm", type=str, default="", help="Human confirmation token (value supplied out-of-band)")
-    parser.add_argument("--preflight-passed", action="store_true", default=False, help="VA-070: Preflight check passed (from preflight_check.py exit code 0)")
-    parser.add_argument("--gate1-passed", action="store_true", default=False, help="VA-070: Gate 1 report PASS (from generate_gate1_report.py exit code 0)")
-    parser.add_argument("--reconciliation-clean", action="store_true", default=False, help="VA-070: Reconciliation report CLEAN (from reconcile_report.py exit code 0)")
-    parser.add_argument("--drills-passed", action="store_true", default=False, help="VA-070: Kill-switch drills passed (from kill_switch_drill.py exit code 0)")
-    parser.add_argument("--pbo-deflated-sharpe", type=float, default=None, help="VA-032: PBO-deflated Sharpe ratio (pass-through from compute_pbo_cscv)")
-    parser.add_argument("--deflated-sharpe", type=float, default=None, help="VA-032: Deflated Sharpe ratio (pass-through from deflated_sharpe_ratio)")
+    parser = argparse.ArgumentParser(
+        description="Promote SUPER_TRADEMAN Execution Mode"
+    )
+    parser.add_argument(
+        "--from-mode", type=str, default="SHADOW", help="Current execution mode"
+    )
+    parser.add_argument(
+        "--to-mode", type=str, required=True, help="Target execution mode"
+    )
+    parser.add_argument(
+        "--confirm",
+        type=str,
+        default="",
+        help="Human confirmation token (value supplied out-of-band)",
+    )
+    parser.add_argument(
+        "--preflight-passed",
+        action="store_true",
+        default=False,
+        help="VA-070: Preflight check passed (from preflight_check.py exit code 0)",
+    )
+    parser.add_argument(
+        "--gate1-passed",
+        action="store_true",
+        default=False,
+        help="VA-070: Gate 1 report PASS (from generate_gate1_report.py exit code 0)",
+    )
+    parser.add_argument(
+        "--reconciliation-clean",
+        action="store_true",
+        default=False,
+        help="VA-070: Reconciliation report CLEAN (from reconcile_report.py exit code 0)",
+    )
+    parser.add_argument(
+        "--drills-passed",
+        action="store_true",
+        default=False,
+        help="VA-070: Kill-switch drills passed (from kill_switch_drill.py exit code 0)",
+    )
+    parser.add_argument(
+        "--pbo-deflated-sharpe",
+        type=float,
+        default=None,
+        help="VA-032: PBO-deflated Sharpe ratio (pass-through from compute_pbo_cscv)",
+    )
+    parser.add_argument(
+        "--deflated-sharpe",
+        type=float,
+        default=None,
+        help="VA-032: Deflated Sharpe ratio (pass-through from deflated_sharpe_ratio)",
+    )
     args = parser.parse_args()
 
     try:
@@ -143,12 +190,15 @@ def main() -> None:
         sys.exit(1)
 
     success, msg = promote_execution_mode(
-        current_mode=cur_m, target_mode=tgt_m, confirm_token=args.confirm,
+        current_mode=cur_m,
+        target_mode=tgt_m,
+        confirm_token=args.confirm,
         preflight_passed=args.preflight_passed,
         gate_1_passed=args.gate1_passed,
         reconciliation_clean=args.reconciliation_clean,
         drills_passed=args.drills_passed,
-        pbo_deflated_sharpe=args.pbo_deflated_sharpe, deflated_sharpe=args.deflated_sharpe,
+        pbo_deflated_sharpe=args.pbo_deflated_sharpe,
+        deflated_sharpe=args.deflated_sharpe,
     )
 
     print("\n=======================================================")

@@ -13,11 +13,8 @@ import asyncpg
 import pytest
 
 import trading.data.crypto as crypto_mod
-from trading.data.crypto import (
-    SchemaMissingError,
-    _translate_missing_table,
-    ingest_ohlcv,
-)
+from trading.data.crypto import (SchemaMissingError, _translate_missing_table,
+                                 ingest_ohlcv)
 
 
 class _NamedUndefinedTable(asyncpg.UndefinedTableError):
@@ -83,12 +80,17 @@ async def test_ingest_ohlcv_raises_schema_missing_on_missing_tables(monkeypatch)
     """End-to-end ingest path maps UndefinedTableError -> SchemaMissingError."""
 
     async def _fake_fetch(exchange, symbol, timeframe, since, limit, max_retries=5):
-        return [[1_578_300_000_000 + i * 3_600_000, 1.0, 2.0, 0.5, 1.5, 10.0] for i in range(3)]
+        return [
+            [1_578_300_000_000 + i * 3_600_000, 1.0, 2.0, 0.5, 1.5, 10.0]
+            for i in range(3)
+        ]
 
     monkeypatch.setattr(crypto_mod, "fetch_ohlcv_with_backoff", _fake_fetch)
 
     with pytest.raises(SchemaMissingError) as err:
-        await ingest_ohlcv(_FakePool(), _FakeExchange(), "BTC/USDT", "1h", 1_578_300_000_000, 3)
+        await ingest_ohlcv(
+            _FakePool(), _FakeExchange(), "BTC/USDT", "1h", 1_578_300_000_000, 3
+        )
     message = str(err.value)
     assert "alembic upgrade head" in message
     assert "ohlcv" in message

@@ -6,14 +6,13 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from trading.observability.logger import get_logger
-from trading.risk.models import ApprovedExit, Position, Side, _ISSUER
+from trading.risk.models import _ISSUER, ApprovedExit, Position, Side
 from trading.synthetic.ecology import LiquidityEvent
-from trading.synthetic.regime_validator import (
-    AdaptiveEWMVTracker,
-    MicrostructureMetrics,
-    MicrostructureRegime,
-)
-from trading.synthetic.stale_protection import RestingOrder, StaleQuoteProtection
+from trading.synthetic.regime_validator import (AdaptiveEWMVTracker,
+                                                MicrostructureMetrics,
+                                                MicrostructureRegime)
+from trading.synthetic.stale_protection import (RestingOrder,
+                                                StaleQuoteProtection)
 
 __all__ = [
     "StrategyDefenseState",
@@ -123,30 +122,46 @@ class SniperMode:
             return False
 
         # 1. Base Calm Condition
-        if stress_score >= 0.10 or signal.edge_zscore <= 3.0 or signal.direction != signal.mean_reversion_direction:
+        if (
+            stress_score >= 0.10
+            or signal.edge_zscore <= 3.0
+            or signal.direction != signal.mean_reversion_direction
+        ):
             return False
 
         # 2. Temporal Persistence Constraint (Task 2.1)
         if signal.sustained_ticks < self.required_persistence_ticks:
-            logger.debug(f"[SNIPER_VETO_PERSISTENCE] Sustained ticks {signal.sustained_ticks} < {self.required_persistence_ticks}.")
+            logger.debug(
+                f"[SNIPER_VETO_PERSISTENCE] Sustained ticks {signal.sustained_ticks} < {self.required_persistence_ticks}."
+            )
             return False
 
         # 3. Order Flow Toxicity Constraint (Task 2.1)
         if signal.order_flow_toxicity_pct < self.min_toxicity_pct:
-            logger.debug(f"[SNIPER_VETO_TOXICITY] Toxicity percentile {signal.order_flow_toxicity_pct:.2f} < {self.min_toxicity_pct:.2f}.")
+            logger.debug(
+                f"[SNIPER_VETO_TOXICITY] Toxicity percentile {signal.order_flow_toxicity_pct:.2f} < {self.min_toxicity_pct:.2f}."
+            )
             return False
 
         # 4. Inventory Quota Constraint (Task 2.2)
-        if (self.accumulated_inventory_pct + self.max_size_multiplier) > self.inventory_quota_max:
-            logger.debug(f"[SNIPER_VETO_INVENTORY_QUOTA] Accumulated {self.accumulated_inventory_pct:.2f} would exceed quota {self.inventory_quota_max:.2f}.")
+        if (
+            self.accumulated_inventory_pct + self.max_size_multiplier
+        ) > self.inventory_quota_max:
+            logger.debug(
+                f"[SNIPER_VETO_INVENTORY_QUOTA] Accumulated {self.accumulated_inventory_pct:.2f} would exceed quota {self.inventory_quota_max:.2f}."
+            )
             return False
 
         # 5. Retracement Reload Hysteresis (Task 2.2)
         if self.last_entry_price is not None and current_price > 0:
             # Must bounce by retracement_bounce_pct before re-arming
-            bounce = (current_price - self.last_entry_price) / max(self.last_entry_price, 1e-6)
+            bounce = (current_price - self.last_entry_price) / max(
+                self.last_entry_price, 1e-6
+            )
             if bounce < self.retracement_bounce_pct:
-                logger.debug(f"[SNIPER_VETO_RELOAD] Bounce {bounce*100:.2f}% < required {self.retracement_bounce_pct*100:.2f}%.")
+                logger.debug(
+                    f"[SNIPER_VETO_RELOAD] Bounce {bounce*100:.2f}% < required {self.retracement_bounce_pct*100:.2f}%."
+                )
                 return False
 
         # 6. Volatility-Scaled Cooldown (Task 2.2): stretches during high session vol,
@@ -178,10 +193,14 @@ class SniperMode:
         if current_price > 0:
             self.last_entry_price = current_price
         self.last_trade_ts = now
-        logger.info(f"[SNIPER_TRADE_EXECUTED] Fired {order.side} {order.qty} IOC (TotalInv={self.accumulated_inventory_pct:.2f}).")
+        logger.info(
+            f"[SNIPER_TRADE_EXECUTED] Fired {order.side} {order.qty} IOC (TotalInv={self.accumulated_inventory_pct:.2f})."
+        )
         return order
 
-    def post_passive_exit(self, price: float, qty: float, side: str = "SELL") -> PassiveExitOrder:
+    def post_passive_exit(
+        self, price: float, qty: float, side: str = "SELL"
+    ) -> PassiveExitOrder:
         """Posts passive exit tagged as Tier_0_Ephemeral (Task 2.3)."""
         exit_order = PassiveExitOrder(
             order_id=f"exit_ephemeral_{int(time.time()*1000.0)}",
@@ -192,23 +211,33 @@ class SniperMode:
             is_active=True,
         )
         self.active_passive_exit = exit_order
-        logger.info(f"[PASSIVE_EXIT_POSTED] Placed {exit_order.tag} {exit_order.side} {exit_order.qty} at {exit_order.price:.2f}.")
+        logger.info(
+            f"[PASSIVE_EXIT_POSTED] Placed {exit_order.tag} {exit_order.side} {exit_order.qty} at {exit_order.price:.2f}."
+        )
         return exit_order
 
-    def evaluate_microstructure_exit_drift(self, current_micro_price: float, sigma: float) -> bool:
+    def evaluate_microstructure_exit_drift(
+        self, current_micro_price: float, sigma: float
+    ) -> bool:
         """Asymmetric stale cancel: kills passive exit if micro-price drifts against it by > 0.25 * sigma (Task 2.3)."""
         if self.active_passive_exit is None or not self.active_passive_exit.is_active:
             return False
 
         order = self.active_passive_exit
         # For SELL exit, drift against it means micro-price drops below order.price - 0.25 * sigma
-        drift_against = (order.price - current_micro_price) if order.side == "SELL" else (current_micro_price - order.price)
+        drift_against = (
+            (order.price - current_micro_price)
+            if order.side == "SELL"
+            else (current_micro_price - order.price)
+        )
         drift_threshold = 0.25 * max(sigma, 1e-4)
 
         if drift_against > drift_threshold:
             order.is_active = False
             self.active_passive_exit = None
-            logger.info(f"[TIER0_EPHEMERAL_CANCEL] Passive exit canceled due to micro-drift ({drift_against:.3f} > {drift_threshold:.3f}).")
+            logger.info(
+                f"[TIER0_EPHEMERAL_CANCEL] Passive exit canceled due to micro-drift ({drift_against:.3f} > {drift_threshold:.3f})."
+            )
             return True
 
         return False
@@ -218,10 +247,15 @@ class SniperMode:
         if self.active_passive_exit is None or not self.active_passive_exit.is_active:
             return False
 
-        if event.depletion_ratio >= 0.40 or event.event_type in ("QUOTE_WITHDRAWAL", "AGGRESSIVE_SWEEP"):
+        if event.depletion_ratio >= 0.40 or event.event_type in (
+            "QUOTE_WITHDRAWAL",
+            "AGGRESSIVE_SWEEP",
+        ):
             self.active_passive_exit.is_active = False
             self.active_passive_exit = None
-            logger.info(f"[PREDATOR_WAKE_KILLSWITCH] Ecology depletion {event.depletion_ratio:.2f}. Killed Tier_0_Ephemeral passive exit.")
+            logger.info(
+                f"[PREDATOR_WAKE_KILLSWITCH] Ecology depletion {event.depletion_ratio:.2f}. Killed Tier_0_Ephemeral passive exit."
+            )
             return True
 
         return False
@@ -236,7 +270,9 @@ class MicroAlphaEngine:
 
     def on_halt_triggered(self, micro_price_at_halt: float) -> None:
         self.pre_crash_micro_price = micro_price_at_halt
-        logger.info(f"[ALPHA_ENGINE_CRASH_ANCHOR] Pre-crash micro-price anchored at {micro_price_at_halt:.2f}.")
+        logger.info(
+            f"[ALPHA_ENGINE_CRASH_ANCHOR] Pre-crash micro-price anchored at {micro_price_at_halt:.2f}."
+        )
 
     def calculate_signal(
         self,
@@ -249,7 +285,9 @@ class MicroAlphaEngine:
         if self.pre_crash_micro_price is None or self.pre_crash_micro_price <= 0:
             return TradeSignal("NONE", 0.0, "NONE", 0.0, is_valid=False)
 
-        dislocation = (current_micro_price - self.pre_crash_micro_price) / self.pre_crash_micro_price
+        dislocation = (
+            current_micro_price - self.pre_crash_micro_price
+        ) / self.pre_crash_micro_price
         effective_sigma = max(sigma, 1e-4)
         z_score = abs(dislocation) / effective_sigma
 
@@ -295,14 +333,16 @@ class MicrostructureStrategyDefender:
         self.recovery_cooldown_sec = recovery_cooldown_sec
         self.halted_cooldown_sec = halted_cooldown_sec
         self.healing_stability_sec = healing_stability_sec
-        
+
         self.last_elevated_state_ts: float = 0.0
         self.halted_entry_ts: float = 0.0
         self.calm_streak_start_ts: Optional[float] = None
         self.recovering_entry_ts: float = 0.0
-        
+
         self.volatility_tracker = AdaptiveEWMVTracker(lambda_base=ewmv_alpha)
-        self.stale_protection = StaleQuoteProtection(sigma_multiplier=1.5, min_distance_bps=5.0)
+        self.stale_protection = StaleQuoteProtection(
+            sigma_multiplier=1.5, min_distance_bps=5.0
+        )
         self.sniper_mode = SniperMode(max_size_multiplier=0.10)
         self.alpha_engine = MicroAlphaEngine()
 
@@ -334,8 +374,10 @@ class MicrostructureStrategyDefender:
                 self.calm_streak_start_ts = None
                 self.sniper_mode.is_armed = False
                 self.alpha_engine.on_halt_triggered(micro_price)
-                logger.error(f"[DEFENSE_HALTED] Drawdown {current_drawdown_pct*100:.2f}% >= 8.0%. Triggering emergency flatten.")
-            
+                logger.error(
+                    f"[DEFENSE_HALTED] Drawdown {current_drawdown_pct*100:.2f}% >= 8.0%. Triggering emergency flatten."
+                )
+
             return StrategyDefensePosture(
                 state=StrategyDefenseState.HALTED,
                 size_multiplier=0.0,
@@ -355,13 +397,17 @@ class MicrostructureStrategyDefender:
                 if metrics.stress_score < 0.20:
                     if self.calm_streak_start_ts is None:
                         self.calm_streak_start_ts = now
-                    elif (now - self.calm_streak_start_ts) >= self.healing_stability_sec:
+                    elif (
+                        now - self.calm_streak_start_ts
+                    ) >= self.healing_stability_sec:
                         # Graduated to RECOVERING
                         self.current_state = StrategyDefenseState.RECOVERING
                         self.recovering_entry_ts = now
                         self.calm_streak_start_ts = None
                         self.sniper_mode.is_armed = True
-                        logger.info("[DEFENSE_HEALING] Market verified calm. Transitioning HALTED -> RECOVERING (Sniper armed).")
+                        logger.info(
+                            "[DEFENSE_HEALING] Market verified calm. Transitioning HALTED -> RECOVERING (Sniper armed)."
+                        )
                 else:
                     self.calm_streak_start_ts = None
 
@@ -386,7 +432,9 @@ class MicrostructureStrategyDefender:
                 self.halted_entry_ts = now
                 self.calm_streak_start_ts = None
                 self.sniper_mode.is_armed = False
-                logger.warning("[DEFENSE_RELAPSE] Stress spike during RECOVERING. Relapsing to HALTED.")
+                logger.warning(
+                    "[DEFENSE_RELAPSE] Stress spike during RECOVERING. Relapsing to HALTED."
+                )
                 return StrategyDefensePosture(
                     state=StrategyDefenseState.HALTED,
                     size_multiplier=0.0,
@@ -402,23 +450,46 @@ class MicrostructureStrategyDefender:
                 self.current_state = StrategyDefenseState.CAUTION
                 self.last_elevated_state_ts = now
                 self.sniper_mode.is_armed = False
-                logger.info("[DEFENSE_GRADUATED] Successfully stabilized in RECOVERING -> Graduating to CAUTION (0.50x).")
+                logger.info(
+                    "[DEFENSE_GRADUATED] Successfully stabilized in RECOVERING -> Graduating to CAUTION (0.50x)."
+                )
 
         # 4. Standard State Transitions (NORMAL <-> CAUTION <-> DEFENSIVE)
-        if self.current_state not in (StrategyDefenseState.HALTED, StrategyDefenseState.RECOVERING):
-            if metrics.regime in (MicrostructureRegime.ADVERSARIAL_SHOCK, MicrostructureRegime.SELL_STRESS, MicrostructureRegime.BUY_STRESS) or metrics.stress_score >= 0.70:
+        if self.current_state not in (
+            StrategyDefenseState.HALTED,
+            StrategyDefenseState.RECOVERING,
+        ):
+            if (
+                metrics.regime
+                in (
+                    MicrostructureRegime.ADVERSARIAL_SHOCK,
+                    MicrostructureRegime.SELL_STRESS,
+                    MicrostructureRegime.BUY_STRESS,
+                )
+                or metrics.stress_score >= 0.70
+            ):
                 self.current_state = StrategyDefenseState.DEFENSIVE
                 self.last_elevated_state_ts = now
-            elif metrics.regime == MicrostructureRegime.FRAGILE_BALANCED or metrics.stress_score >= 0.35:
+            elif (
+                metrics.regime == MicrostructureRegime.FRAGILE_BALANCED
+                or metrics.stress_score >= 0.35
+            ):
                 if self.current_state == StrategyDefenseState.DEFENSIVE:
-                    if (now - self.last_elevated_state_ts) >= self.recovery_cooldown_sec:
+                    if (
+                        now - self.last_elevated_state_ts
+                    ) >= self.recovery_cooldown_sec:
                         self.current_state = StrategyDefenseState.CAUTION
                 else:
                     self.current_state = StrategyDefenseState.CAUTION
                     self.last_elevated_state_ts = now
             else:  # CALM
-                if self.current_state in (StrategyDefenseState.DEFENSIVE, StrategyDefenseState.CAUTION):
-                    if (now - self.last_elevated_state_ts) >= self.recovery_cooldown_sec:
+                if self.current_state in (
+                    StrategyDefenseState.DEFENSIVE,
+                    StrategyDefenseState.CAUTION,
+                ):
+                    if (
+                        now - self.last_elevated_state_ts
+                    ) >= self.recovery_cooldown_sec:
                         self.current_state = StrategyDefenseState.NORMAL
                 else:
                     self.current_state = StrategyDefenseState.NORMAL

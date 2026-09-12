@@ -42,11 +42,15 @@ def _schema_missing_guidance(table: str) -> str:
     )
 
 
-async def fetch_ohlcv_with_backoff(exchange, symbol, timeframe, since, limit, max_retries=5):
+async def fetch_ohlcv_with_backoff(
+    exchange, symbol, timeframe, since, limit, max_retries=5
+):
     delay = 1.0
     for attempt in range(max_retries):
         try:
-            return await asyncio.to_thread(exchange.fetch_ohlcv, symbol, timeframe, since, limit)
+            return await asyncio.to_thread(
+                exchange.fetch_ohlcv, symbol, timeframe, since, limit
+            )
         except ccxt.NetworkError:
             if attempt == max_retries - 1:
                 raise
@@ -69,7 +73,9 @@ async def fetch_ohlcv_range(exchange, symbol, timeframe, since, until, limit=100
     cursor = since
     rows_fetched = 0
     while cursor < until:
-        batch = await fetch_ohlcv_with_backoff(exchange, symbol, timeframe, cursor, limit)
+        batch = await fetch_ohlcv_with_backoff(
+            exchange, symbol, timeframe, cursor, limit
+        )
         if not batch:
             logger.info(
                 "fetch_ohlcv_range %s %s: empty page at cursor=%s; stopping (%d rows fetched)",
@@ -106,7 +112,12 @@ async def fetch_ohlcv_range(exchange, symbol, timeframe, since, until, limit=100
             )
             break
         cursor = next_cursor
-    logger.info("fetch_ohlcv_range %s %s: complete, %d rows fetched", symbol, timeframe, rows_fetched)
+    logger.info(
+        "fetch_ohlcv_range %s %s: complete, %d rows fetched",
+        symbol,
+        timeframe,
+        rows_fetched,
+    )
     return [c for c in candles if c[0] < until]
 
 
@@ -125,7 +136,9 @@ async def _translate_missing_table(coro):
         raise SchemaMissingError(_schema_missing_guidance(table)) from exc
 
 
-async def store_ohlcv(pool: asyncpg.Pool, exchange_id, asset_class, symbol, timeframe, candles):
+async def store_ohlcv(
+    pool: asyncpg.Pool, exchange_id, asset_class, symbol, timeframe, candles
+):
     rows = [
         (
             exchange_id,
@@ -151,7 +164,9 @@ async def store_ohlcv(pool: asyncpg.Pool, exchange_id, asset_class, symbol, time
     )
 
 
-async def store_funding_rates(pool: asyncpg.Pool, exchange_id: str, symbol: str, funding_events: list[dict]):
+async def store_funding_rates(
+    pool: asyncpg.Pool, exchange_id: str, symbol: str, funding_events: list[dict]
+):
     rows = [
         (
             exchange_id,
@@ -174,7 +189,9 @@ async def store_funding_rates(pool: asyncpg.Pool, exchange_id: str, symbol: str,
     )
 
 
-async def ingest_ohlcv(pool: asyncpg.Pool, exchange, symbol, timeframe, since, limit, asset_class="crypto"):
+async def ingest_ohlcv(
+    pool: asyncpg.Pool, exchange, symbol, timeframe, since, limit, asset_class="crypto"
+):
     candles = await fetch_ohlcv_with_backoff(exchange, symbol, timeframe, since, limit)
     await _translate_missing_table(
         store_ohlcv(pool, exchange.id, asset_class, symbol, timeframe, candles)
@@ -183,9 +200,10 @@ async def ingest_ohlcv(pool: asyncpg.Pool, exchange, symbol, timeframe, since, l
 
 
 async def ingest_funding_rates(pool: asyncpg.Pool, exchange, symbol, since, limit=1000):
-    funding_events = await asyncio.to_thread(exchange.fetch_funding_rate_history, symbol, since, limit)
+    funding_events = await asyncio.to_thread(
+        exchange.fetch_funding_rate_history, symbol, since, limit
+    )
     await _translate_missing_table(
         store_funding_rates(pool, exchange.id, symbol, funding_events)
     )
     return funding_events
-

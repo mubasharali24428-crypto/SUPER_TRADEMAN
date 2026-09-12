@@ -2,7 +2,7 @@
 
 import pytest
 
-from trading.security.audit_ledger import AuditLedger, GENESIS_HASH
+from trading.security.audit_ledger import GENESIS_HASH, AuditLedger
 
 
 def test_audit_ledger_chain_and_tamper_detection():

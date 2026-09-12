@@ -13,16 +13,10 @@ import logging
 import pytest
 from fastapi.testclient import TestClient
 
-from trading.api.auth import (
-    DEMO_OPERATOR_PASSWORD,
-    SESSION_COOKIE_NAME,
-    Role,
-    SessionManager,
-    build_session_claims,
-    hash_password,
-    login_rate_limiter,
-    resolve_secret,
-)
+from trading.api.auth import (DEMO_OPERATOR_PASSWORD, SESSION_COOKIE_NAME,
+                              Role, SessionManager, build_session_claims,
+                              hash_password, login_rate_limiter,
+                              resolve_secret)
 
 SECRET = "unit-test-secret-unit-test"  # 21 bytes >= 16 min (VA-056)
 
@@ -131,12 +125,12 @@ def test_config_update_rejects_out_of_bounds_values_va005(client):
     assert login.status_code == 200
 
     for bad in [
-        {"max_position_pct": -50.0},   # negative
-        {"max_position_pct": 0.0},      # zero
-        {"max_position_pct": 75.0},    # > 1.0 fraction cap
-        {"risk_multiplier": 1e18},     # unbounded
-        {"risk_multiplier": 0.0},      # zero
-        {"risk_multiplier": -1.5},     # negative
+        {"max_position_pct": -50.0},  # negative
+        {"max_position_pct": 0.0},  # zero
+        {"max_position_pct": 75.0},  # > 1.0 fraction cap
+        {"risk_multiplier": 1e18},  # unbounded
+        {"risk_multiplier": 0.0},  # zero
+        {"risk_multiplier": -1.5},  # negative
     ]:
         resp = client.put("/api/config", json=bad)
         assert resp.status_code == 422, f"{bad} should 422, got {resp.status_code}"
@@ -227,7 +221,9 @@ def test_unset_password_hash_fails_closed_503_auth_unconfigured(
     assert not resp.cookies.get(SESSION_COOKIE_NAME)
 
 
-def test_insecure_dev_flag_permits_demo_password_with_critical_warning(monkeypatch, caplog):
+def test_insecure_dev_flag_permits_demo_password_with_critical_warning(
+    monkeypatch, caplog
+):
     """R2/VA-001 escape hatch: API_INSECURE_DEV=1 permits the public demo
     credential, logging CRITICAL on every accepted use."""
     monkeypatch.delenv("OPERATOR_PASSWORD_HASH", raising=False)
@@ -254,7 +250,8 @@ def test_login_rate_limited_429_after_five_attempts_per_ip(client):
         )
         assert limited.status_code == 401
     sixth = client.post(
-        "/api/auth/login", json={"username": "op", "password": DEFAULT_TEST_OPERATOR_PASSWORD}
+        "/api/auth/login",
+        json={"username": "op", "password": DEFAULT_TEST_OPERATOR_PASSWORD},
     )
     assert sixth.status_code == 429
     assert not sixth.cookies.get(SESSION_COOKIE_NAME)
@@ -278,9 +275,7 @@ def test_insecure_dev_flag_starts_but_logs_critical(monkeypatch, caplog):
     with caplog.at_level(logging.CRITICAL, logger="trading.api.auth"):
         app = create_app()
 
-    criticals = [
-        r for r in caplog.records if r.levelno >= logging.CRITICAL
-    ]
+    criticals = [r for r in caplog.records if r.levelno >= logging.CRITICAL]
     assert criticals, "insecure-dev startup must log at CRITICAL level"
     client = TestClient(app)
     assert client.get("/api/health").status_code == 200

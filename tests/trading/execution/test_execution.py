@@ -1,21 +1,35 @@
 """Tests for Event-Sourced OMS, Outbox, and Reconciler."""
 
-import pytest
 from datetime import datetime, timezone
 
-from trading.execution.outbox import generate_client_order_id, OrderIntent
+import pytest
+
 from trading.execution.oms import OrderManagementSystem
-from trading.execution.reconciler import StateReconciler, QuarantineReason
-from trading.execution.state_machine import OrderState, OrderEventType, transition_order_state
+from trading.execution.outbox import OrderIntent, generate_client_order_id
+from trading.execution.reconciler import QuarantineReason, StateReconciler
+from trading.execution.state_machine import (OrderEventType, OrderState,
+                                             transition_order_state)
 from trading.execution.venue_adapter import MockVenueAdapter
-from trading.risk.models import ApprovedOrder, Side, _ISSUER
+from trading.risk.models import _ISSUER, ApprovedOrder, Side
 
 
 def test_order_state_transitions():
-    assert transition_order_state(OrderState.CREATED, OrderEventType.SUBMITTED) == OrderState.SUBMITTED
-    assert transition_order_state(OrderState.SUBMITTED, OrderEventType.ACKED) == OrderState.ACKED
-    assert transition_order_state(OrderState.ACKED, OrderEventType.FILL) == OrderState.FILLED
-    assert transition_order_state(OrderState.CREATED, OrderEventType.QUARANTINED) == OrderState.QUARANTINED
+    assert (
+        transition_order_state(OrderState.CREATED, OrderEventType.SUBMITTED)
+        == OrderState.SUBMITTED
+    )
+    assert (
+        transition_order_state(OrderState.SUBMITTED, OrderEventType.ACKED)
+        == OrderState.ACKED
+    )
+    assert (
+        transition_order_state(OrderState.ACKED, OrderEventType.FILL)
+        == OrderState.FILLED
+    )
+    assert (
+        transition_order_state(OrderState.CREATED, OrderEventType.QUARANTINED)
+        == OrderState.QUARANTINED
+    )
 
 
 def test_client_order_id_generation():
@@ -69,9 +83,7 @@ async def test_oms_quantizes_size_to_venue_grid_va066():
     """VA-066: with an instruments step map, submit_order must quantize the
     size DOWN onto the venue grid before submission (defense in depth)."""
     venue = MockVenueAdapter()
-    oms = OrderManagementSystem(
-        venue_adapter=venue, instruments={"BTC": "0.001"}
-    )
+    oms = OrderManagementSystem(venue_adapter=venue, instruments={"BTC": "0.001"})
 
     order = _approved(size=0.12345678)
     cid = "strat_1:sig_grid:abc12345"
@@ -96,9 +108,7 @@ async def test_oms_quantizes_size_to_venue_grid_va066():
 async def test_oms_rejects_sub_step_size_va066():
     """VA-066: a size that quantizes to zero must be REJECTED, not sent."""
     venue = MockVenueAdapter()
-    oms = OrderManagementSystem(
-        venue_adapter=venue, instruments={"BTC": "1"}
-    )
+    oms = OrderManagementSystem(venue_adapter=venue, instruments={"BTC": "1"})
 
     order = _approved(size=0.4)  # below one lot on a 1.0-step grid
     cid = "strat_1:sig_substep:abc12345"

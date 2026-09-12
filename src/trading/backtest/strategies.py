@@ -1,6 +1,7 @@
 import random
 from datetime import datetime, timezone
-from trading.risk.models import Signal, Side
+
+from trading.risk.models import Side, Signal
 
 
 def generate_synthetic_candles(
@@ -25,8 +26,11 @@ def generate_synthetic_candles(
     return candles
 
 
-def make_momentum_strategy(target_mult: float = 0.03, stop_pct: float = 0.01, confidence: float = 0.9):
+def make_momentum_strategy(
+    target_mult: float = 0.03, stop_pct: float = 0.01, confidence: float = 0.9
+):
     """Creates a momentum-based signal generator with configurable target multiplier and stop."""
+
     def strategy(candles: list[list[float]], asset: str, dt: datetime) -> Signal | None:
         if len(candles) < 2:
             return None
@@ -34,8 +38,14 @@ def make_momentum_strategy(target_mult: float = 0.03, stop_pct: float = 0.01, co
         cur_open = candles[-1][1]
         direction = Side.LONG if cur_open > prev_close else Side.SHORT
         entry = cur_open
-        stop = entry * (1 - stop_pct) if direction is Side.LONG else entry * (1 + stop_pct)
-        target = entry * (1 + target_mult) if direction is Side.LONG else entry * (1 - target_mult)
+        stop = (
+            entry * (1 - stop_pct) if direction is Side.LONG else entry * (1 + stop_pct)
+        )
+        target = (
+            entry * (1 + target_mult)
+            if direction is Side.LONG
+            else entry * (1 - target_mult)
+        )
         return Signal(
             asset=asset,
             asset_class="crypto",
@@ -47,4 +57,5 @@ def make_momentum_strategy(target_mult: float = 0.03, stop_pct: float = 0.01, co
             suggested_stop=stop,
             suggested_target=target,
         )
+
     return strategy

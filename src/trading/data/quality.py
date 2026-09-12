@@ -16,6 +16,7 @@ __all__ = [
 
 class DataValidationError(ValueError):
     """Raised when data quality or consistency checks fail."""
+
     pass
 
 
@@ -54,13 +55,19 @@ def check_price_consistency(df: pd.DataFrame) -> List[str]:
     if high_less_low > 0:
         errors.append(f"Found {high_less_low} rows where High < Low")
 
-    open_out_bounds = ((df_clean["open"] > df_clean["high"]) | (df_clean["open"] < df_clean["low"])).sum()
+    open_out_bounds = (
+        (df_clean["open"] > df_clean["high"]) | (df_clean["open"] < df_clean["low"])
+    ).sum()
     if open_out_bounds > 0:
         errors.append(f"Found {open_out_bounds} rows where Open is outside [Low, High]")
 
-    close_out_bounds = ((df_clean["close"] > df_clean["high"]) | (df_clean["close"] < df_clean["low"])).sum()
+    close_out_bounds = (
+        (df_clean["close"] > df_clean["high"]) | (df_clean["close"] < df_clean["low"])
+    ).sum()
     if close_out_bounds > 0:
-        errors.append(f"Found {close_out_bounds} rows where Close is outside [Low, High]")
+        errors.append(
+            f"Found {close_out_bounds} rows where Close is outside [Low, High]"
+        )
 
     if "volume" in df_clean.columns:
         neg_vol = (df_clean["volume"] < 0).sum()
@@ -81,7 +88,9 @@ def validate_ohlcv(df: pd.DataFrame) -> None:
 
     errors = check_price_consistency(df)
     if errors:
-        raise DataValidationError(f"OHLCV Price consistency violations: {'; '.join(errors)}")
+        raise DataValidationError(
+            f"OHLCV Price consistency violations: {'; '.join(errors)}"
+        )
 
 
 def validate_funding(df: pd.DataFrame) -> None:
@@ -92,7 +101,9 @@ def validate_funding(df: pd.DataFrame) -> None:
     req_cols = {"funding_rate", "mark_price"}
     lower_cols = {col.lower() for col in df.columns}
     if not req_cols.issubset(lower_cols):
-        raise DataValidationError(f"Missing required funding columns. Found: {list(df.columns)}")
+        raise DataValidationError(
+            f"Missing required funding columns. Found: {list(df.columns)}"
+        )
 
     dups = detect_duplicate_timestamps(df)
     if dups:

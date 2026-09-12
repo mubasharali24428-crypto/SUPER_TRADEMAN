@@ -6,12 +6,11 @@ from unittest import mock
 import pytest
 
 from trading.synthetic.oms_engine import OMSActorEngine, OMSEventTier
-from trading.synthetic.stale_protection import RestingOrder, StaleQuoteProtection
-from trading.synthetic.strategy_defense import (
-    MicrostructureStrategyDefender,
-    SniperMode,
-    StrategyDefenseState,
-)
+from trading.synthetic.stale_protection import (RestingOrder,
+                                                StaleQuoteProtection)
+from trading.synthetic.strategy_defense import (MicrostructureStrategyDefender,
+                                                SniperMode,
+                                                StrategyDefenseState)
 
 
 def test_stale_quote_canceled_before_match():
@@ -93,7 +92,9 @@ def test_pre_matching_evaluation():
     defender = MicrostructureStrategyDefender()
     call_order = []
     defender.stale_protection = mock.Mock(spec=StaleQuoteProtection)
-    defender.stale_protection.evaluate.side_effect = lambda *a, **k: call_order.append("stale_eval") or []
+    defender.stale_protection.evaluate.side_effect = (
+        lambda *a, **k: call_order.append("stale_eval") or []
+    )
 
     def run_matching_cycle():
         call_order.append("match")
@@ -150,7 +151,9 @@ def test_tier0_ephemeral_asymmetric_threshold():
 
     # Tier_0_Ephemeral threshold is 0.25*sigma = 0.025 -- far tighter than the
     # general stale_protection sigma_multiplier of 1.5.
-    canceled = sniper.evaluate_microstructure_exit_drift(current_micro_price=99.97, sigma=0.10)
+    canceled = sniper.evaluate_microstructure_exit_drift(
+        current_micro_price=99.97, sigma=0.10
+    )
     assert canceled is True
     assert sniper.active_passive_exit is None
 
@@ -201,9 +204,36 @@ def test_volatility_spike_threshold_expansion():
 def test_stale_protection_multiple_child_orders():
     guard = StaleQuoteProtection(sigma_multiplier=1.5, min_distance_bps=5.0)
     parent_id = "parent_001"
-    guard.register_order(RestingOrder("child_1", "buy", 100.00, 0.5, source="INTERNAL_STRATEGY", parent_order_id=parent_id))
-    guard.register_order(RestingOrder("child_2", "buy", 100.30, 0.5, source="INTERNAL_STRATEGY", parent_order_id=parent_id))
-    guard.register_order(RestingOrder("child_3", "buy", 100.00, 0.5, source="INTERNAL_STRATEGY", parent_order_id="other_parent"))
+    guard.register_order(
+        RestingOrder(
+            "child_1",
+            "buy",
+            100.00,
+            0.5,
+            source="INTERNAL_STRATEGY",
+            parent_order_id=parent_id,
+        )
+    )
+    guard.register_order(
+        RestingOrder(
+            "child_2",
+            "buy",
+            100.30,
+            0.5,
+            source="INTERNAL_STRATEGY",
+            parent_order_id=parent_id,
+        )
+    )
+    guard.register_order(
+        RestingOrder(
+            "child_3",
+            "buy",
+            100.00,
+            0.5,
+            source="INTERNAL_STRATEGY",
+            parent_order_id="other_parent",
+        )
+    )
 
     # threshold = max(1.5*0.10=0.15, 0.05) = 0.15
     stale = guard.evaluate(current_micro_price=100.00, current_sigma=0.10)
@@ -216,7 +246,9 @@ def test_stale_protection_multiple_child_orders():
 def test_stale_protection_latency_budget():
     guard = StaleQuoteProtection(sigma_multiplier=1.5, min_distance_bps=5.0)
     for i in range(500):
-        guard.register_order(RestingOrder(f"ord_{i}", "buy", 100.00 + (i % 5) * 0.01, 1.0))
+        guard.register_order(
+            RestingOrder(f"ord_{i}", "buy", 100.00 + (i % 5) * 0.01, 1.0)
+        )
 
     start = time.perf_counter()
     guard.evaluate(current_micro_price=100.02, current_sigma=0.05)

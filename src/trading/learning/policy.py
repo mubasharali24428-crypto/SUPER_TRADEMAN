@@ -14,7 +14,7 @@ from trading.learning.graph import LearningGraph
 
 class ContextualBanditAllocator:
     """Softmax policy gradient / Thompson-sampling bandit for regime strategy routing.
-    
+
     Maintains empirical payoff and probability distribution across available strategies
     (e.g., 'trend_following', 'mean_reversion', 'breakout').
 
@@ -23,7 +23,12 @@ class ContextualBanditAllocator:
     ``ValueError`` listing the valid set instead of being silently ignored.
     """
 
-    def __init__(self, strategies: List[str], learning_rate: float = 0.1, temperature: float = 1.0):
+    def __init__(
+        self,
+        strategies: List[str],
+        learning_rate: float = 0.1,
+        temperature: float = 1.0,
+    ):
         if not strategies:
             raise ValueError("strategies must be a non-empty list of action names")
         # De-duplicate while preserving order so the action space stays well-defined.
@@ -43,7 +48,9 @@ class ContextualBanditAllocator:
 
     def get_action_probabilities(self) -> Dict[str, float]:
         """Softmax policy over strategy logits."""
-        exp_weights = {s: math.exp(w / self.temperature) for s, w in self.weights.items()}
+        exp_weights = {
+            s: math.exp(w / self.temperature) for s, w in self.weights.items()
+        }
         total_exp = sum(exp_weights.values())
         return {s: exp_weights[s] / total_exp for s in self.strategies}
 
@@ -56,19 +63,21 @@ class ContextualBanditAllocator:
         """
         if name is None or name not in self.weights:
             valid = ", ".join(repr(s) for s in self.strategies)
-            raise ValueError(
-                f"Unknown action: {name!r}. Valid actions are [{valid}]"
-            )
+            raise ValueError(f"Unknown action: {name!r}. Valid actions are [{valid}]")
         return name
 
-    def select_strategy(self, context: Optional[Sequence[float]] = None, deterministic: bool = False) -> str:
+    def select_strategy(
+        self, context: Optional[Sequence[float]] = None, deterministic: bool = False
+    ) -> str:
         """Selects the best strategy or samples according to policy distribution."""
         probs = self.get_action_probabilities()
         if context is not None and len(context) >= len(self.strategies):
             # Modulate logits by contextual regime weights
             adjusted_probs = {}
             for i, s in enumerate(self.strategies):
-                regime_weight = context[i] if i < len(context) else 1.0 / len(self.strategies)
+                regime_weight = (
+                    context[i] if i < len(context) else 1.0 / len(self.strategies)
+                )
                 adjusted_probs[s] = probs[s] * max(regime_weight, 0.01)
             tot = sum(adjusted_probs.values())
             probs = {s: p / tot for s, p in adjusted_probs.items()}
@@ -84,7 +93,12 @@ class ContextualBanditAllocator:
                 return strat
         return self.strategies[-1]
 
-    def update_from_trade(self, strategy_name: Optional[str] = None, reward_r: float = 0.0, strategy: Optional[str] = None) -> None:
+    def update_from_trade(
+        self,
+        strategy_name: Optional[str] = None,
+        reward_r: float = 0.0,
+        strategy: Optional[str] = None,
+    ) -> None:
         """Policy gradient REINFORCE step using realized R-multiple payoff.
 
         Raises:
@@ -110,7 +124,9 @@ class ContextualBanditAllocator:
         else:
             self.failures[name] += 1.0
 
-    def fit_from_learning_graph(self, learning_graph: LearningGraph, unknown_action: str = "skip") -> None:
+    def fit_from_learning_graph(
+        self, learning_graph: LearningGraph, unknown_action: str = "skip"
+    ) -> None:
         """Batch-train the bandit policy using recorded trades from a LearningGraph.
 
         R2 / VA-022: each record's ``strategy`` label (recorded in the decision
@@ -136,6 +152,7 @@ class ContextualBanditAllocator:
                 continue
         if skipped:
             import logging
+
             logging.getLogger(__name__).warning(
                 "fit_from_learning_graph skipped %d trade(s) outside the action space",
                 skipped,
@@ -148,7 +165,9 @@ class ContextualBanditAllocator:
         for s in self.strategies:
             n = self.counts[s]
             avg_r = self.total_rewards[s] / n if n > 0 else 0.0
-            bayesian_win_rate = self.successes[s] / (self.successes[s] + self.failures[s])
+            bayesian_win_rate = self.successes[s] / (
+                self.successes[s] + self.failures[s]
+            )
             summary[s] = {
                 "policy_prob": probs[s],
                 "trades": n,

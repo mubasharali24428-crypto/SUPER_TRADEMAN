@@ -22,7 +22,9 @@ async def main():
     account = AccountState(equity=100_000.0, peak_equity=100_000.0)
     result = run_backtest(train, "BTC/USDT", generate_signal, RiskEngine(), account)
 
-    print(f"{'reason':10s} {'entry_std(50)':>14s} {'realized_std(24 after)':>24s} {'ratio':>7s}")
+    print(
+        f"{'reason':10s} {'entry_std(50)':>14s} {'realized_std(24 after)':>24s} {'ratio':>7s}"
+    )
     for t in result.trades:
         entry_ts = int(t.entry_time.timestamp())
         idx = ts_to_idx.get(entry_ts)
@@ -31,7 +33,9 @@ async def main():
         entry_std = statistics.pstdev(closes[idx - 50 : idx])
         realized_std = statistics.pstdev(closes[idx : idx + 24])
         ratio = realized_std / entry_std if entry_std else float("nan")
-        print(f"{t.exit_reason:10s} {entry_std:14.1f} {realized_std:24.1f} {ratio:7.2f}")
+        print(
+            f"{t.exit_reason:10s} {entry_std:14.1f} {realized_std:24.1f} {ratio:7.2f}"
+        )
 
     stop_ratios = []
     other_ratios = []
@@ -48,9 +52,13 @@ async def main():
         (stop_ratios if t.exit_reason == "stop" else other_ratios).append(ratio)
 
     if stop_ratios:
-        print(f"\nSTOP trades: mean realized/entry vol ratio = {statistics.mean(stop_ratios):.2f} (n={len(stop_ratios)})")
+        print(
+            f"\nSTOP trades: mean realized/entry vol ratio = {statistics.mean(stop_ratios):.2f} (n={len(stop_ratios)})"
+        )
     if other_ratios:
-        print(f"OTHER trades: mean realized/entry vol ratio = {statistics.mean(other_ratios):.2f} (n={len(other_ratios)})")
+        print(
+            f"OTHER trades: mean realized/entry vol ratio = {statistics.mean(other_ratios):.2f} (n={len(other_ratios)})"
+        )
 
 
 if __name__ == "__main__":

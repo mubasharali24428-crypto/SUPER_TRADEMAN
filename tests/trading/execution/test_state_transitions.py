@@ -3,17 +3,14 @@ reachability (F-0274), plus EXPIRED handling."""
 
 import pytest
 
-from trading.execution.state_machine import (
-    LEGAL_TRANSITIONS,
-    TERMINAL_STATES,
-    IllegalTransitionError,
-    OrderEventType,
-    OrderState,
-    transition_order_state,
-)
-
+from trading.execution.state_machine import (LEGAL_TRANSITIONS,
+                                             TERMINAL_STATES,
+                                             IllegalTransitionError,
+                                             OrderEventType, OrderState,
+                                             transition_order_state)
 
 # --- legal happy paths -------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     "current,event,expected",
@@ -28,8 +25,11 @@ from trading.execution.state_machine import (
         (OrderState.SUBMITTED, OrderEventType.EXPIRY, OrderState.EXPIRED),
         (OrderState.ACKED, OrderEventType.EXPIRY, OrderState.EXPIRED),
         (OrderState.ACKED, OrderEventType.CANCEL, OrderState.CANCELED),
-        (OrderState.PARTIALLY_FILLED, OrderEventType.PARTIAL_FILL_FINALIZED,
-         OrderState.PARTIAL_FILL_FINALIZED),
+        (
+            OrderState.PARTIALLY_FILLED,
+            OrderEventType.PARTIAL_FILL_FINALIZED,
+            OrderState.PARTIAL_FILL_FINALIZED,
+        ),
     ],
 )
 def test_legal_transitions_are_accepted(current, event, expected):
@@ -47,6 +47,7 @@ def test_full_uuid_event_is_rejected_from_everywhere():
 
 
 # --- illegal-transition rejection matrix (F-0075) ----------------------------
+
 
 @pytest.mark.parametrize(
     "current,event",
@@ -90,9 +91,14 @@ def test_unknown_state_only_escalates_to_quarantined():
 
 
 def test_terminal_states_have_no_exits():
-    for state in (OrderState.FILLED, OrderState.CANCELED, OrderState.REJECTED,
-                  OrderState.EXPIRED, OrderState.PARTIAL_FILL_FINALIZED,
-                  OrderState.QUARANTINED):
+    for state in (
+        OrderState.FILLED,
+        OrderState.CANCELED,
+        OrderState.REJECTED,
+        OrderState.EXPIRED,
+        OrderState.PARTIAL_FILL_FINALIZED,
+        OrderState.QUARANTINED,
+    ):
         assert state in TERMINAL_STATES
         assert LEGAL_TRANSITIONS[state] == frozenset()
 
@@ -107,35 +113,48 @@ def test_error_message_names_the_offending_pair():
 
 # --- PARTIALLY_FILLED reachability (F-0274) ----------------------------------
 
+
 def test_partial_fill_qty_yields_partially_filled_not_filled():
-    assert transition_order_state(
-        OrderState.SUBMITTED,
-        OrderEventType.FILL,
-        fill_qty=3.0,
-        intended_qty=10.0,
-    ) == OrderState.PARTIALLY_FILLED
-    assert transition_order_state(
-        OrderState.ACKED,
-        OrderEventType.FILL,
-        fill_qty=3.0,
-        intended_qty=10.0,
-    ) == OrderState.PARTIALLY_FILLED
+    assert (
+        transition_order_state(
+            OrderState.SUBMITTED,
+            OrderEventType.FILL,
+            fill_qty=3.0,
+            intended_qty=10.0,
+        )
+        == OrderState.PARTIALLY_FILLED
+    )
+    assert (
+        transition_order_state(
+            OrderState.ACKED,
+            OrderEventType.FILL,
+            fill_qty=3.0,
+            intended_qty=10.0,
+        )
+        == OrderState.PARTIALLY_FILLED
+    )
 
 
 def test_full_fill_qty_yields_filled():
-    assert transition_order_state(
-        OrderState.SUBMITTED,
-        OrderEventType.FILL,
-        fill_qty=10.0,
-        intended_qty=10.0,
-    ) == OrderState.FILLED
+    assert (
+        transition_order_state(
+            OrderState.SUBMITTED,
+            OrderEventType.FILL,
+            fill_qty=10.0,
+            intended_qty=10.0,
+        )
+        == OrderState.FILLED
+    )
     # overfill is also terminal-FILLED, not partially
-    assert transition_order_state(
-        OrderState.ACKED,
-        OrderEventType.FILL,
-        fill_qty=11.0,
-        intended_qty=10.0,
-    ) == OrderState.FILLED
+    assert (
+        transition_order_state(
+            OrderState.ACKED,
+            OrderEventType.FILL,
+            fill_qty=11.0,
+            intended_qty=10.0,
+        )
+        == OrderState.FILLED
+    )
 
 
 def test_stacked_partials_self_loop_then_fill():

@@ -5,17 +5,12 @@ from enum import Enum
 from typing import Optional
 
 from trading.core.money import decimal_from_float
-from trading.risk.models import AccountState, RiskConfig
+from trading.risk.evt import EVTRiskResult
 from trading.risk.garch import GARCHForecastResult
 from trading.risk.hmm_regime import HMMRegimeResult
-from trading.risk.evt import EVTRiskResult
-from trading.risk.tier_state import (
-    DEFAULT_SCOPE,
-    UNKNOWN_TIER,
-    TierState,
-    load_state,
-    save_state,
-)
+from trading.risk.models import AccountState, RiskConfig
+from trading.risk.tier_state import (DEFAULT_SCOPE, UNKNOWN_TIER, TierState,
+                                     load_state, save_state)
 
 logger = logging.getLogger("trading.risk.survival")
 
@@ -27,10 +22,12 @@ MIN_DWELL_CYCLES = 3
 
 
 class SurvivalTier(Enum):
-    NORMAL = "normal"          # Standard operations (1.0x risk capacity, hard-capped)
-    CAUTION = "caution"        # Throttled operations (0.5x risk capacity, high confidence required)
-    SURVIVAL = "survival"      # Capital defense mode (de-risking only, no new risk taken)
-    COOLDOWN = "cooldown"      # Circuit breaker active / system paused
+    NORMAL = "normal"  # Standard operations (1.0x risk capacity, hard-capped)
+    CAUTION = (
+        "caution"  # Throttled operations (0.5x risk capacity, high confidence required)
+    )
+    SURVIVAL = "survival"  # Capital defense mode (de-risking only, no new risk taken)
+    COOLDOWN = "cooldown"  # Circuit breaker active / system paused
 
 
 _TIER_ORDER = (
@@ -150,14 +147,15 @@ def _log_epsilon_flips(flips: list[dict], seen_set: set | None = None) -> None:
 @dataclass(frozen=True)
 class AccountSurvivalStatus:
     """Consolidated operational health status and sovereign risk constraints."""
+
     tier: SurvivalTier
     effective_risk_multiplier: float  # Multiplier applied to base risk_pct (0.0 to 1.0)
-    allow_new_entries: bool           # Whether new entry orders may be proposed
-    min_confidence_floor: float       # Minimum strategy confidence to clear entry gate
-    active_regime: str                # Current HMM market regime
-    garch_vol_forecast: float         # 1-step ahead conditional volatility
-    evt_tail_var_99: float            # 99% Tail-VaR estimate
-    survival_rationale: str           # Human-readable rationale for current operational tier
+    allow_new_entries: bool  # Whether new entry orders may be proposed
+    min_confidence_floor: float  # Minimum strategy confidence to clear entry gate
+    active_regime: str  # Current HMM market regime
+    garch_vol_forecast: float  # 1-step ahead conditional volatility
+    evt_tail_var_99: float  # 99% Tail-VaR estimate
+    survival_rationale: str  # Human-readable rationale for current operational tier
 
 
 class SurvivalEngine:
@@ -211,11 +209,13 @@ class SurvivalEngine:
                         self.scope,
                     )
                     self.tier_state = TierState(
-                        tier=SurvivalTier.CAUTION.value, last_settled_equity=self.tier_state.last_settled_equity
+                        tier=SurvivalTier.CAUTION.value,
+                        last_settled_equity=self.tier_state.last_settled_equity,
                     )
                 else:
                     logger.warning(
-                        "Invalid persisted tier '%s'; resetting to NORMAL", self.tier_state.tier
+                        "Invalid persisted tier '%s'; resetting to NORMAL",
+                        self.tier_state.tier,
                     )
                     self.tier_state = TierState(tier="normal")
         else:
@@ -239,14 +239,29 @@ class SurvivalEngine:
         # the outcome at CAUTION (never NORMAL) because the float path disagrees
         # with the Decimal truth on a boundary-threshold comparison.
         epsilon_flips = _epsilon_flips(
-            account, cfg.max_drawdown, cfg.daily_loss_limit, fallback_anchor=fallback_anchor
+            account,
+            cfg.max_drawdown,
+            cfg.daily_loss_limit,
+            fallback_anchor=fallback_anchor,
         )
-        _log_epsilon_flips(epsilon_flips, seen_set=getattr(self, "_seen_epsilon_flips", set()))
+        _log_epsilon_flips(
+            epsilon_flips, seen_set=getattr(self, "_seen_epsilon_flips", set())
+        )
         epsilon_flip_detected = len(epsilon_flips) > 0
 
         if account.kill_switch:
             return AccountSurvivalStatus(
-                tier=SurvivalTier.COOLDOWN,                effective_risk_multiplier=0.0,                allow_new_entries=False,                min_confidence_floor=1.0,                active_regime=hmm_res.current_regime if hmm_res else "unknown",                garch_vol_forecast=garch_res.conditional_volatility if garch_res else 0.02,                evt_tail_var_99=evt_res.cvar_99 if evt_res else 0.05,                survival_rationale="Manual or emergency kill switch is engaged",            )
+                tier=SurvivalTier.COOLDOWN,
+                effective_risk_multiplier=0.0,
+                allow_new_entries=False,
+                min_confidence_floor=1.0,
+                active_regime=hmm_res.current_regime if hmm_res else "unknown",
+                garch_vol_forecast=garch_res.conditional_volatility
+                if garch_res
+                else 0.02,
+                evt_tail_var_99=evt_res.cvar_99 if evt_res else 0.05,
+                survival_rationale="Manual or emergency kill switch is engaged",
+            )
 
         drawdown = 0.0
         if account.peak_equity > 0:
@@ -259,33 +274,52 @@ class SurvivalEngine:
                 allow_new_entries=False,
                 min_confidence_floor=1.0,
                 active_regime=hmm_res.current_regime if hmm_res else "unknown",
-                garch_vol_forecast=garch_res.conditional_volatility if garch_res else 0.02,
+                garch_vol_forecast=garch_res.conditional_volatility
+                if garch_res
+                else 0.02,
                 evt_tail_var_99=evt_res.cvar_99 if evt_res else 0.05,
                 survival_rationale=f"Max drawdown reached ({drawdown:.1%} >= {cfg.max_drawdown:.1%})",
             )
 
         # 2. Check Daily Loss Limit or severe consecutive losses -> SURVIVAL
-        max_consecutive_losses = max(account.consecutive_losses.values()) if account.consecutive_losses else 0
-        if account.daily_pnl_pct <= -cfg.daily_loss_limit or max_consecutive_losses >= cfg.consecutive_loss_limit:
+        max_consecutive_losses = (
+            max(account.consecutive_losses.values())
+            if account.consecutive_losses
+            else 0
+        )
+        if (
+            account.daily_pnl_pct <= -cfg.daily_loss_limit
+            or max_consecutive_losses >= cfg.consecutive_loss_limit
+        ):
             return AccountSurvivalStatus(
                 tier=SurvivalTier.SURVIVAL,
                 effective_risk_multiplier=0.0,
                 allow_new_entries=False,
                 min_confidence_floor=0.85,
                 active_regime=hmm_res.current_regime if hmm_res else "unknown",
-                garch_vol_forecast=garch_res.conditional_volatility if garch_res else 0.02,
+                garch_vol_forecast=garch_res.conditional_volatility
+                if garch_res
+                else 0.02,
                 evt_tail_var_99=evt_res.cvar_99 if evt_res else 0.05,
                 survival_rationale=f"Survival mode active: daily PnL {account.daily_pnl_pct:.1%} or {max_consecutive_losses} consecutive losses",
             )
 
         # 3. Check Moderate Stress Indicators -> CAUTION
         # (Drawdown >= 10%, weekly loss limit, high volatility regime, or EVT extreme tail risk)
-        is_bear_or_high_vol = (hmm_res and hmm_res.is_high_volatility) or (garch_res and garch_res.is_high_volatility)
+        is_bear_or_high_vol = (hmm_res and hmm_res.is_high_volatility) or (
+            garch_res and garch_res.is_high_volatility
+        )
         is_weekly_stressed = account.weekly_pnl_pct <= -cfg.weekly_loss_limit
         is_moderate_dd = drawdown >= (cfg.max_drawdown * 0.60)
         is_evt_tail_spike = evt_res is not None and evt_res.cvar_99 >= 0.08
 
-        if is_bear_or_high_vol or is_weekly_stressed or is_moderate_dd or is_evt_tail_spike or max_consecutive_losses >= 2:
+        if (
+            is_bear_or_high_vol
+            or is_weekly_stressed
+            or is_moderate_dd
+            or is_evt_tail_spike
+            or max_consecutive_losses >= 2
+        ):
             multiplier = 0.50
             if garch_res:
                 multiplier *= garch_res.volatility_scale_factor
@@ -294,11 +328,16 @@ class SurvivalEngine:
             multiplier = float(min(multiplier, 0.50))
 
             reasons = []
-            if is_bear_or_high_vol: reasons.append("High volatility / Bear regime")
-            if is_weekly_stressed: reasons.append("Weekly loss threshold")
-            if is_moderate_dd: reasons.append(f"Drawdown {drawdown:.1%}")
-            if is_evt_tail_spike: reasons.append(f"EVT Tail-VaR {evt_res.cvar_99:.1%}")
-            if max_consecutive_losses >= 2: reasons.append(f"{max_consecutive_losses} consecutive losses")
+            if is_bear_or_high_vol:
+                reasons.append("High volatility / Bear regime")
+            if is_weekly_stressed:
+                reasons.append("Weekly loss threshold")
+            if is_moderate_dd:
+                reasons.append(f"Drawdown {drawdown:.1%}")
+            if is_evt_tail_spike:
+                reasons.append(f"EVT Tail-VaR {evt_res.cvar_99:.1%}")
+            if max_consecutive_losses >= 2:
+                reasons.append(f"{max_consecutive_losses} consecutive losses")
 
             return AccountSurvivalStatus(
                 tier=SurvivalTier.CAUTION,
@@ -306,7 +345,9 @@ class SurvivalEngine:
                 allow_new_entries=True,
                 min_confidence_floor=0.70,
                 active_regime=hmm_res.current_regime if hmm_res else "unknown",
-                garch_vol_forecast=garch_res.conditional_volatility if garch_res else 0.02,
+                garch_vol_forecast=garch_res.conditional_volatility
+                if garch_res
+                else 0.02,
                 evt_tail_var_99=evt_res.cvar_99 if evt_res else 0.05,
                 survival_rationale=f"Caution mode: {', '.join(reasons)}",
             )
@@ -323,14 +364,16 @@ class SurvivalEngine:
             base_multiplier = float(min(base_multiplier, 0.50))
             return AccountSurvivalStatus(
                 tier=SurvivalTier.CAUTION,
-            effective_risk_multiplier=base_multiplier,
-            allow_new_entries=True,
-            min_confidence_floor=0.55,
-            active_regime=hmm_res.current_regime if hmm_res else "trending_bull",
-            garch_vol_forecast=garch_res.conditional_volatility if garch_res else 0.02,
-            evt_tail_var_99=evt_res.cvar_99 if evt_res else 0.04,
-            survival_rationale=f"Epsilon flip detected: float path disagrees with Decimal on threshold boundary",
-        )
+                effective_risk_multiplier=base_multiplier,
+                allow_new_entries=True,
+                min_confidence_floor=0.55,
+                active_regime=hmm_res.current_regime if hmm_res else "trending_bull",
+                garch_vol_forecast=garch_res.conditional_volatility
+                if garch_res
+                else 0.02,
+                evt_tail_var_99=evt_res.cvar_99 if evt_res else 0.04,
+                survival_rationale=f"Epsilon flip detected: float path disagrees with Decimal on threshold boundary",
+            )
 
         # No epsilon flip — normal operating conditions.
         base_multiplier = 1.0
@@ -364,14 +407,31 @@ class SurvivalEngine:
                 return SurvivalTier.CAUTION
             return SurvivalTier.NORMAL
 
-    def _tier_template(self, tier: SurvivalTier, raw: AccountSurvivalStatus) -> AccountSurvivalStatus:
+    def _tier_template(
+        self, tier: SurvivalTier, raw: AccountSurvivalStatus
+    ) -> AccountSurvivalStatus:
         """Per-tier operational constants for the *held* tier."""
         if tier is SurvivalTier.COOLDOWN:
-            mult, entries, floor, why = 0.0, False, 1.0, "Cooldown: circuit breaker engaged"
+            mult, entries, floor, why = (
+                0.0,
+                False,
+                1.0,
+                "Cooldown: circuit breaker engaged",
+            )
         elif tier is SurvivalTier.SURVIVAL:
-            mult, entries, floor, why = 0.0, False, 0.85, "Survival mode: capital defense, no new entries"
+            mult, entries, floor, why = (
+                0.0,
+                False,
+                0.85,
+                "Survival mode: capital defense, no new entries",
+            )
         elif tier is SurvivalTier.CAUTION:
-            mult, entries, floor, why = 0.50, True, 0.70, "Caution mode: throttled risk capacity"
+            mult, entries, floor, why = (
+                0.50,
+                True,
+                0.70,
+                "Caution mode: throttled risk capacity",
+            )
         else:
             mult, entries, floor, why = 1.00, True, 0.55, "Nominal operating conditions"
         return AccountSurvivalStatus(
@@ -383,7 +443,8 @@ class SurvivalEngine:
             garch_vol_forecast=raw.garch_vol_forecast,
             evt_tail_var_99=raw.evt_tail_var_99,
             survival_rationale=(
-                raw.survival_rationale if raw.tier is tier
+                raw.survival_rationale
+                if raw.tier is tier
                 else f"{why} [hysteresis; raw eval: {raw.tier.value}; below_count={self.tier_state.below_count}/{self.min_dwell_cycles}]"
             ),
         )
@@ -419,7 +480,9 @@ class SurvivalEngine:
         # daily-loss dual-run keeps a usable denominator on sessions where
         # day_start_settled_equity was never recorded.
         prior_anchor = self.tier_state.last_settled_equity
-        raw = self._evaluate_raw_status(account, garch_res, hmm_res, evt_res, fallback_anchor=prior_anchor)
+        raw = self._evaluate_raw_status(
+            account, garch_res, hmm_res, evt_res, fallback_anchor=prior_anchor
+        )
 
         raw_sev = _severity(raw.tier)
         cur_sev = _severity(current)
@@ -456,7 +519,9 @@ class SurvivalEngine:
         )
         self.tier_state = TierState(
             tier=new_tier.value,
-            entered_cycle=self.cycle_count if new_tier is not prev_tier else self.tier_state.entered_cycle,
+            entered_cycle=self.cycle_count
+            if new_tier is not prev_tier
+            else self.tier_state.entered_cycle,
             below_count=below_count,
             last_settled_equity=carried_anchor,
         )

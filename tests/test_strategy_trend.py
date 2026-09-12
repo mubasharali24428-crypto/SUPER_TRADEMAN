@@ -7,7 +7,9 @@ NOW = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
 
 def _candles(closes, spread=1.0):
-    return [[i * 3600_000, c, c + spread, c - spread, c, 1.0] for i, c in enumerate(closes)]
+    return [
+        [i * 3600_000, c, c + spread, c - spread, c, 1.0] for i, c in enumerate(closes)
+    ]
 
 
 def test_no_signal_without_enough_history():
@@ -39,7 +41,9 @@ def test_reward_risk_clears_the_risk_engine_floor():
     """The point of pairing this strategy with the existing RiskConfig: unlike mean
     reversion, a breakout's geometry naturally satisfies min_reward_risk=2.0."""
     closes = [100 + (i % 3) for i in range(80)] + [150.0]
-    signal = generate_trend_signal(_candles(closes), "BTC/USDT", NOW, atr_stop_mult=2.0, atr_target_mult=6.0)
+    signal = generate_trend_signal(
+        _candles(closes), "BTC/USDT", NOW, atr_stop_mult=2.0, atr_target_mult=6.0
+    )
     reward = abs(signal.suggested_target - signal.entry_price)
     risk = abs(signal.entry_price - signal.suggested_stop)
     assert reward / risk >= 2.0

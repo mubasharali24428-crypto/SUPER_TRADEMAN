@@ -6,7 +6,9 @@ from trading.risk.copula import CopulaDependencyEngine, CopulaDependencyResult
 
 def test_copula_fallback_short_series():
     engine = CopulaDependencyEngine(min_samples=50)
-    res = engine.analyze_pair_dependency("BTC/USDT", "ETH/USDT", [100.0, 101.0], [2000.0, 2010.0])
+    res = engine.analyze_pair_dependency(
+        "BTC/USDT", "ETH/USDT", [100.0, 101.0], [2000.0, 2010.0]
+    )
 
     assert isinstance(res, CopulaDependencyResult)
     assert res.asset_pair == ("BTC/USDT", "ETH/USDT")

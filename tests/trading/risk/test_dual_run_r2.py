@@ -83,7 +83,12 @@ def test_unknown_order_has_no_candidate():
     engine = RiskEngine(instruments={"BTC/USDT": "0.001"})
     decision = engine.evaluate(make_signal(), make_account())
     other = engine.evaluate(
-        make_signal(asset="ETH/USDT", entry_price=50.0, suggested_stop=45.0, suggested_target=60.0),
+        make_signal(
+            asset="ETH/USDT",
+            entry_price=50.0,
+            suggested_stop=45.0,
+            suggested_target=60.0,
+        ),
         make_account(),
     )
     assert other.approved_order is not None
@@ -124,8 +129,12 @@ def test_size_delta_exact_fires_on_formula_level_divergence(caplog):
     assert decision.approved_order.position_size == pytest.approx(2499.9999999999645)
     assert engine.get_size_candidate(decision.approved_order) == Decimal("2499.999")
 
-    events = [r for r in caplog.records if r.getMessage().startswith("SIZE_DELTA_EXACT:")]
-    assert events, "expected SIZE_DELTA_EXACT for formula-level float/Decimal divergence"
+    events = [
+        r for r in caplog.records if r.getMessage().startswith("SIZE_DELTA_EXACT:")
+    ]
+    assert (
+        events
+    ), "expected SIZE_DELTA_EXACT for formula-level float/Decimal divergence"
     msg = events[-1].getMessage()
     assert "quantized_qty=2499.999" in msg
     assert "exact_recomputed_size=2500.00" in msg
@@ -137,7 +146,9 @@ def test_size_delta_exact_silent_when_paths_agree(caplog):
     with caplog.at_level("WARNING", logger="trading.risk"):
         engine.evaluate(make_signal(), make_account(equity=123_456.789))
 
-    assert [r for r in caplog.records if r.getMessage().startswith("SIZE_DELTA_EXACT:")] == []
+    assert [
+        r for r in caplog.records if r.getMessage().startswith("SIZE_DELTA_EXACT:")
+    ] == []
 
 
 def test_size_delta_exact_both_values_are_decimals():
@@ -164,13 +175,18 @@ def test_monkeypatched_quantizer_silent_when_decimals_agree(monkeypatch, caplog)
     The old wave-1 comparison (legacy float vs quantize) was trivially bounded
     to <1 step by construction and could NEVER fire — removed."""
     engine = RiskEngine(instruments={"BTC/USDT": "0.001"})
-    monkeypatch.setattr(engine_mod, "quantize_to_step", lambda value, step: Decimal("150.000"))
+    monkeypatch.setattr(
+        engine_mod, "quantize_to_step", lambda value, step: Decimal("150.000")
+    )
 
     with caplog.at_level(__import__("logging").WARNING, logger="trading.risk"):
         decision = engine.evaluate(make_signal(), make_account(equity=123_456.789))
 
     # Both quantize calls (candidate + exact recompute) return 150.000 — no divergence.
-    deltas = [r for r in caplog.records
-              if r.getMessage().startswith("SIZE_DELTA:")
-              or r.getMessage().startswith("SIZE_DELTA_EXACT:")]
+    deltas = [
+        r
+        for r in caplog.records
+        if r.getMessage().startswith("SIZE_DELTA:")
+        or r.getMessage().startswith("SIZE_DELTA_EXACT:")
+    ]
     assert not deltas, "no divergence expected when both Decimal paths agree"

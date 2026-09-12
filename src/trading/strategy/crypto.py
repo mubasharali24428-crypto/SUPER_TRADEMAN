@@ -107,7 +107,9 @@ def generate_signal(
         return None
 
     trend_now = statistics.mean(closes[-trend_window:])
-    trend_prior = statistics.mean(closes[-trend_window - trend_lookback : -trend_lookback])
+    trend_prior = statistics.mean(
+        closes[-trend_window - trend_lookback : -trend_lookback]
+    )
     trend_slope_pct = (trend_now - trend_prior) / trend_prior
     if abs(trend_slope_pct) > trend_strength_threshold:
         return None  # regime filter: don't mean-revert against a strong trend in either direction

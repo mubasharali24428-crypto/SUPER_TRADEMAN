@@ -22,12 +22,16 @@ class VenueAdapter(ABC):
     """Abstract adapter defining venue interaction contracts."""
 
     @abstractmethod
-    async def create_order(self, order: ApprovedOrder, client_order_id: str) -> Dict[str, Any]:
+    async def create_order(
+        self, order: ApprovedOrder, client_order_id: str
+    ) -> Dict[str, Any]:
         """Submits an ApprovedOrder to the exchange with client_order_id."""
         pass
 
     @abstractmethod
-    async def create_exit(self, exit_order: ApprovedExit, client_order_id: str) -> Dict[str, Any]:
+    async def create_exit(
+        self, exit_order: ApprovedExit, client_order_id: str
+    ) -> Dict[str, Any]:
         """Submits an ApprovedExit to the exchange with client_order_id."""
         pass
 
@@ -37,12 +41,16 @@ class VenueAdapter(ABC):
         pass
 
     @abstractmethod
-    async def fetch_order(self, client_order_id: str, symbol: str) -> Optional[Dict[str, Any]]:
+    async def fetch_order(
+        self, client_order_id: str, symbol: str
+    ) -> Optional[Dict[str, Any]]:
         """Queries order status on exchange by client_order_id."""
         pass
 
     @abstractmethod
-    async def fetch_open_orders(self, symbol: Optional[str] = None) -> list[Dict[str, Any]]:
+    async def fetch_open_orders(
+        self, symbol: Optional[str] = None
+    ) -> list[Dict[str, Any]]:
         """Queries active open orders from the exchange."""
         pass
 
@@ -65,7 +73,9 @@ class MockVenueAdapter(VenueAdapter):
         self.positions: Dict[str, Dict[str, Any]] = {}
         self.instrument_info_map = instrument_info_map or {}
 
-    async def create_order(self, order: ApprovedOrder, client_order_id: str) -> Dict[str, Any]:
+    async def create_order(
+        self, order: ApprovedOrder, client_order_id: str
+    ) -> Dict[str, Any]:
         resp = {
             "id": f"ex_{client_order_id}",
             "clientOrderId": client_order_id,
@@ -78,7 +88,9 @@ class MockVenueAdapter(VenueAdapter):
         self.orders[client_order_id] = resp
         return resp
 
-    async def create_exit(self, exit_order: ApprovedExit, client_order_id: str) -> Dict[str, Any]:
+    async def create_exit(
+        self, exit_order: ApprovedExit, client_order_id: str
+    ) -> Dict[str, Any]:
         resp = {
             "id": f"ex_exit_{client_order_id}",
             "clientOrderId": client_order_id,
@@ -92,19 +104,28 @@ class MockVenueAdapter(VenueAdapter):
         if client_order_id in self.orders:
             self.orders[client_order_id]["status"] = "canceled"
             return self.orders[client_order_id]
-        resp = {"id": f"ex_cancel_{client_order_id}", "clientOrderId": client_order_id, "status": "canceled"}
+        resp = {
+            "id": f"ex_cancel_{client_order_id}",
+            "clientOrderId": client_order_id,
+            "status": "canceled",
+        }
         self.orders[client_order_id] = resp
         return resp
 
-    async def fetch_order(self, client_order_id: str, symbol: str) -> Optional[Dict[str, Any]]:
+    async def fetch_order(
+        self, client_order_id: str, symbol: str
+    ) -> Optional[Dict[str, Any]]:
         return self.orders.get(client_order_id)
 
-    async def fetch_open_orders(self, symbol: Optional[str] = None) -> list[Dict[str, Any]]:
-        return [o for o in self.orders.values() if o.get("status") in ("open", "submitted")]
+    async def fetch_open_orders(
+        self, symbol: Optional[str] = None
+    ) -> list[Dict[str, Any]]:
+        return [
+            o for o in self.orders.values() if o.get("status") in ("open", "submitted")
+        ]
 
     async def fetch_positions(self) -> list[Dict[str, Any]]:
         return list(self.positions.values())
 
     async def get_instrument_info(self, symbol: str) -> InstrumentInfo:
         return self.instrument_info_map.get(symbol, InstrumentInfo(symbol=symbol))
-

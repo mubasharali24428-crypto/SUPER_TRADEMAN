@@ -2,7 +2,8 @@
 
 import pytest
 
-from trading.synthetic.lob import BookIntegrityViolation, LimitOrder, SyntheticLOB
+from trading.synthetic.lob import (BookIntegrityViolation, LimitOrder,
+                                   SyntheticLOB)
 
 
 def test_lob_initialization_and_micro_price():
@@ -15,7 +16,9 @@ def test_lob_initialization_and_micro_price():
 
 def test_lob_matching_fills_and_event_log():
     # Set base_fill_probability=1.0 for deterministic fill
-    lob = SyntheticLOB(symbol="BTC/USDT", initial_price=50000.0, base_fill_probability=1.0)
+    lob = SyntheticLOB(
+        symbol="BTC/USDT", initial_price=50000.0, base_fill_probability=1.0
+    )
     best_b, best_a = lob.get_best_bid_ask()
 
     # Place aggressive buy order matching best ask
@@ -54,7 +57,9 @@ def test_lob_micro_price_depth_decay():
 def test_lob_queue_priority_and_friction_penalty():
     # base_fill_probability=0.0 guarantees queue slip; SUB-07 semantics: a
     # slipped CROSSING order is rejected (BookIntegrityViolation), not rested.
-    lob = SyntheticLOB(symbol="BTC/USDT", initial_price=50000.0, base_fill_probability=0.0)
+    lob = SyntheticLOB(
+        symbol="BTC/USDT", initial_price=50000.0, base_fill_probability=0.0
+    )
     best_b, best_a = lob.get_best_bid_ask()
 
     buy_ord = LimitOrder("ord_slip", "buy", best_a + 5.0, 1.0, 1000.0, "agent_test")
@@ -72,7 +77,9 @@ def test_lob_queue_priority_and_friction_penalty():
 
 def test_lob_passive_order_rests_after_friction_slip():
     # Non-crossing orders keep the legacy slip-then-rest behaviour.
-    lob = SyntheticLOB(symbol="BTC/USDT", initial_price=50000.0, base_fill_probability=0.0)
+    lob = SyntheticLOB(
+        symbol="BTC/USDT", initial_price=50000.0, base_fill_probability=0.0
+    )
     best_b, best_a = lob.get_best_bid_ask()
 
     passive = LimitOrder("ord_passive", "buy", best_a - 2.0, 1.0, 1000.0, "agent_test")

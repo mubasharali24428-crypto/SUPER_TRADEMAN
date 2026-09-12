@@ -132,7 +132,6 @@ class AlertRecord:
     timestamp_utc: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-
 @dataclass
 class DeploymentMetricRecord:
     metric_date: str
@@ -313,32 +312,42 @@ class DeploymentMetricsStore:
                 exc,
             )
         else:
-            logger.warning("[METRICS_DB_UNAVAILABLE] %s still failing: %s", op_name, exc)
+            logger.warning(
+                "[METRICS_DB_UNAVAILABLE] %s still failing: %s", op_name, exc
+            )
 
     # -- writes ------------------------------------------------------------
 
     def record_metrics(self, record: DeploymentMetricRecord) -> None:
         self.metrics_history.append(record)
-        logger.info(f"[METRICS_RECORDED] Date {record.metric_date}, Mode {record.execution_mode}, Signals {record.signals_generated}")
+        logger.info(
+            f"[METRICS_RECORDED] Date {record.metric_date}, Mode {record.execution_mode}, Signals {record.signals_generated}"
+        )
         if self.pool is not None:
             _schedule_db_write(self._upsert_metric_row(record))
 
     async def _upsert_metric_row(self, record: DeploymentMetricRecord) -> None:
         try:
             assert self.pool is not None, "upsert requires an attached Postgres pool"
-            await self.pool.execute(UPSERT_DEPLOYMENT_METRICS_SQL, *_record_to_row(record))
+            await self.pool.execute(
+                UPSERT_DEPLOYMENT_METRICS_SQL, *_record_to_row(record)
+            )
         except Exception as exc:  # noqa: BLE001 - degrade on ANY DB failure
             self._degrade("deployment_metrics.upsert", exc)
 
     def record_drill_result(self, record: DrillResultRecord) -> None:
         self.drill_history.append(record)
-        logger.info(f"[DRILL_RESULT_RECORDED] Drill {record.drill_name}, Status {record.status}")
+        logger.info(
+            f"[DRILL_RESULT_RECORDED] Drill {record.drill_name}, Status {record.status}"
+        )
         if self.pool is not None:
             _schedule_db_write(self._insert_drill_result(record))
 
     async def _insert_drill_result(self, record: DrillResultRecord) -> None:
         try:
-            assert self.pool is not None, "drill insert requires an attached Postgres pool"
+            assert (
+                self.pool is not None
+            ), "drill insert requires an attached Postgres pool"
             await self.pool.execute(
                 """
                 INSERT INTO drill_results (drill_name, execution_mode, status,
@@ -360,13 +369,19 @@ class DeploymentMetricsStore:
 
     def record_reconciliation_report(self, record: ReconciliationReportRecord) -> None:
         self.reconciliation_history.append(record)
-        logger.info(f"[RECONCILIATION_REPORT_RECORDED] ID {record.reconciliation_id}, Status {record.status}")
+        logger.info(
+            f"[RECONCILIATION_REPORT_RECORDED] ID {record.reconciliation_id}, Status {record.status}"
+        )
         if self.pool is not None:
             _schedule_db_write(self._insert_reconciliation_report(record))
 
-    async def _insert_reconciliation_report(self, record: ReconciliationReportRecord) -> None:
+    async def _insert_reconciliation_report(
+        self, record: ReconciliationReportRecord
+    ) -> None:
         try:
-            assert self.pool is not None, "recon insert requires an attached Postgres pool"
+            assert (
+                self.pool is not None
+            ), "recon insert requires an attached Postgres pool"
             await self.pool.execute(
                 """
                 INSERT INTO reconciliation_reports (reconciliation_id, timestamp_utc,
@@ -396,8 +411,9 @@ class DeploymentMetricsStore:
         except Exception as exc:  # noqa: BLE001 - degrade on ANY DB failure
             self._degrade("reconciliation_reports.insert", exc)
 
-
-    def get_cumulative_metrics(self, days: int = 20) -> Optional[DeploymentMetricRecord]:
+    def get_cumulative_metrics(
+        self, days: int = 20
+    ) -> Optional[DeploymentMetricRecord]:
         if not self.metrics_history:
             return None
         recent = self.metrics_history[-days:]
@@ -408,19 +424,38 @@ class DeploymentMetricsStore:
             signals_generated=sum(r.signals_generated for r in recent),
             signals_approved=sum(r.signals_approved for r in recent),
             signals_rejected_capital=sum(r.signals_rejected_capital for r in recent),
-            signals_rejected_stale_data=sum(r.signals_rejected_stale_data for r in recent),
-            signals_rejected_portfolio_risk=sum(r.signals_rejected_portfolio_risk for r in recent),
-            signals_rejected_liquidity=sum(r.signals_rejected_liquidity for r in recent),
+            signals_rejected_stale_data=sum(
+                r.signals_rejected_stale_data for r in recent
+            ),
+            signals_rejected_portfolio_risk=sum(
+                r.signals_rejected_portfolio_risk for r in recent
+            ),
+            signals_rejected_liquidity=sum(
+                r.signals_rejected_liquidity for r in recent
+            ),
             shadow_fills_generated=sum(r.shadow_fills_generated for r in recent),
             liquidity_deficit_events=sum(r.liquidity_deficit_events for r in recent),
-            liquidity_deficit_pct=sum(r.liquidity_deficit_pct for r in recent) / len(recent),
-            avg_signal_to_fill_latency_ms=sum(r.avg_signal_to_fill_latency_ms for r in recent) / len(recent),
-            p95_signal_to_fill_latency_ms=max(r.p95_signal_to_fill_latency_ms for r in recent),
-            p99_signal_to_fill_latency_ms=max(r.p99_signal_to_fill_latency_ms for r in recent),
-            avg_shadow_slippage_bps=sum(r.avg_shadow_slippage_bps for r in recent) / len(recent),
+            liquidity_deficit_pct=sum(r.liquidity_deficit_pct for r in recent)
+            / len(recent),
+            avg_signal_to_fill_latency_ms=sum(
+                r.avg_signal_to_fill_latency_ms for r in recent
+            )
+            / len(recent),
+            p95_signal_to_fill_latency_ms=max(
+                r.p95_signal_to_fill_latency_ms for r in recent
+            ),
+            p99_signal_to_fill_latency_ms=max(
+                r.p99_signal_to_fill_latency_ms for r in recent
+            ),
+            avg_shadow_slippage_bps=sum(r.avg_shadow_slippage_bps for r in recent)
+            / len(recent),
             p95_shadow_slippage_bps=max(r.p95_shadow_slippage_bps for r in recent),
-            staleness_circuit_breaker_trips=sum(r.staleness_circuit_breaker_trips for r in recent),
-            websocket_disconnect_events=sum(r.websocket_disconnect_events for r in recent),
+            staleness_circuit_breaker_trips=sum(
+                r.staleness_circuit_breaker_trips for r in recent
+            ),
+            websocket_disconnect_events=sum(
+                r.websocket_disconnect_events for r in recent
+            ),
             out_of_order_tick_events=sum(r.out_of_order_tick_events for r in recent),
             data_quality_failures=sum(r.data_quality_failures for r in recent),
             shadow_pnl=sum(r.shadow_pnl for r in recent),

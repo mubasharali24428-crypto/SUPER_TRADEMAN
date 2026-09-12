@@ -17,12 +17,20 @@ def clean_env(monkeypatch):
 
 # --- Deny-all when unconfigured (F-0016) -------------------------------------
 
+
 def test_unconfigured_middleware_denies_everything(monkeypatch):
     monkeypatch.delenv("METRICS_BEARER_TOKEN", raising=False)
     auth = MetricsAuthMiddleware()
     assert auth.enabled is False
 
-    for presented in [None, "", "Bearer anything", TOKEN, f"Bearer {TOKEN}", FORBIDDEN_DEFAULT]:
+    for presented in [
+        None,
+        "",
+        "Bearer anything",
+        TOKEN,
+        f"Bearer {TOKEN}",
+        FORBIDDEN_DEFAULT,
+    ]:
         ok, status = auth.authenticate_request(presented, "127.0.0.1")
         assert ok is False
         assert status == "AUTH_UNCONFIGURED"
@@ -51,10 +59,13 @@ def test_no_default_token_in_module_source():
     import trading.observability.metrics_auth as mod
 
     src = inspect.getsource(mod)
-    assert FORBIDDEN_DEFAULT not in src, "hardcoded default token leaked back into source"
+    assert (
+        FORBIDDEN_DEFAULT not in src
+    ), "hardcoded default token leaked back into source"
 
 
 # --- Correct-token accept path -------------------------------------------------
+
 
 def test_correct_token_accepted_bearer_prefixed():
     auth = MetricsAuthMiddleware(bearer_token=TOKEN, allowed_ips=["127.0.0.1"])
@@ -79,6 +90,7 @@ def test_correct_token_accepted_raw_and_from_env(monkeypatch):
 
 # --- Reject paths --------------------------------------------------------------
 
+
 def test_wrong_token_rejected():
     auth = MetricsAuthMiddleware(bearer_token=TOKEN, allowed_ips=["127.0.0.1"])
     for presented in ["Bearer wrong_token", TOKEN + "x", None, ""]:
@@ -95,6 +107,7 @@ def test_forbidden_ip_rejected_even_with_valid_token():
 
 
 # --- Timing-safe comparison ------------------------------------------------------
+
 
 def test_comparison_is_timing_safe_compare_digest():
     import inspect

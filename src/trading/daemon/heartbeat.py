@@ -6,16 +6,18 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Sequence
 
-from trading.risk.models import AccountState, ApprovedOrder, RiskConfig, Signal, Side
-from trading.risk.engine import RiskEngine
-from trading.risk.garch import GARCHVolatilityModel, GARCHForecastResult
-from trading.risk.hmm_regime import HMMRegimeClassifier, HMMRegimeResult
-from trading.risk.evt import EVTRiskEngine, EVTRiskResult
-from trading.risk.copula import CopulaDependencyEngine, CopulaDependencyResult
-from trading.risk.survival import SurvivalEngine, SurvivalTier, AccountSurvivalStatus
-from trading.risk.tier_state import DEFAULT_SCOPE, STATE_FILE_ENV
 from trading.learning.graph import LearningGraph
 from trading.learning.policy import ContextualBanditAllocator
+from trading.risk.copula import CopulaDependencyEngine, CopulaDependencyResult
+from trading.risk.engine import RiskEngine
+from trading.risk.evt import EVTRiskEngine, EVTRiskResult
+from trading.risk.garch import GARCHForecastResult, GARCHVolatilityModel
+from trading.risk.hmm_regime import HMMRegimeClassifier, HMMRegimeResult
+from trading.risk.models import (AccountState, ApprovedOrder, RiskConfig, Side,
+                                 Signal)
+from trading.risk.survival import (AccountSurvivalStatus, SurvivalEngine,
+                                   SurvivalTier)
+from trading.risk.tier_state import DEFAULT_SCOPE, STATE_FILE_ENV
 
 logger = logging.getLogger("trading.daemon.heartbeat")
 
@@ -27,6 +29,7 @@ MIN_CANDLE_BUFFER = 30
 @dataclass
 class HeartbeatCycleResult:
     """Telemetry report produced by a single heartbeat tick."""
+
     cycle_number: int
     timestamp: datetime
     survival_status: AccountSurvivalStatus
@@ -113,7 +116,9 @@ class TradingHeartbeatDaemon:
     def tick_cycle(
         self,
         account: AccountState,
-        signal_generator_fn: Optional[Callable[[str, str, float], Optional[Signal]]] = None,
+        signal_generator_fn: Optional[
+            Callable[[str, str, float], Optional[Signal]]
+        ] = None,
     ) -> HeartbeatCycleResult:
         """Executes a single synchronous 'Think -> Act -> Observe -> Reflect' cycle."""
         t0 = time.perf_counter()
@@ -170,7 +175,10 @@ class TradingHeartbeatDaemon:
             bandit_context = hmm_res.state_probabilities
         else:
             bandit_context = None
-            logger.info("HMM provenance=%s: bandit context set to None (degraded mode)", hmm_res.provenance)
+            logger.info(
+                "HMM provenance=%s: bandit context set to None (degraded mode)",
+                hmm_res.provenance,
+            )
         active_strategy = self.bandit_allocator.select_strategy(context=bandit_context)
 
         approved_orders: List[ApprovedOrder] = []
@@ -264,12 +272,16 @@ class TradingHeartbeatDaemon:
     async def run_async_loop(
         self,
         account_provider: Callable[[], AccountState],
-        signal_generator_fn: Optional[Callable[[str, str, float], Optional[Signal]]] = None,
+        signal_generator_fn: Optional[
+            Callable[[str, str, float], Optional[Signal]]
+        ] = None,
         max_cycles: Optional[int] = None,
     ):
         """Starts the infinite or bounded asynchronous heartbeat loop."""
         self.is_running = True
-        logger.info("TradingHeartbeatDaemon started. Interval: %s sec", self.interval_seconds)
+        logger.info(
+            "TradingHeartbeatDaemon started. Interval: %s sec", self.interval_seconds
+        )
 
         while self.is_running:
             account = account_provider()
@@ -287,15 +299,24 @@ class TradingHeartbeatDaemon:
                 self._last_logged_tier = cur_tier
 
             # Belt-and-braces: strip any entry orders produced while defended.
-            if cur_tier in (SurvivalTier.SURVIVAL, SurvivalTier.COOLDOWN) and res.approved_orders:
-                logger.warning("ENTRY_BLOCKED tier=%s orders=%d", cur_tier.value, len(res.approved_orders))
+            if (
+                cur_tier in (SurvivalTier.SURVIVAL, SurvivalTier.COOLDOWN)
+                and res.approved_orders
+            ):
+                logger.warning(
+                    "ENTRY_BLOCKED tier=%s orders=%d",
+                    cur_tier.value,
+                    len(res.approved_orders),
+                )
                 res.approved_orders = []
 
             logger.info(
                 "Heartbeat Cycle #%d | Tier=%s | Regime=%s | Strat=%s | Orders=%d | %0.2fms",
                 res.cycle_number,
                 cur_tier.value,
-                res.hmm_regime.current_regime if res.hmm_regime else "data_insufficient",
+                res.hmm_regime.current_regime
+                if res.hmm_regime
+                else "data_insufficient",
                 res.active_strategy,
                 len(res.approved_orders),
                 res.elapsed_ms,

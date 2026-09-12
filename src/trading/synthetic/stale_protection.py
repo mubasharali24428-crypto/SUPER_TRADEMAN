@@ -39,12 +39,16 @@ class StaleQuoteProtection:
     def deregister_order(self, order_id: str) -> Optional[RestingOrder]:
         return self.monitored_orders.pop(order_id, None)
 
-    def evaluate(self, current_micro_price: Optional[float], current_sigma: float) -> List[RestingOrder]:
+    def evaluate(
+        self, current_micro_price: Optional[float], current_sigma: float
+    ) -> List[RestingOrder]:
         """Evaluates price drift against micro-price volatility and returns stale orders to cancel."""
         stale_orders: List[RestingOrder] = []
 
         if current_micro_price is None:
-            logger.warning("[STALE_PROTECTION_FALLBACK] Missing micro-price data; skipping evaluation this cycle.")
+            logger.warning(
+                "[STALE_PROTECTION_FALLBACK] Missing micro-price data; skipping evaluation this cycle."
+            )
             return stale_orders
 
         # Dynamic threshold: max(volatility-based sigma threshold, minimum bps floor)

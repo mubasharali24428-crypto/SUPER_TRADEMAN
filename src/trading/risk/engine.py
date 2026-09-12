@@ -6,17 +6,9 @@ from decimal import Decimal, InvalidOperation
 from weakref import WeakKeyDictionary
 
 from trading.core.money import decimal_from_float, quantize_to_step
-from trading.risk.models import (
-    AccountState,
-    ApprovedExit,
-    ApprovedOrder,
-    ExitDecision,
-    ExitSignal,
-    RiskConfig,
-    RiskDecision,
-    Signal,
-    _ISSUER,
-)
+from trading.risk.models import (_ISSUER, AccountState, ApprovedExit,
+                                 ApprovedOrder, ExitDecision, ExitSignal,
+                                 RiskConfig, RiskDecision, Signal)
 
 logger = logging.getLogger("trading.risk")
 
@@ -47,7 +39,9 @@ class _QuantizedRiskDecision(RiskDecision):
 
     def __setattr__(self, name, value):
         """VA-024: enforce frozen-dataclass contract — reject post-construction mutations."""
-        raise dataclasses.FrozenInstanceError(f"Cannot set {name} on frozen {type(self).__name__}")
+        raise dataclasses.FrozenInstanceError(
+            f"Cannot set {name} on frozen {type(self).__name__}"
+        )
 
     def __init__(
         self,
@@ -74,7 +68,11 @@ class RiskEngine:
     hard rule. See CLAUDE-facing spec rules a-l for the source of each check.
     """
 
-    def __init__(self, config: RiskConfig | None = None, instruments: Mapping[str, str] | None = None):
+    def __init__(
+        self,
+        config: RiskConfig | None = None,
+        instruments: Mapping[str, str] | None = None,
+    ):
         self.config = config or RiskConfig()
         # SQUAD DM-1 wave-1 (F-0342 dual-run): optional per-instrument step-size
         # map, e.g. {"BTC/USDT": "0.001"}. None / empty / asset-miss all mean
@@ -83,7 +81,9 @@ class RiskEngine:
         # R2 / VB-002: decisions stay plain RiskDecision on every path; the
         # quantized candidate travels out-of-band, keyed by the ApprovedOrder
         # identity. WeakKeyDictionary -> entries die with their orders.
-        self._size_candidates: WeakKeyDictionary[ApprovedOrder, Decimal | None] = WeakKeyDictionary()
+        self._size_candidates: WeakKeyDictionary[
+            ApprovedOrder, Decimal | None
+        ] = WeakKeyDictionary()
         # VB-031: counters to distinguish "quantization inactive" from "quantization error"
         # so downstream can distinguish None-by-design from None-by-failure.
         self._quantize_errors: int = 0
@@ -118,11 +118,14 @@ class RiskEngine:
             # VA-028: epsilon-aware comparison — tolerate <1bp rounding below threshold
             if drawdown + 0.0001 >= cfg.max_drawdown:
                 return self._reject(
-                    signal, f"max drawdown kill switch: {drawdown:.1%} >= {cfg.max_drawdown:.1%}"
+                    signal,
+                    f"max drawdown kill switch: {drawdown:.1%} >= {cfg.max_drawdown:.1%}",
                 )
 
         if account.daily_pnl_pct <= -cfg.daily_loss_limit:
-            return self._reject(signal, f"daily loss circuit breaker: {account.daily_pnl_pct:.1%}")
+            return self._reject(
+                signal, f"daily loss circuit breaker: {account.daily_pnl_pct:.1%}"
+            )
 
         losses = account.consecutive_losses.get(signal.asset_class, 0)
         last_loss = account.last_loss_at.get(signal.asset_class)
@@ -143,16 +146,21 @@ class RiskEngine:
             return self._reject(signal, "stop-loss equals entry price")
 
         if signal.suggested_target is None:
-            return self._reject(signal, "signal missing target; cannot verify reward:risk")
+            return self._reject(
+                signal, "signal missing target; cannot verify reward:risk"
+            )
 
         reward_per_unit = abs(signal.suggested_target - signal.entry_price)
         reward_risk = reward_per_unit / risk_per_unit
         if reward_risk < cfg.min_reward_risk:
             return self._reject(
-                signal, f"reward:risk {reward_risk:.2f} below minimum {cfg.min_reward_risk:.2f}"
+                signal,
+                f"reward:risk {reward_risk:.2f} below minimum {cfg.min_reward_risk:.2f}",
             )
 
-        same_class_positions = [p for p in account.open_positions if p.asset_class == signal.asset_class]
+        same_class_positions = [
+            p for p in account.open_positions if p.asset_class == signal.asset_class
+        ]
         if len(same_class_positions) >= cfg.max_positions_per_asset_class:
             return self._reject(
                 signal,
@@ -190,9 +198,13 @@ class RiskEngine:
         correlated_risk = sum(
             p.risk_pct
             for p in account.open_positions
-            if account.correlations.get(frozenset({p.asset, signal.asset}), 0.0) > cfg.correlation_threshold
+            if account.correlations.get(frozenset({p.asset, signal.asset}), 0.0)
+            > cfg.correlation_threshold
         )
-        if correlated_risk > 0 and current_heat + effective_risk_pct + correlated_risk > heat_cap:
+        if (
+            correlated_risk > 0
+            and current_heat + effective_risk_pct + correlated_risk > heat_cap
+        ):
             return self._reject(
                 signal,
                 f"correlation guard: cluster {correlated_risk:.1%} + heat {current_heat:.1%} "
@@ -216,7 +228,10 @@ class RiskEngine:
                 logger.warning(
                     "SIZE_QUANTIZE_ERROR: asset=%s size=%r step=%r err=%s -- "
                     "returning legacy unquantized decision",
-                    signal.asset, position_size, step_str, exc,
+                    signal.asset,
+                    position_size,
+                    step_str,
+                    exc,
                 )
                 self._quantize_errors += 1  # VB-031: track quantization failures
                 size_decimal_candidate = None
@@ -228,9 +243,9 @@ class RiskEngine:
                     # stops), not the trivially bounded float->grid rounding.
                     # Recompute equity*risk/rpu from pure Decimal inputs and
                     # grid it with the SAME floor convention.
-                    risk_per_unit_exact = decimal_from_float(signal.entry_price) - decimal_from_float(
-                        signal.suggested_stop
-                    )
+                    risk_per_unit_exact = decimal_from_float(
+                        signal.entry_price
+                    ) - decimal_from_float(signal.suggested_stop)
                     if signal.side.value == "short":
                         risk_per_unit_exact = -risk_per_unit_exact
                     risk_per_unit_exact = abs(risk_per_unit_exact)
@@ -254,7 +269,10 @@ class RiskEngine:
                 # comparison is trivially bounded to <1 step by construction and can
                 # NEVER fire; only formula-level divergence matters.
                 step_dec = Decimal(str(step_str))
-                if size_decimal_exact_grid is not None and size_decimal_candidate != size_decimal_exact_grid:
+                if (
+                    size_decimal_exact_grid is not None
+                    and size_decimal_candidate != size_decimal_exact_grid
+                ):
                     delta_dec = size_decimal_candidate - size_decimal_exact_grid
                     logger.warning(
                         "SIZE_DELTA: asset=%s quantized_candidate=%s exact_recompute=%s "
@@ -269,7 +287,10 @@ class RiskEngine:
                 # equal an INDEPENDENT exact-Decimal recompute of the same
                 # formula gridded onto the same exchange step. Any mismatch is
                 # formula-level float-vs-Decimal divergence.
-                if size_decimal_exact_grid is not None and size_decimal_exact_grid != size_decimal_candidate:
+                if (
+                    size_decimal_exact_grid is not None
+                    and size_decimal_exact_grid != size_decimal_candidate
+                ):
                     logger.warning(
                         "SIZE_DELTA_EXACT: asset=%s quantized_qty=%s exact_recomputed_size=%s "
                         "(both Decimals; legacy float pipeline produced %.12f)",
@@ -284,11 +305,11 @@ class RiskEngine:
                 signal, position_size, effective_risk_pct, size_decimal_candidate
             )
 
-        return self._approve_quantized(
-            signal, position_size, effective_risk_pct, None
-        )
+        return self._approve_quantized(signal, position_size, effective_risk_pct, None)
 
-    def evaluate_exit_signal(self, signal: ExitSignal, account: AccountState) -> ExitDecision:
+    def evaluate_exit_signal(
+        self, signal: ExitSignal, account: AccountState
+    ) -> ExitDecision:
         """Gate for proposals to close an existing position early (e.g. from an
         LLM anomaly/sentiment component). Deliberately does NOT check kill
         switch, drawdown, daily loss, or any other halt: those rules exist to
@@ -301,7 +322,9 @@ class RiskEngine:
 
         has_position = any(p.asset == signal.asset for p in account.open_positions)
         if not has_position:
-            return self._reject_exit(signal, f"no open position in {signal.asset} to exit")
+            return self._reject_exit(
+                signal, f"no open position in {signal.asset} to exit"
+            )
 
         if signal.confidence < cfg.min_exit_confidence:
             return self._reject_exit(
@@ -319,13 +342,27 @@ class RiskEngine:
 
     def _reject_exit(self, signal: ExitSignal, reason: str) -> ExitDecision:
         logger.warning("exit_decision rejected: %s | signal=%r", reason, signal)
-        return ExitDecision(approved=False, reason=reason, signal=signal,
-                            approved_exit=None, fencing_token=self._fencing_token_val)
+        return ExitDecision(
+            approved=False,
+            reason=reason,
+            signal=signal,
+            approved_exit=None,
+            fencing_token=self._fencing_token_val,
+        )
 
-    def _approve_exit(self, signal: ExitSignal, approved_exit: ApprovedExit) -> ExitDecision:
-        logger.info("exit_decision approved | signal=%r | exit=%r", signal, approved_exit)
-        return ExitDecision(approved=True, reason="approved", signal=signal,
-                            approved_exit=approved_exit, fencing_token=self._fencing_token_val)
+    def _approve_exit(
+        self, signal: ExitSignal, approved_exit: ApprovedExit
+    ) -> ExitDecision:
+        logger.info(
+            "exit_decision approved | signal=%r | exit=%r", signal, approved_exit
+        )
+        return ExitDecision(
+            approved=True,
+            reason="approved",
+            signal=signal,
+            approved_exit=approved_exit,
+            fencing_token=self._fencing_token_val,
+        )
 
     def _build_order(
         self, signal: Signal, position_size: float, effective_risk_pct: float
@@ -343,7 +380,9 @@ class RiskEngine:
             issuer=_ISSUER,
         )
 
-    def _approve_quantized(self, signal, position_size, effective_risk_pct, size_decimal_candidate):
+    def _approve_quantized(
+        self, signal, position_size, effective_risk_pct, size_decimal_candidate
+    ):
         if size_decimal_candidate is None:
             self._quantize_inactive += 1
         approved_order = self._build_order(signal, position_size, effective_risk_pct)
@@ -351,15 +390,29 @@ class RiskEngine:
         return self._approve(signal, approved_order)
 
     def get_quantization_stats(self):
-        return {"quantize_errors": self._quantize_errors, "quantize_inactive": self._quantize_inactive}
+        return {
+            "quantize_errors": self._quantize_errors,
+            "quantize_inactive": self._quantize_inactive,
+        }
 
     def _reject(self, signal: Signal, reason: str) -> RiskDecision:
         logger.warning("risk_decision rejected: %s | signal=%r", reason, signal)
-        return RiskDecision(approved=False, reason=reason, signal=signal,
-                            approved_order=None, fencing_token=self._fencing_token_val)
+        return RiskDecision(
+            approved=False,
+            reason=reason,
+            signal=signal,
+            approved_order=None,
+            fencing_token=self._fencing_token_val,
+        )
 
     def _approve(self, signal: Signal, approved_order: ApprovedOrder) -> RiskDecision:
-        logger.info("risk_decision approved | signal=%r | order=%r", signal, approved_order)
-        return RiskDecision(approved=True, reason="approved",
-                            signal=signal, approved_order=approved_order,
-                            fencing_token=self._fencing_token_val)
+        logger.info(
+            "risk_decision approved | signal=%r | order=%r", signal, approved_order
+        )
+        return RiskDecision(
+            approved=True,
+            reason="approved",
+            signal=signal,
+            approved_order=approved_order,
+            fencing_token=self._fencing_token_val,
+        )

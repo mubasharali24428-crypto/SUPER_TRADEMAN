@@ -25,4 +25,8 @@ def test_correlation_matrix_updates_and_high_corr_pairs():
 
     high_pairs = matrix_obj.get_high_correlation_pairs(threshold=0.80)
     assert len(high_pairs) >= 1
-    assert ("BTC", "ETH", pytest.approx(btc_eth_corr, abs=0.01)) in high_pairs or ("ETH", "BTC", pytest.approx(btc_eth_corr, abs=0.01)) in high_pairs
+    assert ("BTC", "ETH", pytest.approx(btc_eth_corr, abs=0.01)) in high_pairs or (
+        "ETH",
+        "BTC",
+        pytest.approx(btc_eth_corr, abs=0.01),
+    ) in high_pairs

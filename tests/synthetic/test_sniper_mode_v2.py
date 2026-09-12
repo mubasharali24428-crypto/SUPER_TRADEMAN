@@ -3,11 +3,8 @@
 import pytest
 
 from trading.synthetic.ecology import LiquidityEvent
-from trading.synthetic.strategy_defense import (
-    MicroAlphaEngine,
-    SniperMode,
-    TradeSignal,
-)
+from trading.synthetic.strategy_defense import (MicroAlphaEngine, SniperMode,
+                                                TradeSignal)
 
 
 def test_temporal_persistence_filters_noise():
@@ -16,12 +13,28 @@ def test_temporal_persistence_filters_noise():
     sniper.is_armed = True
 
     # 1-tick drop signal (noise)
-    noise_sig = TradeSignal("BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95, sustained_ticks=1)
-    assert not sniper.evaluate_opportunity(noise_sig, stress_score=0.05, current_price=95.0)
+    noise_sig = TradeSignal(
+        "BUY",
+        edge_zscore=4.0,
+        mean_reversion_direction="BUY",
+        confidence=0.95,
+        sustained_ticks=1,
+    )
+    assert not sniper.evaluate_opportunity(
+        noise_sig, stress_score=0.05, current_price=95.0
+    )
 
     # 50-tick sustained drop signal (persistent trend breakdown)
-    sustained_sig = TradeSignal("BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95, sustained_ticks=50)
-    assert sniper.evaluate_opportunity(sustained_sig, stress_score=0.05, current_price=95.0)
+    sustained_sig = TradeSignal(
+        "BUY",
+        edge_zscore=4.0,
+        mean_reversion_direction="BUY",
+        confidence=0.95,
+        sustained_ticks=50,
+    )
+    assert sniper.evaluate_opportunity(
+        sustained_sig, stress_score=0.05, current_price=95.0
+    )
 
 
 def test_toxicity_filter_veto():
@@ -30,11 +43,25 @@ def test_toxicity_filter_veto():
     sniper.is_armed = True
 
     # Hollow drop: toxicity is only 0.80 (< 0.95 95th percentile threshold)
-    hollow_sig = TradeSignal("BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95, order_flow_toxicity_pct=0.80)
-    assert not sniper.evaluate_opportunity(hollow_sig, stress_score=0.05, current_price=95.0)
+    hollow_sig = TradeSignal(
+        "BUY",
+        edge_zscore=4.0,
+        mean_reversion_direction="BUY",
+        confidence=0.95,
+        order_flow_toxicity_pct=0.80,
+    )
+    assert not sniper.evaluate_opportunity(
+        hollow_sig, stress_score=0.05, current_price=95.0
+    )
 
     # Genuine toxic institutional capitulation: toxicity is 0.98
-    toxic_sig = TradeSignal("BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95, order_flow_toxicity_pct=0.98)
+    toxic_sig = TradeSignal(
+        "BUY",
+        edge_zscore=4.0,
+        mean_reversion_direction="BUY",
+        confidence=0.95,
+        order_flow_toxicity_pct=0.98,
+    )
     assert sniper.evaluate_opportunity(toxic_sig, stress_score=0.05, current_price=95.0)
 
 
@@ -43,7 +70,9 @@ def test_retracement_reload_hysteresis():
     sniper = SniperMode(retracement_bounce_pct=0.015, base_cooldown_sec=0.0)
     sniper.is_armed = True
 
-    sig = TradeSignal("BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95)
+    sig = TradeSignal(
+        "BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95
+    )
 
     # First entry at 95.00
     assert sniper.evaluate_opportunity(sig, stress_score=0.05, current_price=95.0)
@@ -67,7 +96,9 @@ def test_tier0_ephemeral_stale_cancel():
 
     # sigma = 0.20 -> threshold = 0.25 * 0.20 = 0.05
     # Micro-price drifts against SELL exit to 99.90 (drift = 0.10 > 0.05)
-    canceled = sniper.evaluate_microstructure_exit_drift(current_micro_price=99.90, sigma=0.20)
+    canceled = sniper.evaluate_microstructure_exit_drift(
+        current_micro_price=99.90, sigma=0.20
+    )
     assert canceled
     assert sniper.active_passive_exit is None
 
@@ -101,10 +132,14 @@ def test_sniper_z_score_trigger():
     sniper = SniperMode()
     sniper.is_armed = True
 
-    at_boundary = TradeSignal("BUY", edge_zscore=3.0, mean_reversion_direction="BUY", confidence=0.95)
+    at_boundary = TradeSignal(
+        "BUY", edge_zscore=3.0, mean_reversion_direction="BUY", confidence=0.95
+    )
     assert not sniper.evaluate_opportunity(at_boundary, stress_score=0.05)
 
-    above_boundary = TradeSignal("BUY", edge_zscore=3.01, mean_reversion_direction="BUY", confidence=0.95)
+    above_boundary = TradeSignal(
+        "BUY", edge_zscore=3.01, mean_reversion_direction="BUY", confidence=0.95
+    )
     assert sniper.evaluate_opportunity(above_boundary, stress_score=0.05)
 
 
@@ -112,7 +147,9 @@ def test_sniper_micro_spread_trigger():
     """S_micro (stress_score) must be strictly below 0.10 for the Sniper to evaluate at all."""
     sniper = SniperMode()
     sniper.is_armed = True
-    sig = TradeSignal("BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95)
+    sig = TradeSignal(
+        "BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95
+    )
 
     assert not sniper.evaluate_opportunity(sig, stress_score=0.10)
     assert sniper.evaluate_opportunity(sig, stress_score=0.09)
@@ -121,35 +158,69 @@ def test_sniper_micro_spread_trigger():
 def test_temporal_persistence_1_tick_rejection():
     sniper = SniperMode(required_persistence_ticks=10)
     sniper.is_armed = True
-    noise_sig = TradeSignal("BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95, sustained_ticks=1)
-    assert not sniper.evaluate_opportunity(noise_sig, stress_score=0.05, current_price=95.0)
+    noise_sig = TradeSignal(
+        "BUY",
+        edge_zscore=4.0,
+        mean_reversion_direction="BUY",
+        confidence=0.95,
+        sustained_ticks=1,
+    )
+    assert not sniper.evaluate_opportunity(
+        noise_sig, stress_score=0.05, current_price=95.0
+    )
 
 
 def test_temporal_persistence_10_tick_acceptance():
     sniper = SniperMode(required_persistence_ticks=10)
     sniper.is_armed = True
-    sustained_sig = TradeSignal("BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95, sustained_ticks=10)
-    assert sniper.evaluate_opportunity(sustained_sig, stress_score=0.05, current_price=95.0)
+    sustained_sig = TradeSignal(
+        "BUY",
+        edge_zscore=4.0,
+        mean_reversion_direction="BUY",
+        confidence=0.95,
+        sustained_ticks=10,
+    )
+    assert sniper.evaluate_opportunity(
+        sustained_sig, stress_score=0.05, current_price=95.0
+    )
 
 
 def test_toxicity_filter_hollow_drop_veto():
     sniper = SniperMode(min_toxicity_pct=0.95)
     sniper.is_armed = True
-    hollow_sig = TradeSignal("BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95, order_flow_toxicity_pct=0.80)
-    assert not sniper.evaluate_opportunity(hollow_sig, stress_score=0.05, current_price=95.0)
+    hollow_sig = TradeSignal(
+        "BUY",
+        edge_zscore=4.0,
+        mean_reversion_direction="BUY",
+        confidence=0.95,
+        order_flow_toxicity_pct=0.80,
+    )
+    assert not sniper.evaluate_opportunity(
+        hollow_sig, stress_score=0.05, current_price=95.0
+    )
 
 
 def test_toxicity_filter_high_volume_acceptance():
     sniper = SniperMode(min_toxicity_pct=0.95)
     sniper.is_armed = True
-    toxic_sig = TradeSignal("BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95, order_flow_toxicity_pct=0.98)
+    toxic_sig = TradeSignal(
+        "BUY",
+        edge_zscore=4.0,
+        mean_reversion_direction="BUY",
+        confidence=0.95,
+        order_flow_toxicity_pct=0.98,
+    )
     assert sniper.evaluate_opportunity(toxic_sig, stress_score=0.05, current_price=95.0)
 
 
 def test_ammunition_quota_first_shot():
-    sniper = SniperMode(max_size_multiplier=0.10, inventory_quota_max=0.50, base_cooldown_sec=0.0)
+    sniper = SniperMode(
+        max_size_multiplier=0.10, inventory_quota_max=0.50, base_cooldown_sec=0.0
+    )
     sniper.is_armed = True
-    sig = TradeSignal("BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95)
+    sig = TradeSignal(
+        "BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95
+    )
 
     assert sniper.evaluate_opportunity(sig, stress_score=0.05)
     order = sniper.execute_sniper_trade(sig, base_size=10.0)
@@ -159,21 +230,33 @@ def test_ammunition_quota_first_shot():
 
 
 def test_ammunition_quota_hard_cap():
-    sniper = SniperMode(max_size_multiplier=0.10, inventory_quota_max=0.50, base_cooldown_sec=0.0)
+    sniper = SniperMode(
+        max_size_multiplier=0.10, inventory_quota_max=0.50, base_cooldown_sec=0.0
+    )
     sniper.is_armed = True
-    sig = TradeSignal("BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95)
+    sig = TradeSignal(
+        "BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95
+    )
 
     for shot in range(5):
-        assert sniper.evaluate_opportunity(sig, stress_score=0.05), f"shot {shot + 1} should be permitted"
+        assert sniper.evaluate_opportunity(
+            sig, stress_score=0.05
+        ), f"shot {shot + 1} should be permitted"
         sniper.execute_sniper_trade(sig, base_size=10.0)
 
-    assert sniper.accumulated_inventory_pct == pytest.approx(0.50)  # hard cap reached exactly on shot 5
+    assert sniper.accumulated_inventory_pct == pytest.approx(
+        0.50
+    )  # hard cap reached exactly on shot 5
 
 
 def test_ammunition_quota_magazine_empty():
-    sniper = SniperMode(max_size_multiplier=0.10, inventory_quota_max=0.50, base_cooldown_sec=0.0)
+    sniper = SniperMode(
+        max_size_multiplier=0.10, inventory_quota_max=0.50, base_cooldown_sec=0.0
+    )
     sniper.is_armed = True
-    sig = TradeSignal("BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95)
+    sig = TradeSignal(
+        "BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95
+    )
 
     for _ in range(5):
         sniper.evaluate_opportunity(sig, stress_score=0.05)
@@ -186,7 +269,9 @@ def test_ammunition_quota_magazine_empty():
 def test_retracement_reload_falling_knife():
     sniper = SniperMode(retracement_bounce_pct=0.015, base_cooldown_sec=0.0)
     sniper.is_armed = True
-    sig = TradeSignal("BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95)
+    sig = TradeSignal(
+        "BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95
+    )
 
     assert sniper.evaluate_opportunity(sig, stress_score=0.05, current_price=95.0)
     sniper.execute_sniper_trade(sig, base_size=10.0, current_price=95.0)
@@ -200,25 +285,37 @@ def test_retracement_reload_falling_knife():
 def test_volatility_scaled_cooldown_stretch():
     sniper = SniperMode(base_cooldown_sec=5.0)
     sniper.is_armed = True
-    sig = TradeSignal("BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95)
-    assert sniper.evaluate_opportunity(sig, stress_score=0.05, now_ts=100.0, vol_ratio=1.0)
+    sig = TradeSignal(
+        "BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95
+    )
+    assert sniper.evaluate_opportunity(
+        sig, stress_score=0.05, now_ts=100.0, vol_ratio=1.0
+    )
     sniper.execute_sniper_trade(sig, base_size=10.0, now_ts=100.0)
 
     # High session volatility (vol_ratio=3.0) stretches the 5s cooldown to 15s;
     # 10s later is still inside the stretched window.
-    assert not sniper.evaluate_opportunity(sig, stress_score=0.05, now_ts=110.0, vol_ratio=3.0)
+    assert not sniper.evaluate_opportunity(
+        sig, stress_score=0.05, now_ts=110.0, vol_ratio=3.0
+    )
 
 
 def test_volatility_scaled_cooldown_shrink():
     sniper = SniperMode(base_cooldown_sec=5.0)
     sniper.is_armed = True
-    sig = TradeSignal("BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95)
-    assert sniper.evaluate_opportunity(sig, stress_score=0.05, now_ts=100.0, vol_ratio=1.0)
+    sig = TradeSignal(
+        "BUY", edge_zscore=4.0, mean_reversion_direction="BUY", confidence=0.95
+    )
+    assert sniper.evaluate_opportunity(
+        sig, stress_score=0.05, now_ts=100.0, vol_ratio=1.0
+    )
     sniper.execute_sniper_trade(sig, base_size=10.0, now_ts=100.0)
 
     # Low session volatility (vol_ratio=0.2) shrinks the 5s cooldown to 1s;
     # 2s later is already past the shrunken window.
-    assert sniper.evaluate_opportunity(sig, stress_score=0.05, now_ts=102.0, vol_ratio=0.2)
+    assert sniper.evaluate_opportunity(
+        sig, stress_score=0.05, now_ts=102.0, vol_ratio=0.2
+    )
 
 
 def test_microstructure_exit_tier0_tagging():
@@ -235,15 +332,23 @@ def test_microstructure_exit_asymmetric_cancel():
     sell_sniper = SniperMode()
     sell_sniper.post_passive_exit(price=100.00, qty=1.0, side="SELL")
     # For a SELL exit, adverse drift is downward beyond 0.25*sigma = 0.05.
-    assert not sell_sniper.evaluate_microstructure_exit_drift(current_micro_price=99.96, sigma=sigma)  # 0.04 < 0.05
-    assert sell_sniper.evaluate_microstructure_exit_drift(current_micro_price=99.90, sigma=sigma)  # 0.10 > 0.05
+    assert not sell_sniper.evaluate_microstructure_exit_drift(
+        current_micro_price=99.96, sigma=sigma
+    )  # 0.04 < 0.05
+    assert sell_sniper.evaluate_microstructure_exit_drift(
+        current_micro_price=99.90, sigma=sigma
+    )  # 0.10 > 0.05
     assert sell_sniper.active_passive_exit is None
 
     buy_sniper = SniperMode()
     buy_sniper.post_passive_exit(price=100.00, qty=1.0, side="BUY")
     # For a BUY exit, adverse drift is upward beyond 0.25*sigma -- the opposite direction.
-    assert not buy_sniper.evaluate_microstructure_exit_drift(current_micro_price=100.04, sigma=sigma)  # 0.04 < 0.05
-    assert buy_sniper.evaluate_microstructure_exit_drift(current_micro_price=100.10, sigma=sigma)  # 0.10 > 0.05
+    assert not buy_sniper.evaluate_microstructure_exit_drift(
+        current_micro_price=100.04, sigma=sigma
+    )  # 0.04 < 0.05
+    assert buy_sniper.evaluate_microstructure_exit_drift(
+        current_micro_price=100.10, sigma=sigma
+    )  # 0.10 > 0.05
 
 
 def test_microstructure_exit_predator_killswitch():
@@ -251,7 +356,9 @@ def test_microstructure_exit_predator_killswitch():
     sniper.post_passive_exit(price=100.00, qty=1.0, side="SELL")
 
     event = LiquidityEvent("QUOTE_WITHDRAWAL", 5.0, 2.0, 10.0, depletion_ratio=0.80)
-    killed = sniper.on_liquidity_event_killswitch(event)  # synchronous: canceled within this same call
+    killed = sniper.on_liquidity_event_killswitch(
+        event
+    )  # synchronous: canceled within this same call
 
     assert killed is True
     assert sniper.active_passive_exit is None

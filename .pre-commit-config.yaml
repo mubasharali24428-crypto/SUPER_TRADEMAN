@@ -37,4 +37,6 @@ repos:
     rev: v1.5.1
     hooks:
       - id: mypy
-        additional_dependencies: [types-requests]
+        # types-redis: clears the redis/redis.asyncio stub errors on db/redis,
+        # infrastructure/ha_lock, ops/alert_manager, risk/tier_state.
+        additional_dependencies: [types-requests, types-redis]

@@ -2,7 +2,8 @@
 
 import pytest
 
-from trading.security.secrets_manager import SecretNotFoundError, SecretsManager
+from trading.security.secrets_manager import (SecretNotFoundError,
+                                              SecretsManager)
 
 ALL_SECRET_KEYS = [
     "EXCHANGE_API_KEY",
@@ -100,6 +101,7 @@ def test_exception_message_never_contains_values(monkeypatch):
 
 
 # --- Rotation still works (kept from original contract) ----------------------
+
 
 def test_rotation_slack_and_pagerduty():
     mgr = SecretsManager()

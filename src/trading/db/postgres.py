@@ -30,7 +30,9 @@ def resolve_postgres_url(settings=None) -> str:
     return url
 
 
-async def get_pool(settings=None, min_size: int = 1, max_size: int = 10) -> asyncpg.Pool:
+async def get_pool(
+    settings=None, min_size: int = 1, max_size: int = 10
+) -> asyncpg.Pool:
     """Create an asyncpg connection pool from resolved configuration."""
     return await asyncpg.create_pool(
         resolve_postgres_url(settings), min_size=min_size, max_size=max_size

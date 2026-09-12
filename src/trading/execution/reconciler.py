@@ -31,7 +31,9 @@ class QuarantineItem:
 class StateReconciler:
     """Monitors alignment between venue exchange state and local OMS database."""
 
-    def __init__(self, venue_adapter: VenueAdapter, reconcile_interval_sec: float = 60.0):
+    def __init__(
+        self, venue_adapter: VenueAdapter, reconcile_interval_sec: float = 60.0
+    ):
         self.venue_adapter = venue_adapter
         self.reconcile_interval_sec = reconcile_interval_sec
         self.quarantine_items: List[QuarantineItem] = []
@@ -40,7 +42,9 @@ class StateReconciler:
         """Returns True if system is in quarantine mode (blocking new ApprovedOrders)."""
         return len(self.quarantine_items) > 0
 
-    async def reconcile_once(self, local_positions: Dict[str, float]) -> List[QuarantineItem]:
+    async def reconcile_once(
+        self, local_positions: Dict[str, float]
+    ) -> List[QuarantineItem]:
         """Runs a single reconciliation cycle against exchange state."""
         try:
             exchange_positions = await self.venue_adapter.fetch_positions()
@@ -55,7 +59,11 @@ class StateReconciler:
             self.quarantine_items.append(item)
             return self.quarantine_items
 
-        ex_map = {pos["symbol"]: pos["amount"] for pos in exchange_positions if "symbol" in pos}
+        ex_map = {
+            pos["symbol"]: pos["amount"]
+            for pos in exchange_positions
+            if "symbol" in pos
+        }
 
         # Check for mismatches
         all_assets = set(local_positions.keys()).union(ex_map.keys())

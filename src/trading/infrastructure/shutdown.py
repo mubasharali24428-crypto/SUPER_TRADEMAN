@@ -27,8 +27,12 @@ class GracefulShutdownHandler:
 
     def handle_signal(self, signum: int, frame: Optional[object] = None) -> None:
         """Handles SIGTERM / SIGINT signals cleanly."""
-        sig_name = signal.Signals(signum).name if hasattr(signal, "Signals") else str(signum)
-        logger.warning(f"[GRACEFUL_SHUTDOWN_INITIATED] Received OS signal {sig_name}. Halting new order signals.")
+        sig_name = (
+            signal.Signals(signum).name if hasattr(signal, "Signals") else str(signum)
+        )
+        logger.warning(
+            f"[GRACEFUL_SHUTDOWN_INITIATED] Received OS signal {sig_name}. Halting new order signals."
+        )
 
         self.shutdown_initiated = True
 
@@ -38,9 +42,13 @@ class GracefulShutdownHandler:
 
         # Log GRACEFUL_SHUTDOWN event in Audit Ledger
         if self.audit_ledger is not None:
-            self.audit_ledger.append_event("GRACEFUL_SHUTDOWN", {"signal": sig_name, "status": "CLEAN_RELEASE"})
+            self.audit_ledger.append_event(
+                "GRACEFUL_SHUTDOWN", {"signal": sig_name, "status": "CLEAN_RELEASE"}
+            )
 
-        logger.info("[GRACEFUL_SHUTDOWN_COMPLETED] System shutdown sequence finished cleanly.")
+        logger.info(
+            "[GRACEFUL_SHUTDOWN_COMPLETED] System shutdown sequence finished cleanly."
+        )
 
     def register_signal_handlers(self) -> None:
         """Registers handlers for SIGTERM and SIGINT."""

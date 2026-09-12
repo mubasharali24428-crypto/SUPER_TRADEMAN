@@ -38,6 +38,7 @@ def test_health_service_degraded_stale_data():
 # UNKNOWN-not-HEALTHY: no fabricated statuses when a probe is impossible.
 # --------------------------------------------------------------------------
 
+
 def test_database_health_unknown_when_no_postgres_url(monkeypatch):
     """No POSTGRES_URL => UNKNOWN. Never the old hardcoded HEALTHY/1.2ms."""
     monkeypatch.delenv("POSTGRES_URL", raising=False)

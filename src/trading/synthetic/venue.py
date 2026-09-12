@@ -5,7 +5,8 @@ from typing import Any, Dict, List, Optional
 
 from trading.execution.venue_adapter import InstrumentInfo, VenueAdapter
 from trading.observability.logger import get_logger
-from trading.risk.models import ApprovedExit, ApprovedOrder, Position, Side, _ISSUER
+from trading.risk.models import (_ISSUER, ApprovedExit, ApprovedOrder,
+                                 Position, Side)
 from trading.synthetic.lob import LimitOrder, SyntheticLOB
 
 __all__ = ["SyntheticVenue"]
@@ -35,9 +36,7 @@ class SyntheticVenue(VenueAdapter):
         if client_order_id is None:
             # ApprovedOrder carries no id of its own; fall back to a deterministic
             # venue-side id derived from its immutable fields.
-            client_order_id = (
-                f"ord_{approved_order.asset}_{int(approved_order.entry_price * 100)}_{id(approved_order) % 10**8}"
-            )
+            client_order_id = f"ord_{approved_order.asset}_{int(approved_order.entry_price * 100)}_{id(approved_order) % 10**8}"
         self.open_orders[client_order_id] = approved_order
         now_ms = time.time() * 1000.0
 
@@ -72,7 +71,11 @@ class SyntheticVenue(VenueAdapter):
                 position_size=filled_qty,
             )
 
-        status = "FILLED" if filled_qty >= approved_order.position_size else ("PARTIAL" if filled_qty > 0 else "SUBMITTED")
+        status = (
+            "FILLED"
+            if filled_qty >= approved_order.position_size
+            else ("PARTIAL" if filled_qty > 0 else "SUBMITTED")
+        )
         return {
             "client_order_id": client_order_id,
             "status": status,
@@ -100,7 +103,9 @@ class SyntheticVenue(VenueAdapter):
             )
         )
 
-        logger.info(f"[SYNTHETIC_EXIT_EXECUTED] Asset {approved_exit.asset}, Qty {exit_qty}, Price {exit_price}")
+        logger.info(
+            f"[SYNTHETIC_EXIT_EXECUTED] Asset {approved_exit.asset}, Qty {exit_qty}, Price {exit_price}"
+        )
         return {
             "status": "FILLED",
             "asset": approved_exit.asset,
@@ -109,16 +114,22 @@ class SyntheticVenue(VenueAdapter):
             "fills": fills,
         }
 
-    async def create_order(self, order: ApprovedOrder, client_order_id: str) -> Dict[str, Any]:
+    async def create_order(
+        self, order: ApprovedOrder, client_order_id: str
+    ) -> Dict[str, Any]:
         """VenueAdapter protocol: submit an ApprovedOrder under a caller-supplied id."""
-        result = await self.submit_approved_order(approved_order=order, client_order_id=client_order_id)
+        result = await self.submit_approved_order(
+            approved_order=order, client_order_id=client_order_id
+        )
         return {
             "id": f"syn_{client_order_id}",
             "clientOrderId": client_order_id,
             **result,
         }
 
-    async def create_exit(self, exit_order: ApprovedExit, client_order_id: str) -> Dict[str, Any]:
+    async def create_exit(
+        self, exit_order: ApprovedExit, client_order_id: str
+    ) -> Dict[str, Any]:
         """VenueAdapter protocol: submit an ApprovedExit under a caller-supplied id."""
         result = await self.submit_approved_exit(exit_order)
         return {
@@ -131,9 +142,15 @@ class SyntheticVenue(VenueAdapter):
         """VenueAdapter protocol: cancel a resting order in the SyntheticLOB."""
         self.open_orders.pop(client_order_id, None)
         cancelled = self.lob.cancel_order(client_order_id)
-        return {"clientOrderId": client_order_id, "symbol": symbol, "status": "canceled" if cancelled else "not_found"}
+        return {
+            "clientOrderId": client_order_id,
+            "symbol": symbol,
+            "status": "canceled" if cancelled else "not_found",
+        }
 
-    async def fetch_order(self, client_order_id: str, symbol: str) -> Optional[Dict[str, Any]]:
+    async def fetch_order(
+        self, client_order_id: str, symbol: str
+    ) -> Optional[Dict[str, Any]]:
         """VenueAdapter protocol: query order status by client_order_id."""
         order = self.open_orders.get(client_order_id)
         if order is None:
@@ -145,7 +162,12 @@ class SyntheticVenue(VenueAdapter):
             status = "partially_filled"
         else:
             status = "filled"
-        return {"clientOrderId": client_order_id, "symbol": symbol, "status": status, "filled_qty": filled_qty}
+        return {
+            "clientOrderId": client_order_id,
+            "symbol": symbol,
+            "status": status,
+            "filled_qty": filled_qty,
+        }
 
     async def fetch_positions(self) -> List[Dict[str, Any]]:
         return [
@@ -157,7 +179,9 @@ class SyntheticVenue(VenueAdapter):
             for p in self.open_positions.values()
         ]
 
-    async def fetch_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def fetch_open_orders(
+        self, symbol: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         return [
             {
                 "client_order_id": cid,

@@ -4,16 +4,9 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from trading.risk.engine import RiskEngine
-from trading.risk.models import (
-    AccountState,
-    ApprovedExit,
-    ApprovedOrder,
-    ExitSignal,
-    Position,
-    RiskConfig,
-    Side,
-    Signal,
-)
+from trading.risk.models import (AccountState, ApprovedExit, ApprovedOrder,
+                                 ExitSignal, Position, RiskConfig, Side,
+                                 Signal)
 
 NOW = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -56,7 +49,9 @@ def test_rejects_missing_stop_loss():
 
 def test_rejects_insufficient_reward_risk():
     # stop=95 -> risk 5, target=105 -> reward 5, R:R = 1.0 < 2.0
-    decision = RiskEngine().evaluate(make_signal(suggested_target=105.0), make_account())
+    decision = RiskEngine().evaluate(
+        make_signal(suggested_target=105.0), make_account()
+    )
     assert not decision.approved
     assert "reward:risk" in decision.reason
 
@@ -71,7 +66,9 @@ def test_rejects_when_portfolio_heat_cap_exceeded():
     open_positions = [
         Position("ETH/USDT", "crypto", Side.LONG, 100, 95, risk_pct=0.055),
     ]
-    decision = RiskEngine().evaluate(make_signal(), make_account(open_positions=open_positions))
+    decision = RiskEngine().evaluate(
+        make_signal(), make_account(open_positions=open_positions)
+    )
     assert not decision.approved
     assert "heat" in decision.reason
 
@@ -86,7 +83,9 @@ def test_reduces_heat_cap_during_high_volatility():
     assert "heat" in decision.reason
 
     # the identical heat load is fine once volatility regime is normal
-    account_normal_vol = make_account(open_positions=open_positions, high_volatility=False)
+    account_normal_vol = make_account(
+        open_positions=open_positions, high_volatility=False
+    )
     assert RiskEngine().evaluate(make_signal(), account_normal_vol).approved
 
 
@@ -99,9 +98,12 @@ def test_correlation_guard_rejects_combined_cluster():
     assert not decision.approved
     assert "correlation" in decision.reason
 
+
 def test_correlation_guard_passes_when_cluster_under_cap():
     # ETH at 0.5% risk + new BTC at 1% + 0.5% correlated = 2% ≤ 6% cap → passes
-    open_positions = [Position("ETH/USDT", "crypto", Side.LONG, 100, 95, risk_pct=0.005)]
+    open_positions = [
+        Position("ETH/USDT", "crypto", Side.LONG, 100, 95, risk_pct=0.005)
+    ]
     correlations = {frozenset({"ETH/USDT", "BTC/USDT"}): 0.85}
     account = make_account(open_positions=open_positions, correlations=correlations)
     decision = RiskEngine().evaluate(make_signal(asset="BTC/USDT"), account)
@@ -111,9 +113,12 @@ def test_correlation_guard_passes_when_cluster_under_cap():
 
 def test_rejects_when_asset_class_at_max_positions():
     open_positions = [
-        Position(f"ALT{i}/USDT", "crypto", Side.LONG, 100, 95, risk_pct=0.005) for i in range(5)
+        Position(f"ALT{i}/USDT", "crypto", Side.LONG, 100, 95, risk_pct=0.005)
+        for i in range(5)
     ]
-    decision = RiskEngine().evaluate(make_signal(), make_account(open_positions=open_positions))
+    decision = RiskEngine().evaluate(
+        make_signal(), make_account(open_positions=open_positions)
+    )
     assert not decision.approved
     assert "max concurrent positions" in decision.reason
 
@@ -131,7 +136,9 @@ def test_weekly_loss_halves_position_size_instead_of_rejecting():
 
 
 def test_max_drawdown_triggers_kill_switch():
-    account = make_account(equity=82_000.0, peak_equity=100_000.0)  # 18% drawdown >= 17.5% default
+    account = make_account(
+        equity=82_000.0, peak_equity=100_000.0
+    )  # 18% drawdown >= 17.5% default
     decision = RiskEngine().evaluate(make_signal(), account)
     assert not decision.approved
     assert "drawdown" in decision.reason
@@ -154,7 +161,9 @@ def test_consecutive_loss_pause_blocks_asset_class_during_cooldown():
 
 
 def test_pre_event_derisking_halves_position_size():
-    decision = RiskEngine().evaluate(make_signal(), make_account(minutes_to_next_major_event=90))
+    decision = RiskEngine().evaluate(
+        make_signal(), make_account(minutes_to_next_major_event=90)
+    )
     assert decision.approved
     assert decision.approved_order.risk_pct == pytest.approx(0.005)
 
@@ -170,6 +179,7 @@ def test_quantization_counters_basic():
     engine = RiskEngine()
     account = make_account()
     from trading.risk.models import Signal
+
     decision = engine.evaluate(make_signal(), account)
     assert decision.approved
     stats = engine.get_quantization_stats()
@@ -221,18 +231,29 @@ def make_exit_signal(**overrides) -> ExitSignal:
 
 
 def _account_with_btc_position(**overrides) -> AccountState:
-    position = Position("BTC/USDT", "crypto", Side.LONG, entry_price=100.0, stop_price=95.0, risk_pct=0.01)
+    position = Position(
+        "BTC/USDT",
+        "crypto",
+        Side.LONG,
+        entry_price=100.0,
+        stop_price=95.0,
+        risk_pct=0.01,
+    )
     return make_account(open_positions=[position], **overrides)
 
 
 def test_exit_signal_approved_when_position_exists_and_confident():
-    decision = RiskEngine().evaluate_exit_signal(make_exit_signal(), _account_with_btc_position())
+    decision = RiskEngine().evaluate_exit_signal(
+        make_exit_signal(), _account_with_btc_position()
+    )
     assert decision.approved
     assert decision.approved_exit.asset == "BTC/USDT"
 
 
 def test_exit_signal_rejected_when_no_matching_position():
-    decision = RiskEngine().evaluate_exit_signal(make_exit_signal(), make_account())  # no open positions
+    decision = RiskEngine().evaluate_exit_signal(
+        make_exit_signal(), make_account()
+    )  # no open positions
     assert not decision.approved
     assert "no open position" in decision.reason
 
@@ -254,7 +275,9 @@ def test_exit_signal_approved_even_when_kill_switch_active():
 
 
 def test_exit_signal_approved_even_during_drawdown_and_daily_loss_halt():
-    account = _account_with_btc_position(equity=80_000.0, peak_equity=100_000.0, daily_pnl_pct=-0.05)
+    account = _account_with_btc_position(
+        equity=80_000.0, peak_equity=100_000.0, daily_pnl_pct=-0.05
+    )
     decision = RiskEngine().evaluate_exit_signal(make_exit_signal(), account)
     assert decision.approved
 

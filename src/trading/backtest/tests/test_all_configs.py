@@ -1,39 +1,48 @@
-import sys
-import math
 import json
+import math
 import sqlite3
-import pytest
-from pathlib import Path
-from datetime import datetime, timezone
+import sys
 from dataclasses import replace
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
 
 # Ensure src is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
-from trading.backtest.engine import run_backtest, BacktestConfig
-from trading.backtest.strategies import generate_synthetic_candles, make_momentum_strategy
-from trading.risk.engine import RiskEngine
-from trading.risk.models import AccountState, RiskConfig, Side, Signal
+from trading.backtest.engine import BacktestConfig, run_backtest
+from trading.backtest.strategies import (generate_synthetic_candles,
+                                         make_momentum_strategy)
 from trading.learning.graph import LearningGraph
 from trading.learning.policy import ContextualBanditAllocator
+from trading.risk.engine import RiskEngine
+from trading.risk.models import AccountState, RiskConfig, Side, Signal
+
 
 @pytest.fixture
 def sample_candles():
     return generate_synthetic_candles(300, start_price=100.0, seed=42)
 
+
 @pytest.fixture
 def tmp_lg_file(tmp_path):
     return Path(tmp_path) / "test_lg.jsonl"
+
 
 @pytest.fixture
 def tmp_sqlite_file(tmp_path):
     return Path(tmp_path) / "test_lg.db"
 
-@pytest.mark.parametrize("target_mult,stop_pct", [
-    (0.03, 0.01),
-    (0.04, 0.01),
-    (0.05, 0.01),
-])
+
+@pytest.mark.parametrize(
+    "target_mult,stop_pct",
+    [
+        (0.03, 0.01),
+        (0.04, 0.01),
+        (0.05, 0.01),
+    ],
+)
 def test_momentum_strategy_signals(sample_candles, target_mult, stop_pct):
     strat = make_momentum_strategy(target_mult=target_mult, stop_pct=stop_pct)
     dt = datetime.now(timezone.utc)
@@ -44,7 +53,10 @@ def test_momentum_strategy_signals(sample_candles, target_mult, stop_pct):
     assert sig.suggested_stop is not None
     assert sig.suggested_target is not None
 
-def test_advanced_risk_metrics_and_sqlite_export(sample_candles, tmp_lg_file, tmp_sqlite_file):
+
+def test_advanced_risk_metrics_and_sqlite_export(
+    sample_candles, tmp_lg_file, tmp_sqlite_file
+):
     lg = LearningGraph(storage_path=tmp_lg_file)
     risk_cfg = RiskConfig(
         risk_pct=0.005,
@@ -87,6 +99,7 @@ def test_advanced_risk_metrics_and_sqlite_export(sample_candles, tmp_lg_file, tm
     conn.close()
     assert count == len(res.trades)
 
+
 def test_policy_gradient_allocator(sample_candles, tmp_lg_file):
     lg = LearningGraph(storage_path=tmp_lg_file)
     risk_cfg = RiskConfig(risk_pct=0.005, max_drawdown=0.30)
@@ -94,15 +107,20 @@ def test_policy_gradient_allocator(sample_candles, tmp_lg_file):
     acc = AccountState(equity=10000.0, peak_equity=10000.0)
     strat = make_momentum_strategy(target_mult=0.03, stop_pct=0.01)
 
-    res = run_backtest(sample_candles, "BTC/USDT", strat, engine, acc, learning_graph=lg)
+    res = run_backtest(
+        sample_candles, "BTC/USDT", strat, engine, acc, learning_graph=lg
+    )
 
-    allocator = ContextualBanditAllocator(strategies=["trend_following", "mean_reversion"])
+    allocator = ContextualBanditAllocator(
+        strategies=["trend_following", "mean_reversion"]
+    )
     allocator.fit_from_learning_graph(lg)
     probs = allocator.get_action_probabilities()
     assert len(probs) == 2
     assert math.isclose(sum(probs.values()), 1.0)
     summary = allocator.summary()
     assert "trend_following" in summary
+
 
 def test_multi_symbol_basket_expansion():
     """Test a 3-symbol portfolio basket (BTC, ETH, SOL) with shared risk engine."""
@@ -118,9 +136,17 @@ def test_multi_symbol_basket_expansion():
 
     # Sequential portfolio execution across basket
     res_btc = run_backtest(candles_btc, "BTC/USDT", strat, engine, acc, bt_cfg)
-    acc_eth = replace(acc, equity=res_btc.report.final_equity, peak_equity=max(acc.peak_equity, res_btc.report.final_equity))
+    acc_eth = replace(
+        acc,
+        equity=res_btc.report.final_equity,
+        peak_equity=max(acc.peak_equity, res_btc.report.final_equity),
+    )
     res_eth = run_backtest(candles_eth, "ETH/USDT", strat, engine, acc_eth, bt_cfg)
-    acc_sol = replace(acc_eth, equity=res_eth.report.final_equity, peak_equity=max(acc_eth.peak_equity, res_eth.report.final_equity))
+    acc_sol = replace(
+        acc_eth,
+        equity=res_eth.report.final_equity,
+        peak_equity=max(acc_eth.peak_equity, res_eth.report.final_equity),
+    )
     res_sol = run_backtest(candles_sol, "SOL/USDT", strat, engine, acc_sol, bt_cfg)
 
     all_trades = res_btc.trades + res_eth.trades + res_sol.trades

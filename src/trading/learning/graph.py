@@ -82,6 +82,7 @@ class LockAcquireTimeout(RuntimeError):
 # Data structures
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class DecisionRecord:
     trade_id: str
@@ -122,7 +123,9 @@ class LearningGraph:
         self.graph: nx.MultiDiGraph = nx.MultiDiGraph()
         self.storage_path = Path(storage_path or "learning_graph.jsonl")
         self.lock_path = self.storage_path.with_name(self.storage_path.name + ".lock")
-        self.corrupt_path = self.storage_path.with_name(self.storage_path.name + ".corrupt")
+        self.corrupt_path = self.storage_path.with_name(
+            self.storage_path.name + ".corrupt"
+        )
         self.lock_timeout = max(0.05, float(lock_timeout))
         self.rotate_bytes = int(rotate_bytes)
         # Torn/malformed lines quarantined during the most recent load.
@@ -212,12 +215,17 @@ class LearningGraph:
         result_node = ("result", trade_id)
 
         # Create nodes
-        self.graph.add_node(decision_node, data=DecisionRecord(trade_id, signal_payload, expected_payload, ts))
+        self.graph.add_node(
+            decision_node,
+            data=DecisionRecord(trade_id, signal_payload, expected_payload, ts),
+        )
         # Initialize posterior with prior (mu=0, sigma2=1) and observation variance sigma2_obs=0.5
         sigma2_obs = 0.5
         prior_mu = 0.0
         prior_sigma2 = 1.0
-        posterior_mu = (prior_mu / prior_sigma2 + actual_pnl / sigma2_obs) / (1 / prior_sigma2 + 1 / sigma2_obs)
+        posterior_mu = (prior_mu / prior_sigma2 + actual_pnl / sigma2_obs) / (
+            1 / prior_sigma2 + 1 / sigma2_obs
+        )
         posterior_sigma2 = 1.0 / (1.0 / prior_sigma2 + 1.0 / sigma2_obs)
         self.graph.add_node(
             result_node,
@@ -246,7 +254,9 @@ class LearningGraph:
         """
         lines_by_key = self._snapshot_keyed()
         if self._flushed_keys is not None:
-            pending = {k: ln for k, ln in lines_by_key.items() if k not in self._flushed_keys}
+            pending = {
+                k: ln for k, ln in lines_by_key.items() if k not in self._flushed_keys
+            }
         else:
             pending = lines_by_key
         if not pending:
@@ -276,7 +286,9 @@ class LearningGraph:
             with self.storage_path.open("r", encoding="utf-8") as f:
                 lines_before = sum(1 for line in f if line.strip())
 
-        lines = [self._line_from_edge(u, v, data) for u, v, data in deduped.edges(data=True)]
+        lines = [
+            self._line_from_edge(u, v, data) for u, v, data in deduped.edges(data=True)
+        ]
         archived = False
         with self._writer_lock():
             if self.storage_path.exists():
@@ -307,10 +319,16 @@ class LearningGraph:
     # ---------------------------------------------------------------------
     def _edge_context(self, decision: DecisionRecord, result: ResultRecord) -> str:
         """Stable dedupe context for an edge: strategy|verdict."""
-        strat = decision.signal.get("strategy") if isinstance(decision.signal, dict) else None
+        strat = (
+            decision.signal.get("strategy")
+            if isinstance(decision.signal, dict)
+            else None
+        )
         return f"{strat}|{result.verdict}"
 
-    def _record_payload(self, decision: DecisionRecord, result: ResultRecord, context: str) -> Dict[str, Any]:
+    def _record_payload(
+        self, decision: DecisionRecord, result: ResultRecord, context: str
+    ) -> Dict[str, Any]:
         return {
             "decision": {
                 "trade_id": decision.trade_id,
@@ -386,18 +404,29 @@ class LearningGraph:
         for key in sorted(order, key=lambda kk: order[kk]):
             payload = best_by_key[key]
             d, r = payload["decision"], payload["result"]
-            node_d = DecisionRecord(d["trade_id"], d["signal"], d["expected"], d["timestamp"])
+            node_d = DecisionRecord(
+                d["trade_id"], d["signal"], d["expected"], d["timestamp"]
+            )
             node_r = ResultRecord(
-                r["trade_id"], r["actual_pnl"], r["verdict"], r["timestamp"],
-                r.get("posterior_mu", 0.0), r.get("posterior_sigma2", 1.0),
-                r.get("rl_value", 0.0), r.get("rl_advantage", 0.0),
+                r["trade_id"],
+                r["actual_pnl"],
+                r["verdict"],
+                r["timestamp"],
+                r.get("posterior_mu", 0.0),
+                r.get("posterior_sigma2", 1.0),
+                r.get("rl_value", 0.0),
+                r.get("rl_advantage", 0.0),
             )
             self.graph.add_node(("decision", d["trade_id"]), data=node_d)
             self.graph.add_node(("result", r["trade_id"]), data=node_r)
             edge_key = uuid.uuid5(uuid.NAMESPACE_OID, "|".join(key)).hex
             self.graph.add_edge(
-                ("decision", d["trade_id"]), ("result", r["trade_id"]),
-                key=edge_key, weight=1.0, count=1, ctx=key[2],
+                ("decision", d["trade_id"]),
+                ("result", r["trade_id"]),
+                key=edge_key,
+                weight=1.0,
+                count=1,
+                ctx=key[2],
             )
 
         if corrupt_buf:
@@ -406,7 +435,8 @@ class LearningGraph:
                 cf.writelines(corrupt_buf)
             logger.warning(
                 "quarantined %d torn/malformed learning-graph line(s) to %s",
-                len(corrupt_buf), self.corrupt_path,
+                len(corrupt_buf),
+                self.corrupt_path,
                 extra={
                     "event": "learning_graph_quarantine",
                     "metric": "learning_graph_corrupt_lines",
@@ -430,7 +460,8 @@ class LearningGraph:
                 self._fsync_dir()
             logger.info(
                 "purged %d quarantined line(s) from %s",
-                len(corrupt_buf), self.storage_path,
+                len(corrupt_buf),
+                self.storage_path,
             )
 
         # Everything just loaded is already on disk; don't re-append on flush.
@@ -452,7 +483,9 @@ class LearningGraph:
     def _line_from_edge(self, u: Any, v: Any, data: Dict[str, Any]) -> str:
         decision: DecisionRecord = self.graph.nodes[u]["data"]
         result: ResultRecord = self.graph.nodes[v]["data"]
-        return json.dumps(self._record_payload(decision, result, str(data.get("ctx", ""))))
+        return json.dumps(
+            self._record_payload(decision, result, str(data.get("ctx", "")))
+        )
 
     def _needs_rotation_locked(self) -> bool:
         """Oversize check; caller must hold the writer lock."""
@@ -498,27 +531,29 @@ class LearningGraph:
         for decision_node, result_node, _ in self.graph.edges(data=True):
             d: DecisionRecord = self.graph.nodes[decision_node]["data"]
             r: ResultRecord = self.graph.nodes[result_node]["data"]
-            records.append({
-                "trade_id": d.trade_id,
-                "asset": d.signal.get("asset"),
-                "side": d.signal.get("side"),
-                # R2 / VA-022: strategy label lives in the decision signal
-                # payload (see add_trade) -- surfaced explicitly so batch
-                # trainers attribute outcomes by NAME, not by position.
-                "strategy": d.signal.get("strategy"),
-                "regime": d.signal.get("regime"),
-                "entry_price": d.signal.get("entry_price"),
-                "stop_price": d.expected.get("stop_price"),
-                "target_price": d.expected.get("target_price"),
-                "actual_pnl": r.actual_pnl,
-                "verdict": r.verdict,
-                "decision_time": d.timestamp,
-                "result_time": r.timestamp,
-                "posterior_mu": r.posterior_mu,
-                "posterior_sigma2": r.posterior_sigma2,
-                "rl_value": r.rl_value,
-                "rl_advantage": r.rl_advantage,
-            })
+            records.append(
+                {
+                    "trade_id": d.trade_id,
+                    "asset": d.signal.get("asset"),
+                    "side": d.signal.get("side"),
+                    # R2 / VA-022: strategy label lives in the decision signal
+                    # payload (see add_trade) -- surfaced explicitly so batch
+                    # trainers attribute outcomes by NAME, not by position.
+                    "strategy": d.signal.get("strategy"),
+                    "regime": d.signal.get("regime"),
+                    "entry_price": d.signal.get("entry_price"),
+                    "stop_price": d.expected.get("stop_price"),
+                    "target_price": d.expected.get("target_price"),
+                    "actual_pnl": r.actual_pnl,
+                    "verdict": r.verdict,
+                    "decision_time": d.timestamp,
+                    "result_time": r.timestamp,
+                    "posterior_mu": r.posterior_mu,
+                    "posterior_sigma2": r.posterior_sigma2,
+                    "rl_value": r.rl_value,
+                    "rl_advantage": r.rl_advantage,
+                }
+            )
         return records
 
     def export_to_sqlite(self, db_path: Path | str = "learning_graph.db") -> None:
@@ -526,9 +561,11 @@ class LearningGraph:
         Includes Bayesian posterior and RL fields.
         """
         import sqlite3
+
         conn = sqlite3.connect(str(db_path))
         cur = conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS trades (
                 trade_id TEXT PRIMARY KEY,
                 asset TEXT,
@@ -545,7 +582,8 @@ class LearningGraph:
                 rl_value REAL,
                 rl_advantage REAL
             )
-        """)
+        """
+        )
         # Insert all records – upsert on conflict replaces older entry
         for rec in self.get_trade_records():
             # Retrieve posterior and RL values from the underlying ResultRecord
@@ -573,7 +611,9 @@ class LearningGraph:
         conn.commit()
         conn.close()
 
-    def get_best_strategies(self, metric: str = "posterior_mu", top_n: int = 5) -> list[dict]:
+    def get_best_strategies(
+        self, metric: str = "posterior_mu", top_n: int = 5
+    ) -> list[dict]:
         """Return the top‑N trade results sorted by the selected metric.
 
         Parameters
@@ -595,12 +635,19 @@ class LearningGraph:
         Useful for debugging or quick inspection in notebooks.
         """
         total = self.graph.number_of_nodes() // 2  # each trade adds 2 nodes
-        hits = sum(1 for _, data in self.graph.nodes(data=True) if isinstance(data["data"], ResultRecord) and data["data"].verdict in ("hit_target", "target"))
+        hits = sum(
+            1
+            for _, data in self.graph.nodes(data=True)
+            if isinstance(data["data"], ResultRecord)
+            and data["data"].verdict in ("hit_target", "target")
+        )
         return f"LearningGraph: {total} trades recorded, {hits} hit target."
+
 
 # ---------------------------------------------------------------------------
 # Helper to convert ``Signal`` objects to plain dictionaries (JSON‑serialisable)
 # ---------------------------------------------------------------------------
+
 
 def signal_to_dict(signal: Any) -> Dict[str, Any]:
     """Extract the relevant fields from a ``Signal`` instance.
@@ -611,7 +658,9 @@ def signal_to_dict(signal: Any) -> Dict[str, Any]:
     """
     return {
         "asset": getattr(signal, "asset", None),
-        "side": getattr(signal, "side", None).name if getattr(signal, "side", None) else None,
+        "side": getattr(signal, "side", None).name
+        if getattr(signal, "side", None)
+        else None,
         # R2 / VA-022: strategy/regime belong in every decision signal payload
         # so recorded trades can be attributed by strategy NAME downstream
         # (mirrors add_trade's default payload schema).

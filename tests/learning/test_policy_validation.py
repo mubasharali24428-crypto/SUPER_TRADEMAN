@@ -6,7 +6,9 @@ from trading.learning.policy import ContextualBanditAllocator
 
 
 def test_unknown_action_raises_listing_valid_set():
-    bandit = ContextualBanditAllocator(["trend_following", "mean_reversion", "breakout"])
+    bandit = ContextualBanditAllocator(
+        ["trend_following", "mean_reversion", "breakout"]
+    )
     with pytest.raises(ValueError) as exc:
         bandit.update_from_trade(strategy="moon_shot", reward_r=1.0)
     msg = str(exc.value)

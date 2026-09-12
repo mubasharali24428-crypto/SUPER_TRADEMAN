@@ -60,8 +60,12 @@ class VirtualConsolidatedBook:
 
     def get_consolidated_nbbo(self) -> SyntheticNBBO:
         """Calculates synthetic best bid and best ask across all active LPs."""
-        valid_bids = [q for q in self.lp_quotes.values() if q.bid_qty > 0 and q.bid_price > 0]
-        valid_asks = [q for q in self.lp_quotes.values() if q.ask_qty > 0 and q.ask_price > 0]
+        valid_bids = [
+            q for q in self.lp_quotes.values() if q.bid_qty > 0 and q.bid_price > 0
+        ]
+        valid_asks = [
+            q for q in self.lp_quotes.values() if q.ask_qty > 0 and q.ask_price > 0
+        ]
 
         if not valid_bids or not valid_asks:
             return SyntheticNBBO(
@@ -83,7 +87,9 @@ class VirtualConsolidatedBook:
 
         total_depth_bid = sum(q.bid_qty for q in valid_bids)
         total_depth_ask = sum(q.ask_qty for q in valid_asks)
-        spread_pips = round((best_ask_quote.ask_price - best_bid_quote.bid_price) / self.pip_value, 2)
+        spread_pips = round(
+            (best_ask_quote.ask_price - best_bid_quote.bid_price) / self.pip_value, 2
+        )
 
         return SyntheticNBBO(
             symbol=self.symbol,
@@ -103,12 +109,19 @@ class VirtualConsolidatedBook:
 class LastLookFilter:
     """Models LP Last Look rejection behavior during simulated latency and auto-cancels toxic orders."""
 
-    def __init__(self, latency_ms: float = 50.0, pip_value: float = 0.0001, max_rejection_prob: float = 0.70):
+    def __init__(
+        self,
+        latency_ms: float = 50.0,
+        pip_value: float = 0.0001,
+        max_rejection_prob: float = 0.70,
+    ):
         self.latency_ms = latency_ms
         self.pip_value = pip_value
         self.max_rejection_prob = max_rejection_prob
 
-    def calculate_rejection_probability(self, initial_price: float, current_micro_price: float, side: str) -> float:
+    def calculate_rejection_probability(
+        self, initial_price: float, current_micro_price: float, side: str
+    ) -> float:
         """Calculates probability that the LP rejects or holds the order under last-look price drift."""
         if side.upper() == "BUY":
             drift_pips = (current_micro_price - initial_price) / self.pip_value
@@ -122,9 +135,13 @@ class LastLookFilter:
         prob = 1.0 / (1.0 + math.exp(-3.0 * (drift_pips - 1.5)))
         return min(1.0, max(0.0, prob))
 
-    def evaluate_order(self, initial_price: float, current_micro_price: float, side: str) -> Tuple[bool, float]:
+    def evaluate_order(
+        self, initial_price: float, current_micro_price: float, side: str
+    ) -> Tuple[bool, float]:
         """Returns (should_send, rejection_prob). If rejection_prob > max_rejection_prob, self-cancel."""
-        rejection_prob = self.calculate_rejection_probability(initial_price, current_micro_price, side)
+        rejection_prob = self.calculate_rejection_probability(
+            initial_price, current_micro_price, side
+        )
         if rejection_prob > self.max_rejection_prob:
             logger.info(
                 f"[LAST_LOOK_SELF_CANCEL] Micro-drift projected rejection {rejection_prob*100:.1f}% > {self.max_rejection_prob*100:.1f}%. Self-canceling IOC."
@@ -138,7 +155,13 @@ class LPReputationTracker:
 
     def __init__(self, initial_lps: Optional[List[str]] = None):
         self.lp_stats: Dict[str, Dict[str, int]] = {}
-        for lp in (initial_lps or ["LP_BARCLAYS", "LP_CITI", "LP_JPM", "LP_DEUTSCHE", "LP_UBS"]):
+        for lp in initial_lps or [
+            "LP_BARCLAYS",
+            "LP_CITI",
+            "LP_JPM",
+            "LP_DEUTSCHE",
+            "LP_UBS",
+        ]:
             self.lp_stats[lp] = {"sent": 100, "rejected": 5}
 
     def record_outcome(self, lp_id: str, rejected: bool) -> None:
@@ -168,11 +191,17 @@ class LPReputationTracker:
 class ForexSOR:
     """Smart Order Router (SOR) executing TWAP/VWAP order splitting across multiple Liquidity Providers."""
 
-    def __init__(self, consolidated_book: VirtualConsolidatedBook, reputation_tracker: LPReputationTracker):
+    def __init__(
+        self,
+        consolidated_book: VirtualConsolidatedBook,
+        reputation_tracker: LPReputationTracker,
+    ):
         self.book = consolidated_book
         self.reputation = reputation_tracker
 
-    def split_twap_order(self, total_qty: float, num_slices: int = 5, side: str = "BUY") -> List[Dict[str, Any]]:
+    def split_twap_order(
+        self, total_qty: float, num_slices: int = 5, side: str = "BUY"
+    ) -> List[Dict[str, Any]]:
         """Splits large order across LPs weighted by reputation and time-sliced chunks."""
         weights = self.reputation.get_routing_weights()
         active_lps = [lp for lp, w in weights.items() if w > 0]
@@ -187,13 +216,15 @@ class ForexSOR:
             for lp_id in active_lps:
                 lp_allocation = round(slice_qty * weights[lp_id], 2)
                 if lp_allocation > 0:
-                    slices.append({
-                        "slice_idx": slice_idx,
-                        "lp_id": lp_id,
-                        "side": side,
-                        "qty": lp_allocation,
-                        "weight": weights[lp_id],
-                    })
+                    slices.append(
+                        {
+                            "slice_idx": slice_idx,
+                            "lp_id": lp_id,
+                            "side": side,
+                            "qty": lp_allocation,
+                            "weight": weights[lp_id],
+                        }
+                    )
 
         return slices
 
@@ -213,7 +244,9 @@ class ForexEngine:
     def on_news_macro_widen(self, widening_factor: float = 2.0) -> None:
         """Widening FOREX spreads immediately upon macro news event."""
         self.spread_multiplier = widening_factor
-        logger.info(f"[FOREX_NEWS_WIDEN] Macro event detected. Widening quote spreads by {widening_factor:.1f}x.")
+        logger.info(
+            f"[FOREX_NEWS_WIDEN] Macro event detected. Widening quote spreads by {widening_factor:.1f}x."
+        )
 
     def reset_spread(self) -> None:
         self.spread_multiplier = 1.0

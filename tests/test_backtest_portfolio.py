@@ -10,15 +10,8 @@ from trading.risk import equity as risk_equity
 from trading.risk import models as risk_models
 from trading.risk.engine import RiskEngine
 from trading.risk.equity import marked_equity
-from trading.risk.models import (
-    AccountState,
-    Position,
-    RiskConfig,
-    Side,
-    Signal,
-    daily_pnl_pct,
-    day_start_equity,
-)
+from trading.risk.models import (AccountState, Position, RiskConfig, Side,
+                                 Signal, daily_pnl_pct, day_start_equity)
 
 DAY_MS = 86_400_000
 NO_COST = BacktestConfig(slippage_pct=0.0, commission_pct=0.0, max_hold_bars=200)
@@ -98,7 +91,9 @@ def test_two_concurrent_positions_both_move_shared_equity():
     account = AccountState(equity=100_000.0, peak_equity=100_000.0)
     risk_engine = RiskEngine(RiskConfig(risk_pct=0.01, min_reward_risk=2.0))
 
-    result = run_portfolio_backtest(candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST)
+    result = run_portfolio_backtest(
+        candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST
+    )
 
     assert len(result.trades) == 2
     assert {t.asset for t in result.trades} == {"AAA/USDT", "BBB/USDT"}
@@ -130,7 +125,9 @@ def test_misaligned_asset_lengths_land_trades_on_correct_real_dates():
     account = AccountState(equity=100_000.0, peak_equity=100_000.0)
     risk_engine = RiskEngine(RiskConfig(risk_pct=0.01, min_reward_risk=2.0))
 
-    result = run_portfolio_backtest(candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST)
+    result = run_portfolio_backtest(
+        candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST
+    )
 
     assert len(result.trades) == 1
     trade = result.trades[0]
@@ -152,9 +149,15 @@ def test_portfolio_heat_cap_rejects_a_signal_and_the_trade_never_opens():
     # 0.02 would push heat to 0.08 > cap.
     closes = [100.0] * 30
     candles_by_asset = {
-        sym: _candles(closes) for sym in ["AAA/USDT", "BBB/USDT", "CCC/USDT", "DDD/USDT"]
+        sym: _candles(closes)
+        for sym in ["AAA/USDT", "BBB/USDT", "CCC/USDT", "DDD/USDT"]
     }
-    wide = (Side.LONG, 100.0, 98.0, 110.0)  # R:R = 5, stop/target never touched by flat data
+    wide = (
+        Side.LONG,
+        100.0,
+        98.0,
+        110.0,
+    )  # R:R = 5, stop/target never touched by flat data
     fire_map = {
         "AAA/USDT": {20: wide},
         "BBB/USDT": {20: wide},
@@ -163,12 +166,23 @@ def test_portfolio_heat_cap_rejects_a_signal_and_the_trade_never_opens():
     }
     strategy_fn = _fixed_signal_strategy(fire_map)
     account = AccountState(equity=100_000.0, peak_equity=100_000.0)
-    cfg = RiskConfig(risk_pct=0.02, min_reward_risk=2.0, max_heat=0.06, max_positions_per_asset_class=10)
+    cfg = RiskConfig(
+        risk_pct=0.02,
+        min_reward_risk=2.0,
+        max_heat=0.06,
+        max_positions_per_asset_class=10,
+    )
     risk_engine = RecordingRiskEngine(RiskEngine(cfg))
 
-    result = run_portfolio_backtest(candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST)
+    result = run_portfolio_backtest(
+        candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST
+    )
 
-    rejections = [d for d in risk_engine.decisions if not d.approved and d.signal.asset == "DDD/USDT"]
+    rejections = [
+        d
+        for d in risk_engine.decisions
+        if not d.approved and d.signal.asset == "DDD/USDT"
+    ]
     assert len(rejections) == 1
     assert "heat" in rejections[0].reason
     # the trade never opened: DDD/USDT never appears among the trades, closed or not
@@ -201,7 +215,9 @@ def test_correlation_guard_rejects_a_signal_on_a_near_identical_asset():
     account = AccountState(equity=100_000.0, peak_equity=100_000.0)
     risk_engine = RecordingRiskEngine(RiskEngine(RiskConfig(min_reward_risk=2.0)))
 
-    result = run_portfolio_backtest(candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST)
+    result = run_portfolio_backtest(
+        candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST
+    )
 
     f_decisions = [d for d in risk_engine.decisions if d.signal.asset == "FFF/USDT"]
     assert len(f_decisions) == 1
@@ -230,7 +246,9 @@ def test_correlation_guard_lets_an_uncorrelated_signal_through():
     account = AccountState(equity=100_000.0, peak_equity=100_000.0)
     risk_engine = RecordingRiskEngine(RiskEngine(RiskConfig(min_reward_risk=2.0)))
 
-    result = run_portfolio_backtest(candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST)
+    result = run_portfolio_backtest(
+        candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST
+    )
 
     g_decisions = [d for d in risk_engine.decisions if d.signal.asset == "GGG/USDT"]
     assert len(g_decisions) == 1
@@ -259,7 +277,9 @@ def test_end_of_data_closes_each_still_open_asset_at_its_own_last_bar():
     account = AccountState(equity=100_000.0, peak_equity=100_000.0)
     risk_engine = RiskEngine(RiskConfig(risk_pct=0.01, min_reward_risk=2.0))
 
-    result = run_portfolio_backtest(candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST)
+    result = run_portfolio_backtest(
+        candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST
+    )
 
     trades_by_asset = {t.asset: t for t in result.trades}
     assert set(trades_by_asset) == {"HHH/USDT", "III/USDT"}
@@ -268,8 +288,12 @@ def test_end_of_data_closes_each_still_open_asset_at_its_own_last_bar():
 
     h_trade, i_trade = trades_by_asset["HHH/USDT"], trades_by_asset["III/USDT"]
     assert h_trade.exit_time == h_start + timedelta(days=29)  # H's own last bar
-    assert h_trade.exit_fill == pytest.approx(100.0)  # H's own last close, zero slippage
-    assert i_trade.exit_time == i_start + timedelta(days=44)  # I's own last bar, NOT H's
+    assert h_trade.exit_fill == pytest.approx(
+        100.0
+    )  # H's own last close, zero slippage
+    assert i_trade.exit_time == i_start + timedelta(
+        days=44
+    )  # I's own last bar, NOT H's
     assert i_trade.exit_fill == pytest.approx(50.0)  # I's own last close
 
 
@@ -288,7 +312,9 @@ def test_marked_equity_diverges_from_settled_while_position_open():
     account = AccountState(equity=100_000.0, peak_equity=100_000.0)
     risk_engine = RiskEngine(RiskConfig(risk_pct=0.01, min_reward_risk=2.0))
 
-    result = run_portfolio_backtest(candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST)
+    result = run_portfolio_backtest(
+        candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST
+    )
 
     curve = result.equity_curve  # curve[k + 1] is the point after bar k
     # before the price pop, marked == settled == 100000
@@ -311,11 +337,15 @@ def test_marked_equity_diverges_from_settled_while_position_open():
         risk_pct=0.01,
         position_size=20.0,
     )
-    marked_acct = AccountState(equity=100_000.0, peak_equity=100_000.0, open_positions=[pos])
+    marked_acct = AccountState(
+        equity=100_000.0, peak_equity=100_000.0, open_positions=[pos]
+    )
     assert marked_equity(marked_acct, {"MMM/USDT": 150.0}) == pytest.approx(101_000.0)
     assert marked_acct.equity == pytest.approx(100_000.0)  # settled untouched
     # 20 units x $50 favorable move = $1,000 unrealized
-    assert risk_equity.unrealized_pnl([pos], {"MMM/USDT": 150.0}) == pytest.approx(1_000.0)
+    assert risk_equity.unrealized_pnl([pos], {"MMM/USDT": 150.0}) == pytest.approx(
+        1_000.0
+    )
     # missing mark -> marked at entry (zero unrealized); short side sign flips
     assert marked_equity(marked_acct, {}) == pytest.approx(100_000.0)
     short = Position(
@@ -328,9 +358,9 @@ def test_marked_equity_diverges_from_settled_while_position_open():
         position_size=20.0,
     )
     # short: 20 units x ($100 - $90) = +$200
-    assert marked_equity(AccountState(100_000.0, 100_000.0, [short]), {"NNN/USDT": 90.0}) == pytest.approx(
-        100_200.0
-    )
+    assert marked_equity(
+        AccountState(100_000.0, 100_000.0, [short]), {"NNN/USDT": 90.0}
+    ) == pytest.approx(100_200.0)
 
 
 # --- (g) F-0301: replace() snapshots are deep-copied, no cross-config leak ---
@@ -357,10 +387,14 @@ def test_snapshot_mutations_cannot_leak_into_caller_account():
     fire_map = {"KKK/USDT": {10: (Side.LONG, 100.0, 98.0, 110.0)}}
     strategy_fn = _fixed_signal_strategy(fire_map)
     account = AccountState(equity=100_000.0, peak_equity=100_000.0)
-    risk_engine = _SnapshotRecorder(RiskEngine(RiskConfig(risk_pct=0.01, min_reward_risk=2.0)))
+    risk_engine = _SnapshotRecorder(
+        RiskEngine(RiskConfig(risk_pct=0.01, min_reward_risk=2.0))
+    )
 
     before = repr(account)
-    run_portfolio_backtest(candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST)
+    run_portfolio_backtest(
+        candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST
+    )
     assert repr(account) == before  # caller's own account: byte-identical
 
     # A hostile downstream consumer mangles EVERYTHING it was handed in the
@@ -368,7 +402,14 @@ def test_snapshot_mutations_cannot_leak_into_caller_account():
     snap = risk_engine.snapshots[0]
     snap.kill_switch = True
     snap.open_positions.append(
-        Position(asset="ZZZ/USDT", asset_class="crypto", side=Side.LONG, entry_price=1.0, stop_price=0.5, risk_pct=0.05)
+        Position(
+            asset="ZZZ/USDT",
+            asset_class="crypto",
+            side=Side.LONG,
+            entry_price=1.0,
+            stop_price=0.5,
+            risk_pct=0.05,
+        )
     )
     snap.correlations[frozenset({"ZZZ/USDT", "KKK/USDT"})] = 1.0
 
@@ -383,8 +424,12 @@ def test_snapshot_mutations_cannot_leak_into_caller_account():
     # correlations pair above being exactly the F-0301 leak vector -- the
     # correlation guard would reject this trade and trades would stay empty.
     strategy_fn2 = _fixed_signal_strategy(fire_map)
-    risk_engine2 = _SnapshotRecorder(RiskEngine(RiskConfig(risk_pct=0.01, min_reward_risk=2.0)))
-    result2 = run_portfolio_backtest(candles_by_asset, strategy_fn2, risk_engine2, account, config=NO_COST)
+    risk_engine2 = _SnapshotRecorder(
+        RiskEngine(RiskConfig(risk_pct=0.01, min_reward_risk=2.0))
+    )
+    result2 = run_portfolio_backtest(
+        candles_by_asset, strategy_fn2, risk_engine2, account, config=NO_COST
+    )
     assert len(result2.trades) == 1
     assert result2.trades[0].asset == "KKK/USDT"
 
@@ -397,7 +442,9 @@ def test_daily_pnl_denominator_matches_day_start_definition():
     assert risk_equity.day_start_equity is risk_models.day_start_equity
 
     # Helper semantics: anchored day-start settled equity is THE denominator.
-    acct = AccountState(equity=99_000.0, peak_equity=100_000.0, day_start_settled_equity=100_000.0)
+    acct = AccountState(
+        equity=99_000.0, peak_equity=100_000.0, day_start_settled_equity=100_000.0
+    )
     assert day_start_equity(acct) == pytest.approx(100_000.0)
     assert daily_pnl_pct(acct) == pytest.approx(-0.01)
     # No day boundary observed yet -> falls back to current settled equity.
@@ -417,7 +464,9 @@ def test_daily_pnl_denominator_matches_day_start_definition():
     strategy_fn = _fixed_signal_strategy(fire_map)
     account = AccountState(equity=100_000.0, peak_equity=100_000.0)
     risk_engine = RiskEngine(RiskConfig(risk_pct=0.01, min_reward_risk=2.0))
-    result = run_portfolio_backtest(candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST)
+    result = run_portfolio_backtest(
+        candles_by_asset, strategy_fn, risk_engine, account, config=NO_COST
+    )
 
     curve = result.equity_curve
     assert curve[-1] == pytest.approx(result.report.final_equity)

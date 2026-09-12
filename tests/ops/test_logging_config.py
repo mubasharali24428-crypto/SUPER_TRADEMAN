@@ -2,15 +2,12 @@
 
 import json
 import logging
+
 import pytest
 
-from trading.ops.logging_config import (
-    JSONFormatter,
-    RedactionFilter,
-    _redact_text,
-    get_correlation_id,
-    set_correlation_id,
-)
+from trading.ops.logging_config import (JSONFormatter, RedactionFilter,
+                                        _redact_text, get_correlation_id,
+                                        set_correlation_id)
 
 
 def test_json_formatter_outputs_valid_json():
@@ -43,6 +40,7 @@ def test_json_formatter_outputs_valid_json():
 # Correlation IDs are context-local (contextvars), not process-global.
 # --------------------------------------------------------------------------
 
+
 def test_set_correlation_id_is_context_local():
     set_correlation_id("ctx-A")
     assert get_correlation_id() == "ctx-A"
@@ -58,7 +56,7 @@ def test_set_correlation_id_is_context_local():
     async def main():
         return await asyncio.gather(other_context())
 
-    (inner_seen, inner_after), = __import__("asyncio").run(main())
+    ((inner_seen, inner_after),) = __import__("asyncio").run(main())
     # The task did NOT inherit ctx-A's value as its own mutation target...
     assert inner_after == "ctx-B"
     # ...and the parent context still holds ctx-A afterwards.
@@ -70,8 +68,13 @@ def test_correlation_id_filter_stamps_record():
 
     set_correlation_id("filter-cid")
     record = logging.LogRecord(
-        name="t", level=logging.INFO, pathname="t.py", lineno=1,
-        msg="x", args=(), exc_info=None,
+        name="t",
+        level=logging.INFO,
+        pathname="t.py",
+        lineno=1,
+        msg="x",
+        args=(),
+        exc_info=None,
     )
     assert CorrelationIdFilter().filter(record) is True
     assert getattr(record, "correlation_id") == "filter-cid"
@@ -80,6 +83,7 @@ def test_correlation_id_filter_stamps_record():
 # --------------------------------------------------------------------------
 # Redaction: postgres DSNs / querystrings never survive into log output.
 # --------------------------------------------------------------------------
+
 
 def test_redact_text_strips_dsn_credentials_and_querystring():
     raw = "postgres://trader:s3cr3t@db.internal:5432/tradedb?sslmode=require&application_name=st"
@@ -99,9 +103,16 @@ def test_redaction_filter_scrubs_logged_exception():
         raise RuntimeError(f"connection failed for {dsn}")
     except RuntimeError:
         record = logging.LogRecord(
-            name="t", level=logging.ERROR, pathname="t.py", lineno=1,
-            msg="DB probe failed", args=(), exc_info=(
-                RuntimeError, __import__("sys").exc_info()[1], None,
+            name="t",
+            level=logging.ERROR,
+            pathname="t.py",
+            lineno=1,
+            msg="DB probe failed",
+            args=(),
+            exc_info=(
+                RuntimeError,
+                __import__("sys").exc_info()[1],
+                None,
             ),
         )
         assert filt.filter(record) is True
@@ -118,8 +129,13 @@ def test_redaction_filter_scrubs_logged_exception():
 def test_redaction_filter_scrubs_message_args():
     filt = RedactionFilter()
     record = logging.LogRecord(
-        name="t", level=logging.WARNING, pathname="t.py", lineno=1,
-        msg="retrying %s", args=("postgres://u:p@h:5432/d",), exc_info=None,
+        name="t",
+        level=logging.WARNING,
+        pathname="t.py",
+        lineno=1,
+        msg="retrying %s",
+        args=("postgres://u:p@h:5432/d",),
+        exc_info=None,
     )
     filt.filter(record)
     formatted = JSONFormatter().format(record)

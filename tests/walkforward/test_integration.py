@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from trading.backtest.engine import RiskEngine  # noqa: E402
 from trading.risk.models import AccountState, Position, Signal  # noqa: E402
 from trading.walkforward.report import render_tearsheet  # noqa: E402
-from trading.walkforward.validator import WalkForwardConfig, run_walk_forward  # noqa: E402
+from trading.walkforward.validator import (WalkForwardConfig,  # noqa: E402
+                                           run_walk_forward)
 
 
 def _candles(days: int, seed: int = 7) -> list[list[float]]:
@@ -32,8 +33,9 @@ def _flat_strategy(candles, account):
 
 
 def _account_factory() -> AccountState:
-    return AccountState(equity=10_000.0, peak_equity=10_000.0,
-                        open_positions=[], correlations={})
+    return AccountState(
+        equity=10_000.0, peak_equity=10_000.0, open_positions=[], correlations={}
+    )
 
 
 def test_walk_forward_cycle_produces_populated_folds():
@@ -42,7 +44,9 @@ def test_walk_forward_cycle_produces_populated_folds():
     # yields folds stepping every 60 bars while valid_end <= 2400.
     candles = {"BTC/USDT": _candles(400)}
     cfg = WalkForwardConfig(train_days=180, validate_days=60, step_days=60)
-    folds = run_walk_forward(candles, _flat_strategy, RiskEngine(), _account_factory, cfg)
+    folds = run_walk_forward(
+        candles, _flat_strategy, RiskEngine(), _account_factory, cfg
+    )
 
     assert folds, "expected at least one fold"
     assert len(folds) == 37  # starts {0,60,...,2340} with valid_end<=2400

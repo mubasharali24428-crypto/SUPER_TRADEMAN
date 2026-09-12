@@ -2,9 +2,11 @@
 
 import asyncio
 import time
+
 import pytest
 
-from trading.execution.chase import OrderChaser, TokenBucketRateLimiter, WorkingOrderInfo
+from trading.execution.chase import (OrderChaser, TokenBucketRateLimiter,
+                                     WorkingOrderInfo)
 from trading.execution.state_machine import OrderState
 from trading.execution.venue_adapter import InstrumentInfo, MockVenueAdapter
 from trading.risk.models import Side
@@ -49,7 +51,9 @@ async def test_chase_order_reprice_stale_order():
 @pytest.mark.asyncio
 async def test_chase_abandon_remainder_below_min_notional():
     venue = MockVenueAdapter(
-        instrument_info_map={"BTC": InstrumentInfo(symbol="BTC", min_notional=100.0, min_qty=0.01)}
+        instrument_info_map={
+            "BTC": InstrumentInfo(symbol="BTC", min_notional=100.0, min_qty=0.01)
+        }
     )
     chaser = OrderChaser(venue_adapter=venue, chase_timeout_ms=5000.0)
 
@@ -97,7 +101,9 @@ async def test_rate_limit_denial_skips_and_logs_instead_of_silent_action():
     not acted on silently -- and stay tracked for a future scan."""
     venue = MockVenueAdapter()
     limiter = TokenBucketRateLimiter(capacity=1, refill_rate=0.0)  # one token, ever
-    chaser = OrderChaser(venue_adapter=venue, chase_timeout_ms=5000.0, rate_limiter=limiter)
+    chaser = OrderChaser(
+        venue_adapter=venue, chase_timeout_ms=5000.0, rate_limiter=limiter
+    )
 
     t0_ms = 1000000.0
     t_now_ms = t0_ms + 6000.0
@@ -123,13 +129,19 @@ async def test_abandon_remainder_path_is_also_rate_limited():
     """The min-notional abandonment path used to bypass the limiter entirely;
     it must be gated like every other venue-touching action."""
     venue = MockVenueAdapter(
-        instrument_info_map={"BTC": InstrumentInfo(symbol="BTC", min_notional=100.0, min_qty=0.01)}
+        instrument_info_map={
+            "BTC": InstrumentInfo(symbol="BTC", min_notional=100.0, min_qty=0.01)
+        }
     )
     limiter = TokenBucketRateLimiter(capacity=1, refill_rate=0.0)
-    chaser = OrderChaser(venue_adapter=venue, chase_timeout_ms=5000.0, rate_limiter=limiter)
+    chaser = OrderChaser(
+        venue_adapter=venue, chase_timeout_ms=5000.0, rate_limiter=limiter
+    )
 
     t0_ms = 1000000.0
-    info = _stale_order("cid_tiny", t0_ms, filled_qty=0.999)  # remainder below min_notional
+    info = _stale_order(
+        "cid_tiny", t0_ms, filled_qty=0.999
+    )  # remainder below min_notional
     chaser.register_order(info)
 
     assert await limiter.acquire() is True  # exhaust the bucket
@@ -139,7 +151,9 @@ async def test_abandon_remainder_path_is_also_rate_limited():
     assert actions == ["RATE_LIMIT_DENIED:cid_tiny"]
     assert chaser.denied_actions == 1
     assert info.status == OrderState.SUBMITTED, "denied abandonment must not finalize"
-    assert "cid_tiny" not in venue.orders, "no venue call may happen on a denied acquire"
+    assert (
+        "cid_tiny" not in venue.orders
+    ), "no venue call may happen on a denied acquire"
     assert "cid_tiny" in chaser.working_orders
 
 
@@ -149,7 +163,9 @@ async def test_denied_order_is_retried_once_budget_returns():
     scan once the rate limiter has budget again."""
     venue = MockVenueAdapter()
     limiter = TokenBucketRateLimiter(capacity=1, refill_rate=0.0)
-    chaser = OrderChaser(venue_adapter=venue, chase_timeout_ms=5000.0, rate_limiter=limiter)
+    chaser = OrderChaser(
+        venue_adapter=venue, chase_timeout_ms=5000.0, rate_limiter=limiter
+    )
 
     t0_ms = 1000000.0
     info = _stale_order("cid_retry", t0_ms)
@@ -172,7 +188,9 @@ async def test_exhausted_bucket_only_denies_second_order():
     is explicitly denied (observable, not swallowed)."""
     venue = MockVenueAdapter()
     limiter = TokenBucketRateLimiter(capacity=1, refill_rate=0.0)
-    chaser = OrderChaser(venue_adapter=venue, chase_timeout_ms=5000.0, rate_limiter=limiter)
+    chaser = OrderChaser(
+        venue_adapter=venue, chase_timeout_ms=5000.0, rate_limiter=limiter
+    )
 
     t0_ms = 1000000.0
     chaser.register_order(_stale_order("cid_a", t0_ms))

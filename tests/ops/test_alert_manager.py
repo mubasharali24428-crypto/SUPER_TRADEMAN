@@ -15,7 +15,8 @@ from typing import Dict, List, Optional
 
 import pytest
 
-from trading.ops.alert_manager import AlertManager, AlertManagerConfig, AlertSeverity
+from trading.ops.alert_manager import (AlertManager, AlertManagerConfig,
+                                       AlertSeverity)
 from trading.ops.deployment_metrics import DeploymentMetricsStore
 
 WEBHOOK_PATH = "/hooks/super_trademan"
@@ -42,7 +43,9 @@ class _CaptureHandler(BaseHTTPRequestHandler):
             parsed = json.loads(raw.decode("utf-8")) if raw else {}
         except json.JSONDecodeError:
             parsed = {"_raw": raw.decode("utf-8", errors="replace")}
-        self.server.requests.append({"path": self.path, "headers": dict(self.headers), "body": parsed})
+        self.server.requests.append(
+            {"path": self.path, "headers": dict(self.headers), "body": parsed}
+        )
 
         if self.server.fail_next > 0:
             self.server.fail_next -= 1
@@ -165,16 +168,23 @@ def test_cooldown_dedup_suppresses_second_webhook_post(webhook_server: _CaptureS
     assert len(webhook_server.requests) == 1  # exactly ONE outbound POST
 
 
-def test_emergency_retries_twice_with_backoff_then_succeeds(webhook_server: _CaptureServer):
+def test_emergency_retries_twice_with_backoff_then_succeeds(
+    webhook_server: _CaptureServer,
+):
     webhook_server.fail_next = 2  # first two attempts return HTTP 500
-    mgr = _manager(webhook_server, config=AlertManagerConfig(emergency_max_retries=2, retry_backoff_sec=0.01))
+    mgr = _manager(
+        webhook_server,
+        config=AlertManagerConfig(emergency_max_retries=2, retry_backoff_sec=0.01),
+    )
 
     rec = mgr.evaluate_metric("reconciliation_mismatch", 2.0)
     assert rec is not None
     assert len(webhook_server.requests) == 3  # initial attempt + exactly two retries
 
 
-def test_non_emergency_makes_single_attempt_without_retry(webhook_server: _CaptureServer):
+def test_non_emergency_makes_single_attempt_without_retry(
+    webhook_server: _CaptureServer,
+):
     webhook_server.fail_next = 5  # would exhaust any retry budget if retried
     mgr = _manager(webhook_server)
 
@@ -210,7 +220,9 @@ def test_cooldown_state_persisted_to_ops_alert_state_json(tmp_path: Path):
     assert data["alert_counts"]["High Latency"] >= 1
 
 
-def test_cooldown_state_survives_manager_restart(webhook_server: _CaptureServer, tmp_path: Path):
+def test_cooldown_state_survives_manager_restart(
+    webhook_server: _CaptureServer, tmp_path: Path
+):
     state_file = tmp_path / "ops_alert_state.json"
 
     first = _manager(webhook_server, state_path=state_file)
@@ -235,4 +247,6 @@ def test_escalation_counters_survive_restart(tmp_path: Path):
     mgr_b.cooldown_sec = 0.0
     rec = mgr_b.evaluate_metric("latency_p95_ms", 600.0)
     assert rec is not None
-    assert rec.severity == AlertSeverity.CRITICAL  # count carried over: 2 -> 3 escalates
+    assert (
+        rec.severity == AlertSeverity.CRITICAL
+    )  # count carried over: 2 -> 3 escalates

@@ -34,9 +34,7 @@ def env_mod(monkeypatch):
     """Load alembic/env.py under a stub alembic runtime; clean up after."""
     # env.py's module body runs the (offline) migration entry point once, so a
     # resolvable URL must exist at load time; tests override it afterwards.
-    monkeypatch.setenv(
-        "POSTGRES_URL", "postgresql://bravo-stub@localhost:5432/bravo"
-    )
+    monkeypatch.setenv("POSTGRES_URL", "postgresql://bravo-stub@localhost:5432/bravo")
     stub_names = ("alembic", "alembic.context")
     saved_modules = {n: sys.modules.get(n) for n in stub_names}
     path_before = list(sys.path)
@@ -93,8 +91,8 @@ def test_require_role_convenience_bindings_still_construct():
 
 
 def test_require_role_single_role_still_allowed():
-    from trading.api.deps import require_role
     from trading.api.auth import Role
+    from trading.api.deps import require_role
 
     dep = require_role(Role.ADMIN)
     assert callable(dep)

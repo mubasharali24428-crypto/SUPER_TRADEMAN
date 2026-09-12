@@ -9,7 +9,8 @@ import math
 from dataclasses import dataclass, field
 from typing import Callable
 
-from trading.backtest.engine import RiskEngine  # re-exported for caller convenience
+from trading.backtest.engine import \
+    RiskEngine  # re-exported for caller convenience
 from trading.backtest.portfolio import BacktestConfig, run_portfolio_backtest
 from trading.risk.models import AccountState, Signal
 from trading.stats.pbo import compute_pbo_cscv
@@ -41,7 +42,9 @@ class FoldResult:
 DayRange = tuple[int, int]
 
 
-def generate_folds(total_days: int, cfg: WalkForwardConfig) -> list[tuple[DayRange, DayRange]]:
+def generate_folds(
+    total_days: int, cfg: WalkForwardConfig
+) -> list[tuple[DayRange, DayRange]]:
     """Rolling train->validate windows stepping by step_days.
 
     Fold i: train [i*step, i*step + train_days), validate [train_end, train_end+validate_days).
@@ -130,12 +133,28 @@ def run_walk_forward(
     results: list[FoldResult] = []
 
     for idx, ((tr_a, tr_b), (va_a, va_b)) in enumerate(folds):
-        train_slice = {a: _slice_candles_by_days(c, tr_a, tr_b) for a, c in candles_by_asset.items()}
-        valid_slice = {a: _slice_candles_by_days(c, va_a, va_b) for a, c in candles_by_asset.items()}
+        train_slice = {
+            a: _slice_candles_by_days(c, tr_a, tr_b)
+            for a, c in candles_by_asset.items()
+        }
+        valid_slice = {
+            a: _slice_candles_by_days(c, va_a, va_b)
+            for a, c in candles_by_asset.items()
+        }
         min_needed = max(cfg.train_days, 50) // 2
         if any(len(v) < min_needed for v in valid_slice.values()):
-            results.append(FoldResult(idx, (tr_a, tr_b), (va_a, va_b), None, None, None,
-                                      "SKIP", f"insufficient validate data (<{min_needed} bars)"))
+            results.append(
+                FoldResult(
+                    idx,
+                    (tr_a, tr_b),
+                    (va_a, va_b),
+                    None,
+                    None,
+                    None,
+                    "SKIP",
+                    f"insufficient validate data (<{min_needed} bars)",
+                )
+            )
             continue
 
         account = account_factory()
@@ -150,18 +169,35 @@ def run_walk_forward(
                 embargo_days=cfg.step_days,
             )
         except Exception as exc:  # noqa: BLE001 — a failed fold must not kill the sweep
-            results.append(FoldResult(idx, (tr_a, tr_b), (va_a, va_b), None, None, None,
-                                      "SKIP", f"backtest error: {exc}"))
+            results.append(
+                FoldResult(
+                    idx,
+                    (tr_a, tr_b),
+                    (va_a, va_b),
+                    None,
+                    None,
+                    None,
+                    "SKIP",
+                    f"backtest error: {exc}",
+                )
+            )
             continue
 
-        sharpe = result.report.sharpe_ratio if result.report is not None else _daily_sharpe(result.equity_curve)
+        sharpe = (
+            result.report.sharpe_ratio
+            if result.report is not None
+            else _daily_sharpe(result.equity_curve)
+        )
         dsr: float | None = None
         pbo: float | None = None
         try:
             if sharpe is not None and result.trades:
                 # Single-trial DSR: probability the observed Sharpe is skill, not luck.
-                dsr = deflated_sharpe_ratio(sharpe_observed=sharpe, n_trials=1,
-                                            n_observations=max(len(result.equity_curve), 2))
+                dsr = deflated_sharpe_ratio(
+                    sharpe_observed=sharpe,
+                    n_trials=1,
+                    n_observations=max(len(result.equity_curve), 2),
+                )
         except Exception:  # noqa: BLE001
             dsr = None
         try:
@@ -184,7 +220,18 @@ def run_walk_forward(
             verdict = "FAIL"
             reasons.append("no measurable sharpe")
 
-        results.append(FoldResult(idx, (tr_a, tr_b), (va_a, va_b), sharpe, dsr, pbo,
-                                  verdict, "; ".join(reasons), num_trades=len(result.trades)))
+        results.append(
+            FoldResult(
+                idx,
+                (tr_a, tr_b),
+                (va_a, va_b),
+                sharpe,
+                dsr,
+                pbo,
+                verdict,
+                "; ".join(reasons),
+                num_trades=len(result.trades),
+            )
+        )
 
     return results

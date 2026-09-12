@@ -8,7 +8,8 @@ and the PortfolioRiskAggregator accounts for their joint covariance w_i * w_j * 
 If adding the second asset causes portfolio_sigma to breach max_portfolio_risk_pct, the entry is blocked.
 """
 
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
 
@@ -29,7 +30,9 @@ class CorrelationMatrix:
             return self.matrix
 
         # EWMA covariance matrix: Cov_t = (1 - lambda) * r_t * r_t^T + lambda * Cov_{t-1}
-        ewma_cov = returns_df.ewm(alpha=1.0 - self.decay_factor, min_periods=self.min_periods).cov()
+        ewma_cov = returns_df.ewm(
+            alpha=1.0 - self.decay_factor, min_periods=self.min_periods
+        ).cov()
         last_date = ewma_cov.index.levels[0][-1]
         cov_last = ewma_cov.loc[last_date]
 
@@ -41,18 +44,26 @@ class CorrelationMatrix:
         corr_vals = cov_last.values / outer_stds
         np.clip(corr_vals, -1.0, 1.0, out=corr_vals)
 
-        self.matrix = pd.DataFrame(corr_vals, index=cov_last.index, columns=cov_last.columns)
+        self.matrix = pd.DataFrame(
+            corr_vals, index=cov_last.index, columns=cov_last.columns
+        )
         return self.matrix
 
     def get_correlation(self, asset1: str, asset2: str) -> float:
         """Returns the pairwise correlation between asset1 and asset2 (default 0.0 if unknown)."""
         if asset1 == asset2:
             return 1.0
-        if self.matrix.empty or asset1 not in self.matrix.index or asset2 not in self.matrix.columns:
+        if (
+            self.matrix.empty
+            or asset1 not in self.matrix.index
+            or asset2 not in self.matrix.columns
+        ):
             return 0.0
         return float(self.matrix.loc[asset1, asset2])
 
-    def get_high_correlation_pairs(self, threshold: float = 0.85) -> List[Tuple[str, str, float]]:
+    def get_high_correlation_pairs(
+        self, threshold: float = 0.85
+    ) -> List[Tuple[str, str, float]]:
         """Returns all asset pairs with pairwise correlation >= threshold."""
         if self.matrix.empty:
             return []

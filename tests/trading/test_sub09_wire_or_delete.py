@@ -28,6 +28,7 @@ DECISION_LOG = Path(__file__).resolve().parents[1] / "test_wire_or_delete.md"
 # 1. _rsi regression tests
 # --------------------------------------------------------------------------
 
+
 def _wilder_rsi_reference(closes, period):
     """Independent reference implementation of Wilder's RSI."""
     deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
@@ -67,7 +68,9 @@ def test_rsi_uses_wilder_smoothing_not_plain_last_window_mean():
     # early losses forward (exponentially decaying), so RSI must be < 100.
     closes = [200.0 - i for i in range(41)] + [160.0 + 2 * (i + 1) for i in range(39)]
     rsi = _rsi(closes, 14)
-    assert rsi < 100.0, "early losses must survive Wilder smoothing (regression to plain-mean bug)"
+    assert (
+        rsi < 100.0
+    ), "early losses must survive Wilder smoothing (regression to plain-mean bug)"
     assert rsi > 50.0, "strong late rally should still dominate"
     expected = _wilder_rsi_reference(closes, 14)
     assert math.isclose(rsi, expected, rel_tol=1e-12)
@@ -75,9 +78,36 @@ def test_rsi_uses_wilder_smoothing_not_plain_last_window_mean():
 
 def test_rsi_matches_wilder_reference_on_mixed_series():
     closes = [
-        100, 102, 101, 103, 104, 102, 105, 107, 106, 108,
-        107, 109, 111, 110, 112, 113, 111, 114, 116, 115,
-        117, 116, 118, 120, 119, 121, 123, 122, 124, 125,
+        100,
+        102,
+        101,
+        103,
+        104,
+        102,
+        105,
+        107,
+        106,
+        108,
+        107,
+        109,
+        111,
+        110,
+        112,
+        113,
+        111,
+        114,
+        116,
+        115,
+        117,
+        116,
+        118,
+        120,
+        119,
+        121,
+        123,
+        122,
+        124,
+        125,
     ]
     for period in (5, 14):
         assert math.isclose(
@@ -111,9 +141,13 @@ class FakeCcxtExchange:
         return TF_MS // 1000
 
     def fetch_ohlcv(self, symbol, timeframe, since, limit):
-        self.calls.append({"symbol": symbol, "timeframe": timeframe, "since": since, "limit": limit})
+        self.calls.append(
+            {"symbol": symbol, "timeframe": timeframe, "since": since, "limit": limit}
+        )
         if self._fail_after is not None and len(self.calls) > self._fail_after:
-            raise AssertionError("fetch_ohlcv called after pagination should have terminated")
+            raise AssertionError(
+                "fetch_ohlcv called after pagination should have terminated"
+            )
         return self._pages.pop(0) if self._pages else []
 
 
@@ -132,7 +166,9 @@ def test_pagination_stops_when_page_shorter_than_limit():
 
 def test_pagination_stops_on_empty_page():
     ex = FakeCcxtExchange([_page(0, 3)])
-    candles = asyncio.run(fetch_ohlcv_range(ex, "BTC/USDT", "1m", 0, 100 * TF_MS, limit=3))
+    candles = asyncio.run(
+        fetch_ohlcv_range(ex, "BTC/USDT", "1m", 0, 100 * TF_MS, limit=3)
+    )
     # Call 1: full page -> cursor advances; call 2: exchange returns nothing ->
     # must terminate there (no 3rd call).
     assert len(ex.calls) == 2
@@ -148,7 +184,9 @@ def test_pagination_stops_on_exhausted_nonadvancing_cursor(caplog):
     stale = _page(-3 * TF_MS, 3)  # timestamps strictly before since=0
     ex = FakeCcxtExchange([stale])
     with caplog.at_level(logging.WARNING, logger="trading.data.crypto"):
-        candles = asyncio.run(fetch_ohlcv_range(ex, "BTC/USDT", "1m", 0, 100 * TF_MS, limit=3))
+        candles = asyncio.run(
+            fetch_ohlcv_range(ex, "BTC/USDT", "1m", 0, 100 * TF_MS, limit=3)
+        )
     assert len(ex.calls) == 1, "non-advancing cursor must terminate pagination"
     assert any("did not advance" in r.message for r in caplog.records)
 
@@ -166,7 +204,9 @@ def test_pagination_logs_rows_fetched(caplog):
 
     ex = FakeCcxtExchange([_page(0, 3), _page(3 * TF_MS, 2)])
     with caplog.at_level(logging.INFO, logger="trading.data.crypto"):
-        candles = asyncio.run(fetch_ohlcv_range(ex, "BTC/USDT", "1m", 0, 100 * TF_MS, limit=3))
+        candles = asyncio.run(
+            fetch_ohlcv_range(ex, "BTC/USDT", "1m", 0, 100 * TF_MS, limit=3)
+        )
     total_line = [r.message for r in caplog.records if "complete" in r.message]
     assert total_line, "final rows-fetched log line missing"
     assert "5 rows fetched" in total_line[-1]
@@ -202,5 +242,10 @@ def test_decision_log_covers_every_orphan_with_verdict_and_evidence():
         verdicts = re.findall(r"^Verdict:\s*(\S+)", sec, flags=re.MULTILINE)
         evidence_lines = re.findall(r"^Evidence:", sec, flags=re.MULTILINE)
         assert verdicts, f"{mod}: no 'Verdict:' line"
-        assert verdicts[0] in {"DELETE", "KEEP"}, f"{mod}: verdict must be DELETE or KEEP, got {verdicts[0]}"
-        assert len(evidence_lines) >= 1, f"{mod}: no 'Evidence:' call-site citation lines"
+        assert verdicts[0] in {
+            "DELETE",
+            "KEEP",
+        }, f"{mod}: verdict must be DELETE or KEEP, got {verdicts[0]}"
+        assert (
+            len(evidence_lines) >= 1
+        ), f"{mod}: no 'Evidence:' call-site citation lines"

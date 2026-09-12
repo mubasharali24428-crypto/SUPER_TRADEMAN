@@ -13,27 +13,28 @@ import ccxt
 import pytest
 
 from trading.config import ExecutionMode
-from trading.execution.live_adapter import (
-    CcxtLiveAdapter,
-    KillSwitchActiveError,
-    LiveModeError,
-    OrderRejectedError,
-    classify_ccxt_error,
-    next_state_on_venue_error,
-)
-from trading.risk.models import AccountState, ApprovedOrder, Side, _ISSUER
-
+from trading.execution.live_adapter import (CcxtLiveAdapter,
+                                            KillSwitchActiveError,
+                                            LiveModeError, OrderRejectedError,
+                                            classify_ccxt_error,
+                                            next_state_on_venue_error)
+from trading.risk.models import _ISSUER, AccountState, ApprovedOrder, Side
 
 # --------------------------------------------------------------------- #
 # fakes                                                                 #
 # --------------------------------------------------------------------- #
+
 
 class FakeExchange:
     """Offline stand-in for a ccxt exchange instance."""
 
     def __init__(self):
         self.calls = []
-        self.create_order_result = {"id": "ex-1", "clientOrderId": "cid-1", "status": "open"}
+        self.create_order_result = {
+            "id": "ex-1",
+            "clientOrderId": "cid-1",
+            "status": "open",
+        }
         self.markets = {
             "BTC/USDT": {
                 "limits": {
@@ -46,7 +47,9 @@ class FakeExchange:
         self.load_markets_called = 0
 
     async def create_order(self, symbol, type_, side, amount, price=None, params=None):
-        self.calls.append(("create_order", symbol, type_, side, amount, price, dict(params or {})))
+        self.calls.append(
+            ("create_order", symbol, type_, side, amount, price, dict(params or {}))
+        )
         return dict(self.create_order_result)
 
     async def cancel_order(self, client_order_id, symbol):
@@ -59,7 +62,9 @@ class FakeExchange:
 
     async def fetch_open_orders(self, symbol=None):
         self.calls.append(("fetch_open_orders", symbol))
-        return [{"id": "ex-1", "clientOrderId": "cid-1", "symbol": symbol, "status": "open"}]
+        return [
+            {"id": "ex-1", "clientOrderId": "cid-1", "symbol": symbol, "status": "open"}
+        ]
 
     async def fetch_balance(self):
         self.calls.append(("fetch_balance",))
@@ -97,6 +102,7 @@ class FlakyNetworkExchange(FakeExchange):
 # helpers                                                               #
 # --------------------------------------------------------------------- #
 
+
 def make_order(side=Side.LONG, size=0.123456, price=50_000.1234):
     from trading.risk.models import ApprovedOrder
 
@@ -116,7 +122,9 @@ def make_order(side=Side.LONG, size=0.123456, price=50_000.1234):
 def make_exit():
     from trading.risk.models import ApprovedExit
 
-    return ApprovedExit(asset="BTC/USDT", asset_class="crypto", reason="test exit", issuer=_ISSUER)
+    return ApprovedExit(
+        asset="BTC/USDT", asset_class="crypto", reason="test exit", issuer=_ISSUER
+    )
 
 
 def live_adapter(exchange=None, **kw):
@@ -145,6 +153,7 @@ def account(kill=False):
 # mode gating                                                           #
 # --------------------------------------------------------------------- #
 
+
 @pytest.mark.asyncio
 async def test_constructor_refuses_non_live_mode_without_dry_run():
     for mode in (ExecutionMode.BACKTEST, ExecutionMode.PAPER, ExecutionMode.SHADOW):
@@ -162,8 +171,10 @@ async def test_constructor_allows_non_live_mode_with_dry_run_true():
 async def test_live_mode_requires_credentials():
     with pytest.raises(LiveModeError):
         CcxtLiveAdapter(
-            execution_mode=ExecutionMode.LIVE_FULL, dry_run=False,
-            api_key=None, secret=None,
+            execution_mode=ExecutionMode.LIVE_FULL,
+            dry_run=False,
+            api_key=None,
+            secret=None,
         )
 
 
@@ -178,6 +189,7 @@ async def test_live_modes_accepted():
 # dry-run: log instead of submit                                        #
 # --------------------------------------------------------------------- #
 
+
 @pytest.mark.asyncio
 async def test_dry_run_logs_and_never_submits(caplog):
     fake = FakeExchange()
@@ -187,7 +199,7 @@ async def test_dry_run_logs_and_never_submits(caplog):
     resp = await a.create_order(make_order(), "cid-dry-1")
 
     assert resp["dry_run"] is True
-    assert fake.calls == []                      # NOTHING reached the exchange
+    assert fake.calls == []  # NOTHING reached the exchange
     assert any("[DRY-RUN SUBMISSION]" in r.message for r in caplog.records)
 
 
@@ -205,6 +217,7 @@ async def test_dry_run_create_exit_and_cancel_never_touch_exchange():
 # approved-order gate                                                   #
 # --------------------------------------------------------------------- #
 
+
 @pytest.mark.asyncio
 async def test_create_order_rejects_non_approved_types():
     a = live_adapter(exchange=FakeExchange())
@@ -215,16 +228,22 @@ async def test_create_order_rejects_non_approved_types():
     # Even a subclass minted with the real issuer token is refused: the
     # adapter accepts EXACTLY ApprovedOrder, nothing else.
     subclass_instance = ImpostorOrder(
-        asset="BTC/USDT", asset_class="crypto", side=Side.LONG,
-        entry_price=50_000.0, stop_price=48_000.0, target_price=55_000.0,
-        position_size=0.1, risk_pct=0.01, issuer=_ISSUER,
+        asset="BTC/USDT",
+        asset_class="crypto",
+        side=Side.LONG,
+        entry_price=50_000.0,
+        stop_price=48_000.0,
+        target_price=55_000.0,
+        position_size=0.1,
+        risk_pct=0.01,
+        issuer=_ISSUER,
     )
     with pytest.raises(OrderRejectedError):
         await a.create_order(subclass_instance, "cid-sub")
     with pytest.raises(OrderRejectedError):
-        await a.create_order({"asset": "BTC/USDT"}, "cid-y")   # raw dict
+        await a.create_order({"asset": "BTC/USDT"}, "cid-y")  # raw dict
     with pytest.raises(OrderRejectedError):
-        await a.create_order(None, "cid-z")                    # None
+        await a.create_order(None, "cid-z")  # None
     # ...and a genuine ApprovedOrder still goes through.
     ok = await a.create_order(make_order(), "cid-ok")
     assert ok["id"]
@@ -241,6 +260,7 @@ async def test_create_exit_rejects_plain_objects():
 # kill switch honored pre-submit                                        #
 # --------------------------------------------------------------------- #
 
+
 @pytest.mark.asyncio
 async def test_kill_switch_blocks_submission_before_any_exchange_call():
     fake = FakeExchange()
@@ -248,15 +268,16 @@ async def test_kill_switch_blocks_submission_before_any_exchange_call():
     a.account_state.kill_switch = True
     with pytest.raises(KillSwitchActiveError):
         await a.create_order(make_order(), "cid-k")
-    assert fake.calls == []          # blocked BEFORE any venue traffic
+    assert fake.calls == []  # blocked BEFORE any venue traffic
     a.account_state.kill_switch = False
-    await a.create_order(make_order(), "cid-k2")   # now goes through
+    await a.create_order(make_order(), "cid-k2")  # now goes through
     assert len(fake.calls) == 1
 
 
 # --------------------------------------------------------------------- #
 # quantization call-through                                             #
 # --------------------------------------------------------------------- #
+
 
 @pytest.mark.asyncio
 async def test_quantity_and_price_quantized_via_instrument_info_steps():
@@ -267,15 +288,15 @@ async def test_quantity_and_price_quantized_via_instrument_info_steps():
     await a.create_order(order, "cid-q")
 
     kind, symbol, type_, side, qty, px, params = fake.calls[0]
-    assert qty == 0.1234                       # step 0.0001, rounded DOWN
-    assert px == 50_000.12                     # precision 0.01, rounded DOWN
+    assert qty == 0.1234  # step 0.0001, rounded DOWN
+    assert px == 50_000.12  # precision 0.01, rounded DOWN
     assert params.get("newClientOrderId") == "cid-q"
 
 
 @pytest.mark.asyncio
 async def test_min_notional_violation_rejected_after_quantization():
     fake = FakeExchange()
-    fake.markets["BTC/USDT"]["limits"]["cost"]["min"] = 10_000_000.0   # absurd floor
+    fake.markets["BTC/USDT"]["limits"]["cost"]["min"] = 10_000_000.0  # absurd floor
     a = live_adapter(exchange=fake)
     with pytest.raises(OrderRejectedError):
         await a.create_order(make_order(size=0.5), "cid-mn")
@@ -285,6 +306,7 @@ async def test_min_notional_violation_rejected_after_quantization():
 # retry policy: NetworkError yes / RateLimit NO                         #
 # --------------------------------------------------------------------- #
 
+
 @pytest.mark.asyncio
 async def test_network_error_is_retried_then_succeeds(monkeypatch):
     monkeypatch.setattr(asyncio, "sleep", _noop_sleep)
@@ -292,7 +314,7 @@ async def test_network_error_is_retried_then_succeeds(monkeypatch):
     a = live_adapter(exchange=fake)
     resp = await a.create_order(make_order(), "cid-r")
     assert resp["id"] == "ex-1"
-    assert fake.attempts == 3                  # 2 failures + 1 success
+    assert fake.attempts == 3  # 2 failures + 1 success
 
 
 @pytest.mark.asyncio
@@ -302,7 +324,7 @@ async def test_rate_limit_never_retried_raised_to_caller(monkeypatch):
     a = live_adapter(exchange=fake)
     with pytest.raises(ccxt.RateLimitExceeded):
         await a.create_order(make_order(), "cid-rl")
-    assert fake.attempts == 1                  # exactly one attempt — no retry
+    assert fake.attempts == 1  # exactly one attempt — no retry
 
 
 @pytest.mark.asyncio
@@ -312,10 +334,10 @@ async def test_network_error_exhausts_retries_and_raises(monkeypatch):
     a = live_adapter(exchange=fake)
     with pytest.raises(ccxt.NetworkError):
         await a.create_order(make_order(), "cid-ex")
-    assert fake.attempts == 4                  # 1 + _MAX_RETRIES(3)
+    assert fake.attempts == 4  # 1 + _MAX_RETRIES(3)
 
 
-async def _noop_sleep(_delay, *a, **kw):       # fake clock: instant backoff
+async def _noop_sleep(_delay, *a, **kw):  # fake clock: instant backoff
     return None
 
 
@@ -323,12 +345,13 @@ async def _noop_sleep(_delay, *a, **kw):       # fake clock: instant backoff
 # timeout on every call                                                 #
 # --------------------------------------------------------------------- #
 
+
 @pytest.mark.asyncio
 async def test_timeout_wraps_every_venue_call():
     class Slow(FakeExchange):
         async def create_order(self, *a, **kw):
             self.calls.append(("slow",))
-            await asyncio.sleep(5)          # real sleep: exceeds call_timeout_s
+            await asyncio.sleep(5)  # real sleep: exceeds call_timeout_s
             return {}
 
     a = live_adapter(exchange=Slow(), call_timeout_s=0.05)
@@ -359,6 +382,7 @@ async def test_asyncio_timeout_mapped_to_unknown_not_retry_terminal(monkeypatch)
 # --------------------------------------------------------------------- #
 # exception -> OrderState via legal transition table                     #
 # --------------------------------------------------------------------- #
+
 
 @pytest.mark.asyncio
 async def test_classify_maps_ccxt_exceptions_to_states():
@@ -392,6 +416,7 @@ async def test_next_state_routes_through_legal_table():
 # --------------------------------------------------------------------- #
 # contract compliance vs VenueAdapter ABC                               #
 # --------------------------------------------------------------------- #
+
 
 @pytest.mark.asyncio
 async def test_contract_compliance_every_abstract_method_implemented():

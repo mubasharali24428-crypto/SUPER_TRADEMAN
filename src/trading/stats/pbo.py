@@ -55,10 +55,10 @@ _LOGIT_EPS = 1e-12
 class CSCVConfig:
     """Configuration for combinatorially symmetric cross-validation."""
 
-    n_blocks: int = 16                 # T: number of contiguous sub-matrices
-    max_splits: int = 1000             # cap on evaluated C(T, T/2) splits
-    metric: str = "mean"               # "mean" or "sharpe" IS selection metric
-    random_state: int = 42             # seed for split subsampling
+    n_blocks: int = 16  # T: number of contiguous sub-matrices
+    max_splits: int = 1000  # cap on evaluated C(T, T/2) splits
+    metric: str = "mean"  # "mean" or "sharpe" IS selection metric
+    random_state: int = 42  # seed for split subsampling
 
     def __post_init__(self) -> None:
         if self.n_blocks < 4 or self.n_blocks % 2 != 0:
@@ -75,14 +75,14 @@ class CSCVConfig:
 class PBOResult:
     """Outcome of a CSCV probability-of-backtest-overfitting computation."""
 
-    pbo: float                          # P(lambda > 0.5)
+    pbo: float  # P(lambda > 0.5)
     n_strategies: int
     n_blocks: int
-    n_splits_evaluated: int             # number of combinations actually used
-    n_splits_total: int                 # full C(T, T/2) combination count
-    lambdas: np.ndarray                 # relative OOS rank of IS-best per split
-    logits: np.ndarray                  # logit(lambda) per split
-    is_best_indices: np.ndarray         # IS-best strategy id per split
+    n_splits_evaluated: int  # number of combinations actually used
+    n_splits_total: int  # full C(T, T/2) combination count
+    lambdas: np.ndarray  # relative OOS rank of IS-best per split
+    logits: np.ndarray  # logit(lambda) per split
+    is_best_indices: np.ndarray  # IS-best strategy id per split
     combinations: list = field(default_factory=list)  # IS block tuples per split
     # --- Wave-6 additions (defaulted fields keep results backward-compatible) ---
     # VB-003: per-IS-best-strategy conditional PBO, mapping
@@ -114,9 +114,7 @@ def _is_scores(block_matrix: np.ndarray, metric: str) -> np.ndarray:
                 f"return variance in-sample; got {int((sd > 0).sum())} "
                 "(degenerate all-flat field)."
             )
-        out = np.divide(
-            mu, sd, out=np.full_like(mu, -np.inf), where=sd > 0
-        )
+        out = np.divide(mu, sd, out=np.full_like(mu, -np.inf), where=sd > 0)
         # Deterministic ordering guard: replace non-finite extremes with large
         # finite sentinels so argmax remains well-defined and stable.
         out = np.where(np.isposinf(out), np.finfo(float).max / 4, out)
@@ -176,7 +174,9 @@ def compute_pbo_cscv(
         combos = [all_combos[i] for i in sorted(picked)]
         logger.info(
             "CSCV: sampled %d of %d combinations (seed=%d)",
-            cfg.max_splits, n_total, cfg.random_state,
+            cfg.max_splits,
+            n_total,
+            cfg.random_state,
         )
     else:
         combos = all_combos

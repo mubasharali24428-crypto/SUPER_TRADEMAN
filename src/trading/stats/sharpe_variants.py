@@ -80,11 +80,7 @@ def _psr_variance_term(sharpe: float, skew: float, kurtosis: float) -> float:
 
     var = 1 - g3*SR + ((g4 - 1) / 4) * SR^2
     """
-    var_term = (
-        1.0
-        - skew * sharpe
-        + ((kurtosis - 1.0) / 4.0) * sharpe * sharpe
-    )
+    var_term = 1.0 - skew * sharpe + ((kurtosis - 1.0) / 4.0) * sharpe * sharpe
     if var_term <= 0.0:
         raise ValueError(
             "PSR variance term is non-positive "

@@ -5,14 +5,12 @@ from unittest import mock
 
 import pytest
 
-from trading.synthetic.ecology import (
-    BaseEcologyAgent,
-    LiquidityBaselineTracker,
-    LiquidityEvent,
-    ReactiveMarketMakerAgent,
-    SyntheticAgentRegistry,
-    ToxicFlowPredatorAgent,
-)
+from trading.synthetic.ecology import (BaseEcologyAgent,
+                                       LiquidityBaselineTracker,
+                                       LiquidityEvent,
+                                       ReactiveMarketMakerAgent,
+                                       SyntheticAgentRegistry,
+                                       ToxicFlowPredatorAgent)
 
 
 def test_liquidity_baseline_tracker():
@@ -115,11 +113,15 @@ def test_baseline_tracker_rolling_update():
 def test_reactive_spread_widening_trigger():
     mm = ReactiveMarketMakerAgent(base_spread_bps=5.0, herd_sensitivity=0.40)
 
-    at_boundary = LiquidityEvent("QUOTE_WITHDRAWAL", 4.0, 6.0, 10.0, depletion_ratio=0.40)
+    at_boundary = LiquidityEvent(
+        "QUOTE_WITHDRAWAL", 4.0, 6.0, 10.0, depletion_ratio=0.40
+    )
     assert mm.on_liquidity_change(at_boundary) == []
     assert mm.current_spread_bps == pytest.approx(5.0)
 
-    above_boundary = LiquidityEvent("QUOTE_WITHDRAWAL", 4.1, 5.9, 10.0, depletion_ratio=0.41)
+    above_boundary = LiquidityEvent(
+        "QUOTE_WITHDRAWAL", 4.1, 5.9, 10.0, depletion_ratio=0.41
+    )
     actions = mm.on_liquidity_change(above_boundary)
     assert len(actions) == 1
     assert actions[0]["action"] == "WIDEN_SPREAD"
@@ -129,7 +131,9 @@ def test_reactive_spread_scaling():
     mm = ReactiveMarketMakerAgent(base_spread_bps=5.0, herd_sensitivity=0.40)
 
     for depletion_ratio in (0.5, 0.7, 0.9):
-        event = LiquidityEvent("QUOTE_WITHDRAWAL", 0.0, 0.0, 10.0, depletion_ratio=depletion_ratio)
+        event = LiquidityEvent(
+            "QUOTE_WITHDRAWAL", 0.0, 0.0, 10.0, depletion_ratio=depletion_ratio
+        )
         mm.on_liquidity_change(event)
         expected_bps = 5.0 * (1.0 + depletion_ratio * 2.0)
         assert mm.current_spread_bps == pytest.approx(expected_bps)
@@ -138,7 +142,9 @@ def test_reactive_spread_scaling():
 def test_spread_normalization():
     mm = ReactiveMarketMakerAgent(base_spread_bps=5.0, herd_sensitivity=0.40)
 
-    widen_event = LiquidityEvent("QUOTE_WITHDRAWAL", 6.0, 4.0, 10.0, depletion_ratio=0.60)
+    widen_event = LiquidityEvent(
+        "QUOTE_WITHDRAWAL", 6.0, 4.0, 10.0, depletion_ratio=0.60
+    )
     mm.on_liquidity_change(widen_event)
     assert mm.current_spread_bps > mm.base_spread_bps
 
@@ -152,17 +158,23 @@ def test_spread_normalization():
 def test_toxic_flow_predator_detection():
     predator = ToxicFlowPredatorAgent(aggression_threshold=0.50)
 
-    at_boundary = LiquidityEvent("QUOTE_WITHDRAWAL", 5.0, 5.0, 10.0, depletion_ratio=0.50)
+    at_boundary = LiquidityEvent(
+        "QUOTE_WITHDRAWAL", 5.0, 5.0, 10.0, depletion_ratio=0.50
+    )
     predator.on_liquidity_change(at_boundary)
     assert predator.is_hunting is False
 
-    above_boundary = LiquidityEvent("QUOTE_WITHDRAWAL", 5.1, 4.9, 10.0, depletion_ratio=0.51)
+    above_boundary = LiquidityEvent(
+        "QUOTE_WITHDRAWAL", 5.1, 4.9, 10.0, depletion_ratio=0.51
+    )
     predator.on_liquidity_change(above_boundary)
     assert predator.is_hunting is True
 
 
 def test_predator_ioc_sweep_execution():
-    predator = ToxicFlowPredatorAgent(aggression_threshold=0.50, max_sweep_size=5.0, direction="SELL")
+    predator = ToxicFlowPredatorAgent(
+        aggression_threshold=0.50, max_sweep_size=5.0, direction="SELL"
+    )
     event = LiquidityEvent("QUOTE_WITHDRAWAL", 6.0, 4.0, 10.0, depletion_ratio=0.60)
 
     # Sweep is returned synchronously within the same call -- fires immediately, no scheduling.
@@ -173,7 +185,9 @@ def test_predator_ioc_sweep_execution():
 
 
 def test_predator_size_limits():
-    predator = ToxicFlowPredatorAgent(aggression_threshold=0.50, max_sweep_size=5.0, direction="SELL")
+    predator = ToxicFlowPredatorAgent(
+        aggression_threshold=0.50, max_sweep_size=5.0, direction="SELL"
+    )
     # 80% of a deep 100-unit book would be 80 units -- must be capped to max_sweep_size.
     event = LiquidityEvent("AGGRESSIVE_SWEEP", 20.0, 100.0, 120.0, depletion_ratio=0.60)
 
@@ -219,7 +233,9 @@ def test_registry_multi_subscriber():
 
     registry.register_agent("mm", mm)
     registry.register_agent("predator", predator)
-    registry.register_agent("mm", duplicate_mm)  # re-registering same id replaces, not duplicates
+    registry.register_agent(
+        "mm", duplicate_mm
+    )  # re-registering same id replaces, not duplicates
 
     assert len(registry.agents) == 2
     assert registry.agents["mm"] is duplicate_mm
@@ -237,7 +253,9 @@ def test_ecology_zero_depth_edge_case():
     assert tracker.get_baseline_depth(now_ms) == 0.0
 
     predator = ToxicFlowPredatorAgent(aggression_threshold=0.50, max_sweep_size=5.0)
-    zero_depth_event = LiquidityEvent("QUOTE_WITHDRAWAL", 0.0, 0.0, 10.0, depletion_ratio=1.0)
+    zero_depth_event = LiquidityEvent(
+        "QUOTE_WITHDRAWAL", 0.0, 0.0, 10.0, depletion_ratio=1.0
+    )
     actions = predator.on_liquidity_change(zero_depth_event)
     assert actions == []  # nothing left to sweep, but no crash
     assert predator.is_hunting is True
@@ -251,7 +269,9 @@ def test_ecology_survives_90_percent_drop():
     assert tracker.get_baseline_depth(now_ms) == pytest.approx(10.0)
 
     tracker.record_depth(now_ms + 1, 0.5, 0.5)  # sudden 90% drop
-    assert tracker.get_baseline_depth(now_ms + 1) > 0  # median stays robust to one spike
+    assert (
+        tracker.get_baseline_depth(now_ms + 1) > 0
+    )  # median stays robust to one spike
 
 
 def test_predator_disabled_in_halted():

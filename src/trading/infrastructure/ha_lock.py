@@ -110,7 +110,9 @@ class InProcessLockBackend(LockBackend):
             return False
         self._last_acquire_time = now
         if self.state is None:
-            self.state = LockState(node_id=self.node_id, last_heartbeat_ts=now, ttl_sec=self.ttl_sec)
+            self.state = LockState(
+                node_id=self.node_id, last_heartbeat_ts=now, ttl_sec=self.ttl_sec
+            )
             return True
         if self.state.node_id == self.node_id:
             self.state.last_heartbeat_ts = now
@@ -122,7 +124,9 @@ class InProcessLockBackend(LockBackend):
                 f"[HA_FAILOVER_TRIGGERED] Primary node {self.state.node_id} lock expired "
                 f"(age {elapsed:.1f}s > {self.ttl_sec}s). Node {self.node_id} taking over primary lock."
             )
-            self.state = LockState(node_id=self.node_id, last_heartbeat_ts=now, ttl_sec=self.ttl_sec)
+            self.state = LockState(
+                node_id=self.node_id, last_heartbeat_ts=now, ttl_sec=self.ttl_sec
+            )
             return True
         return False
 
@@ -135,7 +139,9 @@ class InProcessLockBackend(LockBackend):
 
     def release(self) -> None:
         if self.held_by_us:
-            logger.info(f"[HA_LOCK_RELEASED] Node {self.node_id} cleanly released primary lock.")
+            logger.info(
+                f"[HA_LOCK_RELEASED] Node {self.node_id} cleanly released primary lock."
+            )
             self.state = None
 
     def next_fencing_token(self) -> int:
@@ -203,8 +209,12 @@ class RedisLockBackend(LockBackend):
         del now
         token = uuid.uuid4().hex
         try:
-            acquired = bool(self.client.set(self.lock_name, token, nx=True, px=self._ttl_ms))
-        except Exception as exc:  # noqa: BLE001 — VA-017: transport failure treated as not-held
+            acquired = bool(
+                self.client.set(self.lock_name, token, nx=True, px=self._ttl_ms)
+            )
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — VA-017: transport failure treated as not-held
             logger.warning("RedisLockBackend.acquire set() failed: %s", exc)
             return False
         if acquired:
@@ -243,11 +253,17 @@ class RedisLockBackend(LockBackend):
         if not self.held_by_us:
             return
         try:
-            released = int(self.client.eval(_RELEASE_LUA, 1, self.lock_name, self.token))
-        except Exception:  # noqa: BLE001 — Lua-less clients (e.g. some fakes): WATCH-CAS fallback
+            released = int(
+                self.client.eval(_RELEASE_LUA, 1, self.lock_name, self.token)
+            )
+        except (
+            Exception
+        ):  # noqa: BLE001 — Lua-less clients (e.g. some fakes): WATCH-CAS fallback
             released = self._release_watch_cas()
         if released:
-            logger.info(f"[HA_LOCK_RELEASED] Node {self.node_id} cleanly released primary lock.")
+            logger.info(
+                f"[HA_LOCK_RELEASED] Node {self.node_id} cleanly released primary lock."
+            )
         self.token = None
         self.is_active = False
 
@@ -266,8 +282,12 @@ class RedisLockBackend(LockBackend):
                     return 1
                 pipe.unwatch()
                 return 0
-            except Exception as exc:  # noqa: BLE001 — lock liveness must not crash shutdown
-                logger.warning(f"[HA_LOCK_RELEASE_ERROR] node={self.node_id} error={exc}")
+            except (
+                Exception
+            ) as exc:  # noqa: BLE001 — lock liveness must not crash shutdown
+                logger.warning(
+                    f"[HA_LOCK_RELEASE_ERROR] node={self.node_id} error={exc}"
+                )
                 return 0
 
     def next_fencing_token(self) -> int:
@@ -275,13 +295,19 @@ class RedisLockBackend(LockBackend):
         return int(self.client.incr(self._fence_key))
 
 
-def select_lock_backend(node_id: str, ttl_sec: float, lock_name: Optional[str] = None) -> LockBackend:
+def select_lock_backend(
+    node_id: str, ttl_sec: float, lock_name: Optional[str] = None
+) -> LockBackend:
     """Choose Redis backend when REDIS_URL is set; DEGRADED in-process otherwise."""
     redis_url = os.environ.get(REDIS_URL_ENV, "").strip()
     name = lock_name or DEFAULT_LOCK_NAME
     if redis_url:
-        logger.info(f"[HA_LOCK_BACKEND] redis url-configured node={node_id} lock={name}")
-        return RedisLockBackend(lock_name=name, node_id=node_id, ttl_sec=ttl_sec, redis_url=redis_url)
+        logger.info(
+            f"[HA_LOCK_BACKEND] redis url-configured node={node_id} lock={name}"
+        )
+        return RedisLockBackend(
+            lock_name=name, node_id=node_id, ttl_sec=ttl_sec, redis_url=redis_url
+        )
     logger.warning(
         "[HA_DEGRADED_MODE] REDIS_URL is unset: falling back to INSTANCE-LOCAL active/passive "
         "lock state. Multiple processes will NOT contend for the primary lock and each will "
@@ -312,10 +338,15 @@ class ActivePassiveManager:
             self.backend = backend
         elif redis_client is not None:
             self.backend = RedisLockBackend(
-                lock_name=lock_name or DEFAULT_LOCK_NAME, node_id=node_id, ttl_sec=ttl_sec, client=redis_client
+                lock_name=lock_name or DEFAULT_LOCK_NAME,
+                node_id=node_id,
+                ttl_sec=ttl_sec,
+                client=redis_client,
             )
         else:
-            self.backend = select_lock_backend(node_id=node_id, ttl_sec=ttl_sec, lock_name=lock_name)
+            self.backend = select_lock_backend(
+                node_id=node_id, ttl_sec=ttl_sec, lock_name=lock_name
+            )
         self.is_active = False
 
     @property
@@ -329,7 +360,9 @@ class ActivePassiveManager:
         was_active = self.is_active
         self.is_active = self.backend.acquire(now)
         if self.is_active and not was_active:
-            logger.info(f"[HA_LOCK_ACQUIRED] Node {self.node_id} acquired primary active lock.")
+            logger.info(
+                f"[HA_LOCK_ACQUIRED] Node {self.node_id} acquired primary active lock."
+            )
         return self.is_active
 
     def send_heartbeat(self, current_time: Optional[float] = None) -> bool:

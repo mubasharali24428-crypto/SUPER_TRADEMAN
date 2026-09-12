@@ -30,8 +30,12 @@ class HFTMarketMaker(Agent):
         mp = lob.get_micro_price()
         now_ms = time.time() * 1000.0
         return [
-            LimitOrder(f"{self.agent_id}_b", "buy", mp - 0.5, 1.0, now_ms, self.agent_id),
-            LimitOrder(f"{self.agent_id}_a", "sell", mp + 0.5, 1.0, now_ms, self.agent_id),
+            LimitOrder(
+                f"{self.agent_id}_b", "buy", mp - 0.5, 1.0, now_ms, self.agent_id
+            ),
+            LimitOrder(
+                f"{self.agent_id}_a", "sell", mp + 0.5, 1.0, now_ms, self.agent_id
+            ),
         ]
 
 
@@ -47,7 +51,9 @@ class InstitutionalVWAP(Agent):
     def decide_action(self, lob: SyntheticLOB) -> List[LimitOrder]:
         b, a = lob.get_best_bid_ask()
         now_ms = time.time() * 1000.0
-        return [LimitOrder(f"{self.agent_id}_buy", "buy", b, 0.5, now_ms, self.agent_id)]
+        return [
+            LimitOrder(f"{self.agent_id}_buy", "buy", b, 0.5, now_ms, self.agent_id)
+        ]
 
 
 class RetailMomentum(Agent):
@@ -63,7 +69,11 @@ class RetailMomentum(Agent):
         b, a = lob.get_best_bid_ask()
         now_ms = time.time() * 1000.0
         # Aggressive buy at best ask
-        return [LimitOrder(f"{self.agent_id}_mkt", "buy", a + 5.0, 1.5, now_ms, self.agent_id)]
+        return [
+            LimitOrder(
+                f"{self.agent_id}_mkt", "buy", a + 5.0, 1.5, now_ms, self.agent_id
+            )
+        ]
 
 
 class AdversarialSpoofer(Agent):
@@ -104,7 +114,11 @@ class CoordinatedPredatorSwarm(Agent):
         b, a = lob.get_best_bid_ask()
         now_ms = time.time() * 1000.0
         # Aggressive dump sell below best bid
-        return [LimitOrder(f"{self.agent_id}_dump", "sell", b - 10.0, 5.0, now_ms, self.agent_id)]
+        return [
+            LimitOrder(
+                f"{self.agent_id}_dump", "sell", b - 10.0, 5.0, now_ms, self.agent_id
+            )
+        ]
 
 
 class LiquidityVampire(Agent):
@@ -120,4 +134,8 @@ class LiquidityVampire(Agent):
         b, a = lob.get_best_bid_ask()
         now_ms = time.time() * 1000.0
         # Front-run buy by 0.01
-        return [LimitOrder(f"{self.agent_id}_frontrun", "buy", b + 0.01, 0.2, now_ms, self.agent_id)]
+        return [
+            LimitOrder(
+                f"{self.agent_id}_frontrun", "buy", b + 0.01, 0.2, now_ms, self.agent_id
+            )
+        ]

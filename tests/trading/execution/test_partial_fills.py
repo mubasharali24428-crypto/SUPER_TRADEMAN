@@ -6,7 +6,7 @@ from trading.execution.chase import OrderChaser, WorkingOrderInfo
 from trading.execution.oms import OrderManagementSystem
 from trading.execution.state_machine import OrderState
 from trading.execution.venue_adapter import MockVenueAdapter
-from trading.risk.models import ApprovedOrder, ApprovedExit, Side, _ISSUER
+from trading.risk.models import _ISSUER, ApprovedExit, ApprovedOrder, Side
 
 
 @pytest.mark.asyncio

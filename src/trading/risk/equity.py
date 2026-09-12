@@ -12,12 +12,9 @@ this module already imports ``models`` for the account/position types and the
 reverse import would be circular. It is re-exported below so callers have a
 single import site for all equity-basis questions.
 """
-from trading.risk.models import (
-    AccountState,
-    Position,
-    Side,
-    day_start_equity,  # noqa: F401  (re-export: THE daily_pnl_pct denominator)
-)
+from trading.risk.models import \
+    day_start_equity  # noqa: F401  (re-export: THE daily_pnl_pct denominator)
+from trading.risk.models import AccountState, Position, Side
 
 __all__ = ["marked_equity", "unrealized_pnl", "day_start_equity"]
 

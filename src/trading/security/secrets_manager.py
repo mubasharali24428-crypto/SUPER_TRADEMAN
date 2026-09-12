@@ -104,7 +104,9 @@ class SecretsManager:
     def rotate_webhook_secret(self, channel: str, new_secret: str) -> bool:
         """Dynamically rotate webhook secrets without restarting processes."""
         if not new_secret:
-            logger.error(f"[SECRET_ROTATION_FAILED] Cannot set empty secret for channel {channel}.")
+            logger.error(
+                f"[SECRET_ROTATION_FAILED] Cannot set empty secret for channel {channel}."
+            )
             return False
 
         target_key: Optional[str] = None
